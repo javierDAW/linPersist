@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/jarmidaw/linpersist/internal/core"
+	"github.com/jarmidaw/linpersist/internal/modules/cron"
 )
 
 // version and commit are stamped at link time via -ldflags.
@@ -88,12 +89,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// v0.1.0-skel: no modules wired yet. The runner is constructed
-	// with an empty module set so the binary still exercises the
-	// full happy path (parse flags, build envelope, emit zero
-	// records, flush, exit 0). Modules will be appended here as they
-	// land.
-	runner := core.NewRunner( /* modules go here */ )
+	// Modules registered with the runner. Adding a module is a
+	// one-line change here plus the new package under
+	// internal/modules/<name>/.
+	runner := core.NewRunner(
+		cron.New(cron.Options{}),
+	)
 
 	agentVersion := fmt.Sprintf("linpersist-%s", version)
 	sink := func(rec core.Record) {
