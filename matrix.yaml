@@ -1,0 +1,259 @@
+# linpersist coverage matrix
+#
+# Source of truth for MITRE ATT&CK Linux persistence coverage.
+# Each entry describes one site_class collected by exactly one module.
+#
+# status values:
+#   planned     -- accepted into the roadmap, not yet implemented
+#   wip         -- module exists, golden tests not green
+#   implemented -- code complete, golden tests green
+#   tested      -- integration tests green on at least two target distros
+#
+# Adding a new site_class requires: spec discussed, ADR if non-obvious,
+# golden tests written first, then implementation. Never the other way
+# around.
+
+schema_version: 1
+target_release: v0.1.0
+
+site_classes:
+
+  - site_class: cron.d
+    module: cron
+    mitre: [T1053.003]
+    loci:
+      - /etc/crontab
+      - /etc/cron.d/
+      - /etc/cron.hourly/
+      - /etc/cron.daily/
+      - /etc/cron.weekly/
+      - /etc/cron.monthly/
+      - /var/spool/cron/crontabs/
+      - /var/spool/cron/
+    status: planned
+    test_coverage: none
+    notes: |
+      Normalization strips comments and trailing whitespace; preserves
+      schedule expression, user, and command verbatim. Per-user crontabs
+      from /var/spool/cron/crontabs/ are emitted as separate records.
+
+  - site_class: systemd.unit
+    module: systemd
+    mitre: [T1543.002]
+    loci:
+      - /etc/systemd/system/
+      - /usr/lib/systemd/system/
+      - /lib/systemd/system/
+      - /run/systemd/system/
+      - /etc/systemd/user/
+      - ~/.config/systemd/user/
+    status: planned
+    test_coverage: none
+    notes: |
+      Normalization canonicalizes section order, key casing per
+      systemd.unit(5), strips comments and blank lines. ExecStart and
+      ExecStartPre/Post resolved against PATH to populate exec_target.
+
+  - site_class: systemd.timer
+    module: systemd
+    mitre: [T1053.006]
+    loci:
+      - /etc/systemd/system/
+      - /usr/lib/systemd/system/
+      - /lib/systemd/system/
+      - /run/systemd/system/
+    status: planned
+    test_coverage: none
+    notes: |
+      Emits one record per .timer unit; cross-references the .service it
+      activates via Unit= or implicit naming convention.
+
+  - site_class: sysv.init
+    module: sysv
+    mitre: [T1037.004]
+    loci:
+      - /etc/init.d/
+      - /etc/rc.local
+      - /etc/rc0.d/
+      - /etc/rc1.d/
+      - /etc/rc2.d/
+      - /etc/rc3.d/
+      - /etc/rc4.d/
+      - /etc/rc5.d/
+      - /etc/rc6.d/
+      - /etc/rcS.d/
+    status: planned
+    test_coverage: none
+    notes: |
+      Largely legacy but still present on RHEL 7, Amazon Linux 2 and
+      embedded systems. rc*.d entries followed through symlinks to
+      /etc/init.d/<service>.
+
+  - site_class: ssh.authkeys
+    module: ssh
+    mitre: [T1098.004]
+    loci:
+      - /etc/ssh/authorized_keys
+      - /etc/ssh/authorized_keys.d/
+      - /root/.ssh/authorized_keys
+      - /home/*/.ssh/authorized_keys
+      - /home/*/.ssh/authorized_keys2
+    status: planned
+    test_coverage: none
+    notes: |
+      One record per key line. Normalization canonicalizes option list
+      order (e.g. command=, from=, no-pty). Key blob hashed in
+      exec_target_sha256 surrogate field; raw key never emitted.
+
+  - site_class: sshd.config
+    module: ssh
+    mitre: [T1098.004, T1556]
+    loci:
+      - /etc/ssh/sshd_config
+      - /etc/ssh/sshd_config.d/
+    status: planned
+    test_coverage: none
+    notes: |
+      Normalization lower-cases directive keys, strips comments,
+      sorts Match blocks deterministically. AuthorizedKeysCommand and
+      ForceCommand surface as exec_target.
+
+  - site_class: pam
+    module: pam
+    mitre: [T1556.003]
+    loci:
+      - /etc/pam.d/
+      - /etc/pam.conf
+    status: planned
+    test_coverage: none
+    notes: |
+      One record per file, one per non-comment line. exec_target is the
+      pam module .so path; signals flag non-package paths and modules
+      under /tmp, /var/tmp, /dev/shm.
+
+  - site_class: ldso.preload
+    module: ldso
+    mitre: [T1574.006]
+    loci:
+      - /etc/ld.so.preload
+      - /etc/ld.so.conf
+      - /etc/ld.so.conf.d/
+    status: planned
+    test_coverage: none
+    notes: |
+      ld.so.preload is one of the cheapest, highest-signal persistence
+      sites. Every non-empty line is a separate record with signals
+      including ld_preload_set and non_package_path.
+
+  - site_class: sudoers
+    module: sudoers
+    mitre: [T1548.003]
+    loci:
+      - /etc/sudoers
+      - /etc/sudoers.d/
+    status: planned
+    test_coverage: none
+    notes: |
+      One record per non-comment, non-Defaults line. Normalization
+      canonicalizes whitespace and tag order (NOPASSWD, SETENV).
+      Include directives followed.
+
+  - site_class: passwd
+    module: passwd
+    mitre: [T1136.001]
+    loci:
+      - /etc/passwd
+      - /etc/shadow
+      - /etc/group
+      - /etc/gshadow
+    status: planned
+    test_coverage: none
+    notes: |
+      One record per user with uid 0 or shell other than /usr/sbin/nologin
+      and /bin/false. /etc/shadow read attempts capture only the locked/
+      unlocked state via the first char of the hash field; the hash itself
+      is never emitted.
+
+  - site_class: profile.system
+    module: profile
+    mitre: [T1546.004]
+    loci:
+      - /etc/profile
+      - /etc/profile.d/
+      - /etc/bash.bashrc
+      - /etc/zsh/zshenv
+      - /etc/zsh/zprofile
+      - /etc/environment
+    status: planned
+    test_coverage: none
+    notes: |
+      System-wide shell init. Normalization strips comments and trailing
+      whitespace; preserves declarations and command invocations.
+
+  - site_class: profile.user
+    module: profile
+    mitre: [T1546.004]
+    loci:
+      - /root/.bashrc
+      - /root/.bash_profile
+      - /root/.bash_login
+      - /root/.profile
+      - /root/.zshrc
+      - /root/.zshenv
+      - /home/*/.bashrc
+      - /home/*/.bash_profile
+      - /home/*/.bash_login
+      - /home/*/.profile
+      - /home/*/.zshrc
+      - /home/*/.zshenv
+    status: planned
+    test_coverage: none
+    notes: |
+      Per-user shell init. One record per file. Bash login order is
+      enforced for stacking comparability.
+
+  - site_class: motd
+    module: motd
+    mitre: [T1037.004]
+    loci:
+      - /etc/update-motd.d/
+      - /etc/motd
+      - /etc/issue.net
+      - /etc/issue
+    status: planned
+    test_coverage: none
+    notes: |
+      update-motd.d scripts run as root on each login on Debian/Ubuntu;
+      classic persistence path. Each script emitted as its own record.
+
+  - site_class: kmod
+    module: kmod
+    mitre: [T1547.006]
+    loci:
+      - /etc/modules
+      - /etc/modules-load.d/
+      - /etc/modprobe.d/
+      - /lib/modprobe.d/
+      - /usr/lib/modprobe.d/
+      - /run/modprobe.d/
+    status: planned
+    test_coverage: none
+    notes: |
+      Auto-loaded kernel modules and modprobe options. Out-of-tree
+      modules surface via signals.non_package_path on the resolved
+      .ko file.
+
+  - site_class: udev
+    module: udev
+    mitre: [T1546]
+    loci:
+      - /etc/udev/rules.d/
+      - /lib/udev/rules.d/
+      - /usr/lib/udev/rules.d/
+      - /run/udev/rules.d/
+    status: planned
+    test_coverage: none
+    notes: |
+      RUN+= rules in udev are a documented persistence vector. One
+      record per file; exec_target populated from RUN+= value.
+      Normalization preserves match key order.
