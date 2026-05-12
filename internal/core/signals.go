@@ -39,4 +39,31 @@ const (
 	// SignalNonRootOwner set when an artifact under a system path
 	// (/etc, /usr, /lib) is owned by uid != 0.
 	SignalNonRootOwner = "non_root_owner"
+
+	// SignalShellIndirect set when exec_target is a common shell or
+	// scripting interpreter (bash, sh, dash, zsh, ash, python,
+	// python3, perl, ruby, php, node). Indicates the actual command
+	// lives inside a -c argument the agent does not parse.
+	SignalShellIndirect = "shell_indirect"
+
+	// SignalUnqualifiedExecTarget set when exec_target is a bare
+	// executable name (no leading slash). v0.1.0 does not resolve
+	// such names against PATH; the backend can choose to ignore or
+	// flag these records.
+	SignalUnqualifiedExecTarget = "unqualified_exec_target"
+
+	// SignalCronVarAssignment set on records that represent a cron
+	// variable assignment line (MAILTO=, PATH=, SHELL=, RANDOM_DELAY=
+	// and similar) rather than a schedule + command entry.
+	SignalCronVarAssignment = "cron_var_assignment"
+
+	// SignalAtReboot set when a cron schedule uses the @reboot
+	// shorthand. @reboot is a well-known persistence pattern because
+	// the command runs every time the host boots.
+	SignalAtReboot = "at_reboot"
+
+	// SignalEmptyFile set on envelope records emitted for an empty
+	// file when the site_class is one where the file's mere existence
+	// matters (e.g. an empty script under cron.daily/).
+	SignalEmptyFile = "empty_file"
 )

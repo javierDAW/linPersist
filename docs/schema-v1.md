@@ -90,6 +90,11 @@ scores. The agent does NOT compute scores. Canonical names:
 | `ld_preload_set` | `/etc/ld.so.preload` non-empty. |
 | `exec_target_orphan` | `exec_target` does not exist on disk. |
 | `non_root_owner` | system-path artifact owned by uid != 0. |
+| `shell_indirect` | exec_target is `bash`, `sh`, `dash`, `zsh`, `ash`, `python`, `python3`, `perl`, `ruby`, `php`, `node`. |
+| `unqualified_exec_target` | exec_target is a bare name (no leading slash); the agent did not resolve against PATH. |
+| `cron_var_assignment` | Record represents a cron variable assignment (`MAILTO=`, `PATH=`, `SHELL=`, `RANDOM_DELAY=`, ...). |
+| `at_reboot` | Cron schedule uses the `@reboot` shorthand. |
+| `empty_file` | Envelope record emitted for an empty file when its mere existence matters (e.g. `cron.daily/` script of size 0). |
 
 New signal names require updating `internal/core/signals.go` AND this
 table.

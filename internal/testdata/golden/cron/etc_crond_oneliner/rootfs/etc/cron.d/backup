@@ -1,0 +1,2 @@
+# nightly off-host backup; managed by ops
+0 3 * * * root /opt/backup.sh --target s3://prod-backups/

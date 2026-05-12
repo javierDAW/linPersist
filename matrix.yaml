@@ -24,18 +24,57 @@ site_classes:
     loci:
       - /etc/crontab
       - /etc/cron.d/
+    status: wip
+    test_coverage: none
+    notes: |
+      System-wide crontabs with explicit USER column. One record per
+      non-comment, non-blank line. Variable assignments (MAILTO=,
+      PATH=, SHELL=, RANDOM_DELAY=, ...) emitted as their own records
+      with signal cron_var_assignment.
+
+  - site_class: cron.user
+    module: cron
+    mitre: [T1053.003]
+    loci:
+      - /var/spool/cron/crontabs/
+      - /var/spool/cron/
+    status: wip
+    test_coverage: none
+    notes: |
+      Per-user crontabs without USER column; the user name is the file
+      name. /var/spool/cron/crontabs/ on Debian/Ubuntu,
+      /var/spool/cron/ on RHEL/CentOS/Amazon Linux. One record per
+      non-comment, non-blank line.
+
+  - site_class: cron.periodic
+    module: cron
+    mitre: [T1053.003]
+    loci:
       - /etc/cron.hourly/
       - /etc/cron.daily/
       - /etc/cron.weekly/
       - /etc/cron.monthly/
-      - /var/spool/cron/crontabs/
-      - /var/spool/cron/
-    status: planned
+    status: wip
     test_coverage: none
     notes: |
-      Normalization strips comments and trailing whitespace; preserves
-      schedule expression, user, and command verbatim. Per-user crontabs
-      from /var/spool/cron/crontabs/ are emitted as separate records.
+      run-parts drop-in directories. Each executable file is an
+      atomic record (granularity = per file, not per line). Symlinks
+      are followed for hashing and provenance but locus stays the
+      original path.
+
+  - site_class: cron.anacron
+    module: cron
+    mitre: [T1053.003]
+    loci:
+      - /etc/anacrontab
+    status: wip
+    test_coverage: none
+    notes: |
+      Anacrontab format per anacrontab(5):
+      "period delay jobid command". One record per non-comment,
+      non-blank line. Variable assignments handled identically to
+      cron.d. @period shorthands (@monthly, @yearly, @daily) emitted
+      verbatim.
 
   - site_class: systemd.unit
     module: systemd
