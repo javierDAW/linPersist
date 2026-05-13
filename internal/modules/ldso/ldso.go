@@ -4,15 +4,15 @@
 // Site_classes emitted by this module:
 //
 //   - ldso.preload   /etc/ld.so.preload   (one record per path token;
-//                                          glibc honors multi-path
-//                                          lines even though ld.so(8)
-//                                          documents one path per line)
+//     glibc honors multi-path
+//     lines even though ld.so(8)
+//     documents one path per line)
 //   - ldso.conf      /etc/ld.so.conf      (one record per non-comment,
-//                                          non-blank line; include
-//                                          directives are NOT expanded)
+//     non-blank line; include
+//     directives are NOT expanded)
 //   - ldso.confd     /etc/ld.so.conf.d/*  (one record per non-comment,
-//                                          non-blank line across every
-//                                          *.conf drop-in file)
+//     non-blank line across every
+//     *.conf drop-in file)
 //
 // All three carry MITRE ATT&CK T1574.006 (Hijack Execution Flow:
 // Dynamic Linker Hijacking).

@@ -3,10 +3,10 @@
 // Three site_classes share two parsing routines:
 //
 //   - ldso.preload                 one record per whitespace-separated
-//                                  path token, after strip + trim.
+//     path token, after strip + trim.
 //   - ldso.conf / ldso.confd       one record per non-comment, non-blank
-//                                  line, classified as either an
-//                                  include directive or a search-path.
+//     line, classified as either an
+//     include directive or a search-path.
 //
 // The canonical form fed into content_norm_sha256 is the per-record
 // representation (one path or one directive), never the whole file.
