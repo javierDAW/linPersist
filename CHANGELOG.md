@@ -20,3 +20,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tools/verify_static.sh` portability gate (`ldd` + `file` checks).
 - `docs/schema-v1.md` canonical NDJSON record description.
 - `docs/adr/0001-module-interface.md` ADR for the `Module` interface.
+- `cron` module: collects `cron.d`, `cron.user`, `cron.periodic`,
+  `cron.anacron` (MITRE T1053.003). Per-line record granularity for
+  crontab-format files; per-file for run-parts scripts. Golden tests
+  for the happy path plus drop-in and periodic-script cases.
+- `docs/adr/0002-record-granularity.md` ADR justifying per-line
+  granularity for the cron module.
+- `ldso` module: collects `ldso.preload`, `ldso.conf`, `ldso.confd`
+  (MITRE T1574.006). Per-path-token record granularity for
+  /etc/ld.so.preload (glibc's multi-path-per-line form honored);
+  per-line for /etc/ld.so.conf and /etc/ld.so.conf.d/*.conf;
+  include directives emitted verbatim without glob expansion.
+  Four golden cases: simple-lib, orphan-in-tmp multi-path,
+  conf-with-include, confd-drop-in.
+- `core.SignalRecentTargetMtime7d` signal flagging an exec_target
+  whose mtime falls within the last 7 days; complements the
+  existing `recent_mtime_7d` on the locus file. Emitted by both
+  the `ldso` and `cron` modules: `cron.execTargetSignals` reuses
+  its `os.Stat` call so the new signal costs zero extra syscalls.
