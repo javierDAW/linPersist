@@ -175,14 +175,38 @@ site_classes:
     mitre: [T1574.006]
     loci:
       - /etc/ld.so.preload
-      - /etc/ld.so.conf
-      - /etc/ld.so.conf.d/
-    status: planned
-    test_coverage: none
+    status: implemented
+    test_coverage: golden
     notes: |
       ld.so.preload is one of the cheapest, highest-signal persistence
       sites. Every non-empty line is a separate record with signals
-      including ld_preload_set and non_package_path.
+      including ld_preload_set and exec_target_orphan. Lines containing
+      multiple whitespace-separated paths are split: glibc honors that
+      form even though ld.so(8) documents one path per line.
+
+  - site_class: ldso.conf
+    module: ldso
+    mitre: [T1574.006]
+    loci:
+      - /etc/ld.so.conf
+    status: implemented
+    test_coverage: golden
+    notes: |
+      Library search-path configuration. One record per non-comment,
+      non-blank line. include directives emitted verbatim as their own
+      record; the agent does NOT expand the glob inside the record but
+      walks /etc/ld.so.conf.d/ separately under ldso.confd.
+
+  - site_class: ldso.confd
+    module: ldso
+    mitre: [T1574.006]
+    loci:
+      - /etc/ld.so.conf.d/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      Drop-in directory for ld.so.conf. One record per non-comment,
+      non-blank line across every *.conf file under the directory.
 
   - site_class: sudoers
     module: sudoers
