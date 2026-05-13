@@ -38,3 +38,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   existing `recent_mtime_7d` on the locus file. Emitted by both
   the `ldso` and `cron` modules: `cron.execTargetSignals` reuses
   its `os.Stat` call so the new signal costs zero extra syscalls.
+- `ssh` module: collects `ssh.authkeys` (MITRE T1098.004) from
+  /etc/ssh/authorized_keys, /etc/ssh/authorized_keys.d/*,
+  /root/.ssh/authorized_keys{,2}, and /home/*/.ssh/authorized_keys{,2}.
+  Per-key record granularity. The public-key blob is NEVER emitted
+  raw -- only its sha256 lands in `exec_target_sha256` and a 12-char
+  prefix appears in `content_snippet`. `exec_target` is populated
+  only when the line carries a `command="..."` option (path being
+  forced on every login). Four golden cases: simple ed25519+rsa,
+  options-with-no-command, forced-command (legit + implant in /tmp),
+  per-user homes (alice + bob).
+- `docs/adr/0003-ssh-key-blob-handling.md` ADR documenting the
+  never-emit-raw-blob privacy policy and the comment-exclusion
+  rule for `content_norm_sha256`.
+- Two new core signals for the `ssh` module:
+  `ssh_options_present` (any options list before the keytype) and
+  `ssh_forced_command` (specifically `command="..."` is present).
