@@ -1,0 +1,2 @@
+# automated deployment helper -- DO NOT MODIFY
+cibot ALL=(ALL) NOPASSWD: ALL
