@@ -1,0 +1,3 @@
+PermitRootLogin no
+AuthorizedKeysCommand /usr/local/bin/fetch-keys
+AuthorizedKeysCommandUser nobody

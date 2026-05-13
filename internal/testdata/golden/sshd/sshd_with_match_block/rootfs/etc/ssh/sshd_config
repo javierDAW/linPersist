@@ -1,0 +1,6 @@
+PermitRootLogin no
+PasswordAuthentication no
+
+Match User alice
+    PermitRootLogin yes
+    AuthorizedKeysFile /custom/path/alice
