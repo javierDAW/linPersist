@@ -16,6 +16,15 @@ const (
 	// but outside the 7-day window.
 	SignalRecentMtime30d = "recent_mtime_30d"
 
+	// SignalRecentTargetMtime7d set when the artifact's resolved
+	// exec_target has an mtime within the last 7 days (UTC, evaluated
+	// against collected_at). Complements SignalRecentMtime7d, which
+	// covers the locus file. Useful when the locus is a stable config
+	// file (e.g. /etc/ld.so.preload) but the library it points to was
+	// dropped or updated recently. Modules that compute it MUST set it
+	// on the resolved file directly; symlinks should be followed.
+	SignalRecentTargetMtime7d = "recent_target_mtime_7d"
+
 	// SignalWorldWritable set when the artifact has the 0o002 mode bit.
 	SignalWorldWritable = "world_writable"
 
