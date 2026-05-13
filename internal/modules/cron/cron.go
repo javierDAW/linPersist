@@ -383,6 +383,9 @@ func (m *Module) baseSignals(info os.FileInfo, logical string) []string {
 }
 
 // execTargetSignals derives signals from an exec_target string alone.
+// A single os.Stat is reused to feed both exec_target_orphan (when
+// the target is missing) and recent_target_mtime_7d (when present
+// and modified within the last 7 days).
 func (m *Module) execTargetSignals(target string) []string {
 	var out []string
 	if !strings.HasPrefix(target, "/") {
@@ -398,10 +401,18 @@ func (m *Module) execTargetSignals(target string) []string {
 			break
 		}
 	}
-	// Resolve against the configured Root for orphan detection.
-	if _, err := os.Stat(m.resolve(target)); err != nil {
+	// Resolve against the configured Root for orphan detection AND
+	// target-mtime evaluation; the two signals are mutually exclusive
+	// because mtime requires the target to exist.
+	info, err := os.Stat(m.resolve(target))
+	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			out = append(out, core.SignalExecTargetOrphan)
+		}
+	} else {
+		delta := m.opts.Now().Sub(info.ModTime().UTC())
+		if delta >= 0 && delta < 7*24*time.Hour {
+			out = append(out, core.SignalRecentTargetMtime7d)
 		}
 	}
 	base := filepath.Base(target)
