@@ -152,17 +152,24 @@ site_classes:
       catalog for this module.
 
   - site_class: sshd.config
-    module: ssh
+    module: sshd
     mitre: [T1098.004, T1556]
     loci:
       - /etc/ssh/sshd_config
       - /etc/ssh/sshd_config.d/
-    status: planned
+    status: wip
     test_coverage: none
     notes: |
-      Normalization lower-cases directive keys, strips comments,
-      sorts Match blocks deterministically. AuthorizedKeysCommand and
-      ForceCommand surface as exec_target.
+      One record per non-comment, non-blank directive line, plus
+      one record per Match line. Match block scoping is encoded
+      into content_norm_sha256 by prepending the canonical Match
+      line to each directive's canonical form (see ADR-0004).
+      Directive keywords are lower-cased; values preserved verbatim.
+      Three module-specific signals added to core:
+      sshd_permit_root_login_yes, sshd_authorized_keys_command,
+      sshd_match_block_directive. Lives in its own module (sshd)
+      separate from ssh.authkeys because the parsing logic and
+      site_class are independent.
 
   - site_class: pam
     module: pam
@@ -221,12 +228,20 @@ site_classes:
     loci:
       - /etc/sudoers
       - /etc/sudoers.d/
-    status: planned
+    status: wip
     test_coverage: none
     notes: |
-      One record per non-comment, non-Defaults line. Normalization
-      canonicalizes whitespace and tag order (NOPASSWD, SETENV).
-      Include directives followed.
+      One record per non-comment, non-blank line. Five line kinds
+      recognized: alias (User_Alias, Runas_Alias, Host_Alias,
+      Cmnd_Alias), Defaults, user-spec, #include, #includedir.
+      Per-line granularity; multi-user / multi-command user-specs
+      are NOT cartesian-expanded in v0.1.0. Members of *_Alias
+      records are sorted alphabetically for stacking. Include
+      directives emitted verbatim; the walker traverses
+      /etc/sudoers.d/* on its own without honoring custom
+      #includedir paths. Three module-specific signals added to
+      core: sudoers_nopasswd, sudoers_all_commands,
+      sudoers_include_directive.
 
   - site_class: passwd
     module: passwd
