@@ -24,3 +24,6 @@ Thumbs.db
 # Local environment
 .env
 .envrc
+
+# Local Docker lab (not versioned)
+lab/
