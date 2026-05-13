@@ -93,4 +93,46 @@ const (
 	// not a verdict; pair with exec_target / non_package_path /
 	// interpreter_in_tmp for triage.
 	SignalSSHForcedCommand = "ssh_forced_command"
+
+	// SignalSudoersNoPasswd set on sudoers user-spec records whose
+	// tags include NOPASSWD:. Combined with sudoers_all_commands and
+	// a non-root user/group, this is the textbook sudo-backdoor
+	// pattern. Used alone, it surfaces many legitimate config-mgmt
+	// patterns (ansible bastion, ci runners) so it is informational
+	// rather than a verdict.
+	SignalSudoersNoPasswd = "sudoers_nopasswd"
+
+	// SignalSudoersAllCommands set on sudoers user-spec records whose
+	// command list contains the ALL token (unrestricted command
+	// execution as the target user). On its own benign for admin
+	// groups; combined with sudoers_nopasswd and an unexpected
+	// principal it surfaces immediately under LFA.
+	SignalSudoersAllCommands = "sudoers_all_commands"
+
+	// SignalSudoersIncludeDirective set on records emitted from a
+	// #include or #includedir line in sudoers. Lets backends filter
+	// "real rules vs structural directives" without keyword-matching
+	// content_snippet.
+	SignalSudoersIncludeDirective = "sudoers_include_directive"
+
+	// SignalSSHDPermitRootLoginYes set on sshd.config records whose
+	// directive is PermitRootLogin and whose value is yes (or
+	// without-password / prohibit-password mapped to yes in practice).
+	// Persistence-relevant because an attacker who has root locally
+	// can flip this to re-enable root SSH login.
+	SignalSSHDPermitRootLoginYes = "sshd_permit_root_login_yes"
+
+	// SignalSSHDAuthorizedKeysCommand set on sshd.config records
+	// whose directive is AuthorizedKeysCommand. The directive points
+	// to an external program that sshd runs on each login attempt to
+	// produce authorized_keys content. A backdoor binary planted at
+	// the path it points to runs with whatever privileges sshd
+	// invoked it under.
+	SignalSSHDAuthorizedKeysCommand = "sshd_authorized_keys_command"
+
+	// SignalSSHDMatchBlockDirective set on sshd.config records that
+	// live inside a Match block (the Match line itself AND every
+	// directive after it until the next Match or end of file). See
+	// ADR-0004 for the canonical-form scoping rule.
+	SignalSSHDMatchBlockDirective = "sshd_match_block_directive"
 )
