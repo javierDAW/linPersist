@@ -54,3 +54,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Two new core signals for the `ssh` module:
   `ssh_options_present` (any options list before the keytype) and
   `ssh_forced_command` (specifically `command="..."` is present).
+- `sudoers` module: collects `sudoers` (MITRE T1548.003) from
+  /etc/sudoers and /etc/sudoers.d/*. Per-line granularity covering
+  five line kinds: aliases, Defaults, user-specs, #include,
+  #includedir. Alias members are sorted alphabetically in the
+  canonical form to maximize stacking. Three module-specific
+  signals: `sudoers_nopasswd`, `sudoers_all_commands`,
+  `sudoers_include_directive`. Three golden cases (main with
+  include, NOPASSWD implant, aliases).
+- `sshd` module: collects `sshd.config` (MITRE T1098.004 + T1556)
+  from /etc/ssh/sshd_config and /etc/ssh/sshd_config.d/*.conf.
+  Per-directive granularity. Match blocks are scoped into
+  content_norm_sha256 by prepending the canonical Match line to
+  every directive inside the block (see ADR-0004). Three
+  module-specific signals: `sshd_permit_root_login_yes`,
+  `sshd_authorized_keys_command`, `sshd_match_block_directive`.
+  Three golden cases (classic, with Match block, with
+  AuthorizedKeysCommand). exec_target populated for
+  AuthorizedKeysCommand and ForceCommand directives.
+- `docs/adr/0004-sshd-match-block-canonical.md` ADR documenting
+  the Match-block canonical-form decision.
