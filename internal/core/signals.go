@@ -75,4 +75,22 @@ const (
 	// file when the site_class is one where the file's mere existence
 	// matters (e.g. an empty script under cron.daily/).
 	SignalEmptyFile = "empty_file"
+
+	// SignalSSHOptionsPresent set on ssh.authkeys records whose source
+	// line carries any options list before the keytype (command=,
+	// from=, no-pty, environment=, permitopen=, etc.). Indicator is
+	// intentionally broad; many legitimate keys use options. Pair with
+	// SignalSSHForcedCommand for the tighter "this option forces a
+	// specific command" signal.
+	SignalSSHOptionsPresent = "ssh_options_present"
+
+	// SignalSSHForcedCommand set on ssh.authkeys records whose options
+	// list contains command="..." (case-insensitive). The forced
+	// command is a well-known persistence pattern: any key carrying
+	// command="/tmp/.h/x" runs that command on every successful
+	// authentication regardless of what the user requested. Legitimate
+	// uses exist (e.g. command="/usr/bin/git-shell") so this flag is
+	// not a verdict; pair with exec_target / non_package_path /
+	// interpreter_in_tmp for triage.
+	SignalSSHForcedCommand = "ssh_forced_command"
 )
