@@ -135,14 +135,21 @@ site_classes:
       - /etc/ssh/authorized_keys
       - /etc/ssh/authorized_keys.d/
       - /root/.ssh/authorized_keys
+      - /root/.ssh/authorized_keys2
       - /home/*/.ssh/authorized_keys
       - /home/*/.ssh/authorized_keys2
-    status: planned
+    status: wip
     test_coverage: none
     notes: |
-      One record per key line. Normalization canonicalizes option list
-      order (e.g. command=, from=, no-pty). Key blob hashed in
-      exec_target_sha256 surrogate field; raw key never emitted.
+      One record per non-comment, non-blank key line. Normalization
+      canonicalizes the option list order (command=, from=, no-pty,
+      environment=, permitopen=, ...) and excludes the trailing
+      comment from content_norm_sha256. The base64 public-key blob
+      is NEVER emitted: only its sha256 lands in exec_target_sha256.
+      exec_target carries the keytype (ssh-ed25519, ssh-rsa, ...).
+      See ADR-0003 for the blob-handling decision. New signals
+      ssh_options_present and ssh_forced_command added to the core
+      catalog for this module.
 
   - site_class: sshd.config
     module: ssh

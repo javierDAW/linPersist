@@ -20,6 +20,7 @@ import (
 	"github.com/jarmidaw/linpersist/internal/core"
 	"github.com/jarmidaw/linpersist/internal/modules/cron"
 	"github.com/jarmidaw/linpersist/internal/modules/ldso"
+	"github.com/jarmidaw/linpersist/internal/modules/ssh"
 )
 
 // version and commit are stamped at link time via -ldflags.
@@ -96,6 +97,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	runner := core.NewRunner(
 		cron.New(cron.Options{}),
 		ldso.New(ldso.Options{}),
+		ssh.New(ssh.Options{}),
 	)
 
 	agentVersion := fmt.Sprintf("linpersist-%s", version)
