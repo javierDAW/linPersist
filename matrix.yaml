@@ -24,8 +24,8 @@ site_classes:
     loci:
       - /etc/crontab
       - /etc/cron.d/
-    status: wip
-    test_coverage: none
+    status: implemented
+    test_coverage: golden
     notes: |
       System-wide crontabs with explicit USER column. One record per
       non-comment, non-blank line. Variable assignments (MAILTO=,
@@ -38,7 +38,7 @@ site_classes:
     loci:
       - /var/spool/cron/crontabs/
       - /var/spool/cron/
-    status: wip
+    status: implemented
     test_coverage: none
     notes: |
       Per-user crontabs without USER column; the user name is the file
@@ -54,8 +54,8 @@ site_classes:
       - /etc/cron.daily/
       - /etc/cron.weekly/
       - /etc/cron.monthly/
-    status: wip
-    test_coverage: none
+    status: implemented
+    test_coverage: golden
     notes: |
       run-parts drop-in directories. Each executable file is an
       atomic record (granularity = per file, not per line). Symlinks
@@ -67,7 +67,7 @@ site_classes:
     mitre: [T1053.003]
     loci:
       - /etc/anacrontab
-    status: wip
+    status: implemented
     test_coverage: none
     notes: |
       Anacrontab format per anacrontab(5):
@@ -138,8 +138,8 @@ site_classes:
       - /root/.ssh/authorized_keys2
       - /home/*/.ssh/authorized_keys
       - /home/*/.ssh/authorized_keys2
-    status: wip
-    test_coverage: none
+    status: implemented
+    test_coverage: golden
     notes: |
       One record per non-comment, non-blank key line. Normalization
       canonicalizes the option list order (command=, from=, no-pty,
@@ -157,8 +157,8 @@ site_classes:
     loci:
       - /etc/ssh/sshd_config
       - /etc/ssh/sshd_config.d/
-    status: wip
-    test_coverage: none
+    status: implemented
+    test_coverage: golden
     notes: |
       One record per non-comment, non-blank directive line, plus
       one record per Match line. Match block scoping is encoded
@@ -177,8 +177,8 @@ site_classes:
     loci:
       - /etc/pam.d/
       - /etc/pam.conf
-    status: wip
-    test_coverage: none
+    status: implemented
+    test_coverage: golden
     notes: |
       One record per non-comment, non-blank line across every file
       under /etc/pam.d/, plus /etc/pam.conf if present. Per-line
@@ -234,8 +234,8 @@ site_classes:
     loci:
       - /etc/sudoers
       - /etc/sudoers.d/
-    status: wip
-    test_coverage: none
+    status: implemented
+    test_coverage: golden
     notes: |
       One record per non-comment, non-blank line. Five line kinds
       recognized: alias (User_Alias, Runas_Alias, Host_Alias,
@@ -254,8 +254,8 @@ site_classes:
     mitre: [T1136.001]
     loci:
       - /etc/passwd
-    status: wip
-    test_coverage: none
+    status: implemented
+    test_coverage: golden
     notes: |
       One record per user with uid 0 OR shell not in
       {/usr/sbin/nologin, /sbin/nologin, /bin/false, /usr/bin/false}.
@@ -267,8 +267,8 @@ site_classes:
     mitre: [T1136.001]
     loci:
       - /etc/shadow
-    status: wip
-    test_coverage: none
+    status: implemented
+    test_coverage: golden
     notes: |
       One record per shadow line corresponding to a passwd.user entry
       (same filter applied). Password hash NEVER emitted (ADR-0005);
@@ -280,8 +280,8 @@ site_classes:
     mitre: [T1136.001]
     loci:
       - /etc/group
-    status: wip
-    test_coverage: none
+    status: implemented
+    test_coverage: golden
     notes: |
       One record per group line. Members are sorted alphabetically
       in the canonical form for stacking. Any change to membership
@@ -293,8 +293,8 @@ site_classes:
     mitre: [T1136.001]
     loci:
       - /etc/gshadow
-    status: wip
-    test_coverage: none
+    status: implemented
+    test_coverage: golden
     notes: |
       One record per gshadow line. Group password hash treated under
       the same policy as user password hash (ADR-0005): hash never
@@ -310,8 +310,8 @@ site_classes:
       - /etc/zsh/zshenv
       - /etc/zsh/zprofile
       - /etc/environment
-    status: wip
-    test_coverage: none
+    status: implemented
+    test_coverage: golden
     notes: |
       System-wide shell init. Per-file record granularity (pattern
       from cron.periodic). content_norm_sha256 is computed over a
@@ -338,8 +338,8 @@ site_classes:
       - /home/*/.profile
       - /home/*/.zshrc
       - /home/*/.zshenv
-    status: wip
-    test_coverage: none
+    status: implemented
+    test_coverage: golden
     notes: |
       Per-user shell init. Same canonicalization rules as
       profile.system. Walker enumerates /root/ and /home/*/ and

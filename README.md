@@ -29,9 +29,29 @@ decides.
 
 ## Status
 
-Pre-alpha. Skeleton + portability gate only. No persistence modules
-implemented yet. See `matrix.yaml` for planned coverage and current
-status per `site_class`.
+Alpha, working toward v0.1.0. Eight modules implemented and golden-tested,
+covering 17 `site_class` values across nine MITRE ATT&CK techniques.
+Cross-compilation matrix and a multi-distro Docker lab are in place. Six
+critical modules from the v0.1.0 set are still pending (see below). The
+NDJSON schema is at v1; breaking changes will bump the major and ship
+with a migration note in `docs/`. See `matrix.yaml` for the canonical
+per-`site_class` status.
+
+## Modules
+
+| Module    | site_classes covered                                          | MITRE                       |
+| --------- | ------------------------------------------------------------- | --------------------------- |
+| `cron`    | `cron.d`, `cron.user`, `cron.periodic`, `cron.anacron`        | T1053.003                   |
+| `ldso`    | `ldso.preload`, `ldso.conf`, `ldso.confd`                     | T1574.006                   |
+| `ssh`     | `ssh.authkeys`                                                | T1098.004                   |
+| `sshd`    | `sshd.config`                                                 | T1098.004, T1556            |
+| `sudoers` | `sudoers`                                                     | T1548.003                   |
+| `passwd`  | `passwd.user`, `passwd.shadow`, `passwd.group`, `passwd.gshadow` | T1136.001               |
+| `pam`     | `pam`                                                         | T1556.003                   |
+| `profile` | `profile.system`, `profile.user`                              | T1546.004                   |
+
+Pending for v0.1.0: `systemd.unit`, `systemd.timer`, `sysv.init`, `motd`,
+`kmod`, `udev`.
 
 ## Build
 
@@ -49,7 +69,23 @@ linpersist --output /tmp/host.ndjson
 linpersist                            # emits NDJSON to stdout
 linpersist --include-hostname         # opt in to plaintext hostname
 linpersist --module-timeout 60s
+linpersist --version
 ```
+
+## Lab
+
+`lab/` and `lab-large/` contain Dockerfiles for the target distros
+(`ubuntu:22.04`, `debian:11`, `rhel:8`, `alpine:3.19`, `amazonlinux:2023`),
+baseline + implant fixtures, a `collect_all.sh` script, and DuckDB
+queries demonstrating frequency stacking against the resulting NDJSON.
+See `lab/README.md` for the end-to-end demo.
+
+## Documentation
+
+- `docs/schema-v1.md` — canonical record description.
+- `docs/normalization-rules.md` — invariants every module's `Normalize`
+  honors.
+- `docs/adr/` — Architecture Decision Records (currently five).
 
 ## License
 
