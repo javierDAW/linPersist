@@ -135,4 +135,17 @@ const (
 	// directive after it until the next Match or end of file). See
 	// ADR-0004 for the canonical-form scoping rule.
 	SignalSSHDMatchBlockDirective = "sshd_match_block_directive"
+
+	// SignalPasswdUIDZero set on passwd.user records whose uid is 0
+	// AND whose username is NOT "root". The textbook local-account
+	// privilege-escalation backdoor: any uid-0 account other than
+	// root is, by construction, suspicious.
+	SignalPasswdUIDZero = "passwd_uid_zero"
+
+	// SignalPasswdNoPassword set on passwd.shadow records whose
+	// password_status field is "empty" (the source line had an empty
+	// hash field). An account with no password set accepts logins
+	// without any authentication challenge -- a strong anti-pattern
+	// and a documented persistence vector.
+	SignalPasswdNoPassword = "passwd_no_password"
 )
