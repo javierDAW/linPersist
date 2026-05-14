@@ -107,3 +107,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   signals (recent_mtime_*, world_writable, non_root_owner) apply.
   Three golden cases (system clean, user implant with curl|bash
   line, root bashrc).
+- `docs/adr/0006-hostname-policy.md` ADR pinning the hostname
+  representation contract: lowercase + short normalization before
+  hashing, no salt in v1, machine-id emitted in plaintext,
+  `--include-hostname` opt-in, container workloads via
+  `host_meta.tags`.
+- `internal/core/hostmeta_test.go` first unit tests in
+  `internal/core/`: cover `normalizeHostname`, `hashHostname`
+  (cosmetic-variant collapse, distinct hosts differ, prefix shape),
+  `readOSRelease` against Ubuntu/RHEL/Alpine/Debian/Arch fixtures,
+  `readFirstLine` edge cases, and `FormatMode` including high mode
+  bits and setuid/setgid/sticky.
+
+### Changed
+- `core.hashHostname` now normalizes its input (lowercase, trim, strip
+  domain suffix) before hashing. **Breaking** for any host whose
+  hostname contained uppercase letters or a domain suffix: its
+  `host_meta.hostname_hash` digest changes. Done intentionally before
+  v0.1.0 is tagged so the canonical digest never changes for an
+  external consumer. See ADR-0006.
+- `docs/schema-v1.md` host_meta section now spells out the
+  normalization rule next to `hostname_hash` and clarifies that the
+  opt-in plaintext `hostname` field is NOT normalized.

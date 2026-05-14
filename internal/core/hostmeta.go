@@ -55,8 +55,30 @@ func CollectHostMeta(includeHostname bool) (HostMeta, string, error) {
 	return hm, hostID, nil
 }
 
+// normalizeHostname canonicalizes a hostname before hashing so that
+// cosmetic variants (case, trailing whitespace, FQDN suffix) collapse
+// to the same digest. See ADR-0006 for the rationale: a fleet that
+// mixes `WEB-01`, `web-01`, and `web-01.prod.example.com` for the
+// same logical host MUST stack to one bucket in LFA, not three.
+//
+// The transform is:
+//   - lower-case (ASCII)
+//   - trim surrounding whitespace
+//   - truncate at the first '.' (strip domain suffix)
+func normalizeHostname(h string) string {
+	h = strings.ToLower(strings.TrimSpace(h))
+	if i := strings.IndexByte(h, '.'); i >= 0 {
+		h = h[:i]
+	}
+	return h
+}
+
+// hashHostname returns "sha256:" + hex(sha256(normalizeHostname(h))).
+// The prefix is mandatory per schema-v1; consumers MUST be able to
+// distinguish sha256 from other digest schemes if future schema
+// versions introduce them.
 func hashHostname(h string) string {
-	sum := sha256.Sum256([]byte(h))
+	sum := sha256.Sum256([]byte(normalizeHostname(h)))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 

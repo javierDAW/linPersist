@@ -71,9 +71,19 @@ is still emitted; the `errors[]` array carries the field-scoped failure.
 }
 ```
 
-`hostname_hash` is `"sha256:" + hex(sha256(hostname))`. The prefix is
-mandatory so consumers can distinguish from other digest forms in the
-future.
+`hostname_hash` is `"sha256:" + hex(sha256(normalize(hostname)))` where
+`normalize` is ASCII lower-case + whitespace trim + truncate at the
+first `.`. The normalization collapses cosmetic variants (`WEB-01`,
+`web-01`, `web-01.prod.example.com`) into one digest so frequency
+stacking groups them together. See ADR-0006 for the rationale and the
+threat model around salting (or rather, the deliberate absence
+thereof). The `"sha256:"` prefix is mandatory so consumers can
+distinguish from other digest forms in the future.
+
+`hostname` (plaintext, opt-in via `--include-hostname`) is *not*
+normalized: it carries the verbatim output of `os.Hostname()` because
+operators who explicitly enable plaintext want the original value, not
+a transform of it.
 
 ## Signals
 
