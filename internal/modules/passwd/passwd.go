@@ -1,0 +1,429 @@
+// Package passwd implements the linpersist collector for local
+// account persistence on Linux: /etc/passwd, /etc/shadow,
+// /etc/group, /etc/gshadow.
+//
+// Site_classes emitted:
+//
+//   - passwd.user    one record per filtered passwd line
+//   - passwd.shadow  one record per shadow line matching a filtered user
+//   - passwd.group   one record per group line
+//   - passwd.gshadow one record per gshadow line
+//
+// Privacy policy (ADR-0005): password hashes in /etc/shadow and
+// /etc/gshadow are NEVER emitted. They are reduced to a status
+// enum (set / locked / disabled / empty / unknown).
+package passwd
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/jarmidaw/linpersist/internal/core"
+)
+
+const mitrePasswd = "T1136.001"
+
+var tmpDirs = []string{"/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"}
+
+type Options struct {
+	Root        string
+	Now         func() time.Time
+	MaxFileSize int64
+}
+
+const DefaultMaxFileSize = 1 << 20
+
+type Module struct {
+	opts Options
+}
+
+func New(opts Options) *Module {
+	if opts.Now == nil {
+		opts.Now = func() time.Time { return time.Now().UTC() }
+	}
+	if opts.MaxFileSize <= 0 {
+		opts.MaxFileSize = DefaultMaxFileSize
+	}
+	return &Module{opts: opts}
+}
+
+var _ core.Module = (*Module)(nil)
+
+func (m *Module) Name() string { return "passwd" }
+
+func (m *Module) SiteClasses() []string {
+	return []string{"passwd.user", "passwd.shadow", "passwd.group", "passwd.gshadow"}
+}
+
+// Collect reads the four passwd-family files in order. The set of
+// "interesting" users built from /etc/passwd is reused to filter
+// /etc/shadow so we only emit shadow records for users that passed
+// the passwd filter.
+func (m *Module) Collect(ctx context.Context, emit func(core.Record)) error {
+	var errs []error
+	interesting := map[string]struct{}{}
+	if err := m.collectPasswd(ctx, "/etc/passwd", interesting, emit); err != nil {
+		errs = append(errs, err)
+	}
+	if err := m.collectShadow(ctx, "/etc/shadow", interesting, emit); err != nil {
+		errs = append(errs, err)
+	}
+	if err := m.collectGroup(ctx, "/etc/group", emit); err != nil {
+		errs = append(errs, err)
+	}
+	if err := m.collectGshadow(ctx, "/etc/gshadow", emit); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+func (m *Module) resolve(logical string) string {
+	if m.opts.Root == "" {
+		return logical
+	}
+	return filepath.Join(m.opts.Root, logical)
+}
+
+// collectPasswd reads /etc/passwd, filters, and emits passwd.user
+// records. Populates `interesting` with the usernames that passed
+// the filter, for use by collectShadow.
+func (m *Module) collectPasswd(ctx context.Context, logical string, interesting map[string]struct{}, emit func(core.Record)) error {
+	raw, info, err := m.readFile(ctx, logical, "passwd.user", emit)
+	if err != nil || raw == nil {
+		return err
+	}
+	sc := bufio.NewScanner(strings.NewReader(string(raw)))
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		if ctx.Err() != nil {
+			return nil
+		}
+		pu, ok := parsePasswdLine(sc.Text())
+		if !ok {
+			continue
+		}
+		if !shouldEmitUser(pu) {
+			continue
+		}
+		interesting[pu.user] = struct{}{}
+		emit(m.recordFromPasswdUser(logical, info, pu))
+	}
+	return nil
+}
+
+func (m *Module) collectShadow(ctx context.Context, logical string, interesting map[string]struct{}, emit func(core.Record)) error {
+	raw, info, err := m.readFile(ctx, logical, "passwd.shadow", emit)
+	if err != nil || raw == nil {
+		return err
+	}
+	sc := bufio.NewScanner(strings.NewReader(string(raw)))
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		if ctx.Err() != nil {
+			return nil
+		}
+		se, ok := parseShadowLine(sc.Text())
+		if !ok {
+			continue
+		}
+		if _, want := interesting[se.user]; !want {
+			continue
+		}
+		emit(m.recordFromShadow(logical, info, se))
+	}
+	return nil
+}
+
+func (m *Module) collectGroup(ctx context.Context, logical string, emit func(core.Record)) error {
+	raw, info, err := m.readFile(ctx, logical, "passwd.group", emit)
+	if err != nil || raw == nil {
+		return err
+	}
+	sc := bufio.NewScanner(strings.NewReader(string(raw)))
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		if ctx.Err() != nil {
+			return nil
+		}
+		ge, ok := parseGroupLine(sc.Text())
+		if !ok {
+			continue
+		}
+		emit(m.recordFromGroup(logical, info, ge))
+	}
+	return nil
+}
+
+func (m *Module) collectGshadow(ctx context.Context, logical string, emit func(core.Record)) error {
+	raw, info, err := m.readFile(ctx, logical, "passwd.gshadow", emit)
+	if err != nil || raw == nil {
+		return err
+	}
+	sc := bufio.NewScanner(strings.NewReader(string(raw)))
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		if ctx.Err() != nil {
+			return nil
+		}
+		ge, ok := parseGshadowLine(sc.Text())
+		if !ok {
+			continue
+		}
+		emit(m.recordFromGshadow(logical, info, ge))
+	}
+	return nil
+}
+
+// readFile is a small helper that handles the common ENOENT /
+// SIZE_LIMIT / EACCES paths shared by all four file readers.
+// Returns (raw, info, nil) on a clean read of a regular file, or
+// (nil, nil, err) when the caller should skip the locus.
+func (m *Module) readFile(ctx context.Context, logical, siteClass string, emit func(core.Record)) ([]byte, os.FileInfo, error) {
+	if ctx.Err() != nil {
+		return nil, nil, ctx.Err()
+	}
+	real := m.resolve(logical)
+	info, err := os.Lstat(real)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("lstat %s: %w", logical, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, nil, nil
+	}
+	if info.Size() > m.opts.MaxFileSize {
+		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
+			{Field: "content_sha256", Code: "SIZE_LIMIT"},
+		}))
+		return nil, info, nil
+	}
+	raw, err := os.ReadFile(real)
+	if err != nil {
+		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
+			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
+		}))
+		return nil, info, nil
+	}
+	if len(raw) == 0 {
+		return nil, info, nil
+	}
+	return raw, info, nil
+}
+
+func (m *Module) recordFromPasswdUser(logical string, info os.FileInfo, pu passwdUser) core.Record {
+	rec := core.Record{
+		Module:            m.Name(),
+		SiteClass:         "passwd.user",
+		MITRE:             []string{mitrePasswd},
+		Locus:             logical,
+		ContentSHA256:     core.HashHexString(pu.raw),
+		ContentNormSHA256: core.HashHexString(pu.raw),
+		ContentSnippet:    snippet(pu.raw),
+		ExecTarget:        pu.shell,
+	}
+	fillFileMeta(&rec, info)
+	signals := m.baseSignals(info, logical)
+	if pu.uid == "0" && pu.user != "root" {
+		signals = append(signals, core.SignalPasswdUIDZero)
+	}
+	signals = append(signals, m.execTargetSignals(pu.shell)...)
+	if m.targetMtimeRecent(pu.shell) {
+		signals = append(signals, core.SignalRecentTargetMtime7d)
+	}
+	rec.Signals = dedupSignals(signals)
+	return rec
+}
+
+func (m *Module) recordFromShadow(logical string, info os.FileInfo, se shadowEntry) core.Record {
+	// Per ADR-0005: BOTH content_sha256 and content_norm_sha256 are
+	// computed over the canonical (hash-stripped) form. The raw hash
+	// never enters any sha256 input.
+	rec := core.Record{
+		Module:            m.Name(),
+		SiteClass:         "passwd.shadow",
+		MITRE:             []string{mitrePasswd},
+		Locus:             logical,
+		ContentSHA256:     core.HashHexString(se.canon),
+		ContentNormSHA256: core.HashHexString(se.canon),
+		ContentSnippet:    snippet(se.canon),
+	}
+	fillFileMeta(&rec, info)
+	signals := m.baseSignals(info, logical)
+	if se.status == "empty" {
+		signals = append(signals, core.SignalPasswdNoPassword)
+	}
+	rec.Signals = dedupSignals(signals)
+	return rec
+}
+
+func (m *Module) recordFromGroup(logical string, info os.FileInfo, ge groupEntry) core.Record {
+	rec := core.Record{
+		Module:            m.Name(),
+		SiteClass:         "passwd.group",
+		MITRE:             []string{mitrePasswd},
+		Locus:             logical,
+		ContentSHA256:     core.HashHexString(ge.raw),
+		ContentNormSHA256: core.HashHexString(ge.canon),
+		ContentSnippet:    snippet(ge.canon),
+	}
+	fillFileMeta(&rec, info)
+	rec.Signals = dedupSignals(m.baseSignals(info, logical))
+	return rec
+}
+
+func (m *Module) recordFromGshadow(logical string, info os.FileInfo, ge gshadowEntry) core.Record {
+	// Same ADR-0005 policy as shadow: hash never enters any sha256.
+	rec := core.Record{
+		Module:            m.Name(),
+		SiteClass:         "passwd.gshadow",
+		MITRE:             []string{mitrePasswd},
+		Locus:             logical,
+		ContentSHA256:     core.HashHexString(ge.canon),
+		ContentNormSHA256: core.HashHexString(ge.canon),
+		ContentSnippet:    snippet(ge.canon),
+	}
+	fillFileMeta(&rec, info)
+	rec.Signals = dedupSignals(m.baseSignals(info, logical))
+	return rec
+}
+
+func (m *Module) envelopeRecord(logical string, info os.FileInfo, siteClass string, errs []core.RecordError) core.Record {
+	rec := core.Record{
+		Module:    m.Name(),
+		SiteClass: siteClass,
+		MITRE:     []string{mitrePasswd},
+		Locus:     logical,
+		Errors:    errs,
+	}
+	if info != nil {
+		fillFileMeta(&rec, info)
+		rec.Signals = dedupSignals(m.baseSignals(info, logical))
+	}
+	return rec
+}
+
+func fillFileMeta(rec *core.Record, info os.FileInfo) {
+	size := info.Size()
+	rec.Size = &size
+	mt := info.ModTime().UTC()
+	rec.MTime = &mt
+	if st, ok := info.Sys().(*syscall.Stat_t); ok {
+		uid := uint32(st.Uid)
+		gid := uint32(st.Gid)
+		rec.OwnerUID = &uid
+		rec.OwnerGID = &gid
+		rec.Mode = core.FormatMode(uint32(st.Mode) & 0o7777)
+		atime := time.Unix(int64(st.Atim.Sec), int64(st.Atim.Nsec)).UTC()
+		ctime := time.Unix(int64(st.Ctim.Sec), int64(st.Ctim.Nsec)).UTC()
+		rec.ATime = &atime
+		rec.CTime = &ctime
+	} else {
+		rec.Mode = core.FormatMode(uint32(info.Mode().Perm()))
+	}
+}
+
+func (m *Module) baseSignals(info os.FileInfo, logical string) []string {
+	var out []string
+	mt := info.ModTime().UTC()
+	now := m.opts.Now()
+	delta := now.Sub(mt)
+	switch {
+	case delta >= 0 && delta < 7*24*time.Hour:
+		out = append(out, core.SignalRecentMtime7d)
+	case delta >= 7*24*time.Hour && delta < 30*24*time.Hour:
+		out = append(out, core.SignalRecentMtime30d)
+	}
+	if info.Mode().Perm()&0o002 != 0 {
+		out = append(out, core.SignalWorldWritable)
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok {
+		if st.Uid != 0 && isSystemPath(logical) {
+			out = append(out, core.SignalNonRootOwner)
+		}
+	}
+	return out
+}
+
+func (m *Module) execTargetSignals(target string) []string {
+	var out []string
+	if target == "" || !strings.HasPrefix(target, "/") {
+		return out
+	}
+	for _, prefix := range tmpDirs {
+		if strings.HasPrefix(target, prefix) {
+			out = append(out, core.SignalInterpreterInTmp)
+			break
+		}
+	}
+	if _, err := os.Stat(m.resolve(target)); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			out = append(out, core.SignalExecTargetOrphan)
+		}
+	}
+	return out
+}
+
+func (m *Module) targetMtimeRecent(target string) bool {
+	if target == "" || !strings.HasPrefix(target, "/") {
+		return false
+	}
+	info, err := os.Stat(m.resolve(target))
+	if err != nil {
+		return false
+	}
+	delta := m.opts.Now().Sub(info.ModTime().UTC())
+	return delta >= 0 && delta < 7*24*time.Hour
+}
+
+func isSystemPath(p string) bool {
+	for _, prefix := range []string{"/etc/", "/usr/", "/lib/", "/bin/", "/sbin/"} {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func snippet(s string) string {
+	const max = 256
+	if len(s) <= max {
+		return s
+	}
+	return s[:max]
+}
+
+func dedupSignals(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
+func errnoCode(err error) string {
+	if errors.Is(err, fs.ErrNotExist) {
+		return "ENOENT"
+	}
+	if errors.Is(err, fs.ErrPermission) {
+		return "EACCES"
+	}
+	return "IO_ERROR"
+}
