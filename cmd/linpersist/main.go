@@ -20,6 +20,9 @@ import (
 	"github.com/jarmidaw/linpersist/internal/core"
 	"github.com/jarmidaw/linpersist/internal/modules/cron"
 	"github.com/jarmidaw/linpersist/internal/modules/ldso"
+	"github.com/jarmidaw/linpersist/internal/modules/pam"
+	"github.com/jarmidaw/linpersist/internal/modules/passwd"
+	"github.com/jarmidaw/linpersist/internal/modules/profile"
 	"github.com/jarmidaw/linpersist/internal/modules/ssh"
 	"github.com/jarmidaw/linpersist/internal/modules/sshd"
 	"github.com/jarmidaw/linpersist/internal/modules/sudoers"
@@ -102,6 +105,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		ssh.New(ssh.Options{}),
 		sudoers.New(sudoers.Options{}),
 		sshd.New(sshd.Options{}),
+		passwd.New(passwd.Options{}),
+		pam.New(pam.Options{}),
+		profile.New(profile.Options{}),
 	)
 
 	agentVersion := fmt.Sprintf("linpersist-%s", version)
