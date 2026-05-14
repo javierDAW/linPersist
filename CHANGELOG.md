@@ -74,3 +74,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   AuthorizedKeysCommand and ForceCommand directives.
 - `docs/adr/0004-sshd-match-block-canonical.md` ADR documenting
   the Match-block canonical-form decision.
+- `passwd` module: collects `passwd.user`, `passwd.shadow`,
+  `passwd.group`, `passwd.gshadow` (MITRE T1136.001) from
+  /etc/passwd, /etc/shadow, /etc/group, /etc/gshadow. Per-line
+  granularity. Passwd users filtered by `uid=0 OR shell not in
+  {nologin, false}`; shadow records filtered to the same set.
+  Password hashes from /etc/shadow and /etc/gshadow are NEVER
+  emitted -- only a status enum (set/locked/disabled/empty/unknown)
+  per ADR-0005. Group and gshadow members sorted alphabetically
+  in canonical forms. Two module-specific signals:
+  `passwd_uid_zero` (uid=0 with username != root) and
+  `passwd_no_password` (shadow status == empty).
+- `pam` module: collects `pam` site_class (MITRE T1556.003) from
+  /etc/pam.conf and /etc/pam.d/*. Per-line granularity. exec_target
+  is the module path; standard core signals (exec_target_orphan,
+  interpreter_in_tmp, recent_target_mtime_7d) cover the textbook
+  implant pattern of a malicious .so referenced from /etc/pam.d/.
+  Three golden cases (classic, with /tmp implant, legacy pam.conf).
+- `docs/adr/0005-password-hash-never-emitted.md` ADR documenting
+  the never-emit-raw-hash policy for /etc/shadow and /etc/gshadow.
+- Two new core signals: `passwd_uid_zero`, `passwd_no_password`.
+- `profile` module: collects `profile.system` and `profile.user`
+  (MITRE T1546.004) from /etc/profile, /etc/profile.d/*,
+  /etc/bash.bashrc, /etc/zsh/zshenv, /etc/zsh/zprofile,
+  /etc/environment, /root/.{bashrc,bash_profile,bash_login,profile,
+  zshrc,zshenv}, and /home/*/.{bashrc,bash_profile,bash_login,
+  profile,zshrc,zshenv}. Per-file record granularity (pattern
+  from cron.periodic). Canonical form strips comments (including
+  shebangs since these files are sourced not executed), blank
+  lines, and per-line trailing whitespace; content_sha256 is over
+  the raw file bytes. No module-specific signals; standard core
+  signals (recent_mtime_*, world_writable, non_root_owner) apply.
+  Three golden cases (system clean, user implant with curl|bash
+  line, root bashrc).
