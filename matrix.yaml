@@ -177,12 +177,18 @@ site_classes:
     loci:
       - /etc/pam.d/
       - /etc/pam.conf
-    status: planned
+    status: wip
     test_coverage: none
     notes: |
-      One record per file, one per non-comment line. exec_target is the
-      pam module .so path; signals flag non-package paths and modules
-      under /tmp, /var/tmp, /dev/shm.
+      One record per non-comment, non-blank line across every file
+      under /etc/pam.d/, plus /etc/pam.conf if present. Per-line
+      granularity. Line format per pam(7):
+      "<type> <control> <module-path> [args...]". exec_target is
+      the resolved module-path; standard core signals
+      (exec_target_orphan, interpreter_in_tmp,
+      recent_target_mtime_7d) cover the textbook implant pattern of
+      dropping a .so under /tmp and referencing it from /etc/pam.d/.
+      No pam-specific signals added in v0.1.0.
 
   - site_class: ldso.preload
     module: ldso
@@ -243,21 +249,56 @@ site_classes:
       core: sudoers_nopasswd, sudoers_all_commands,
       sudoers_include_directive.
 
-  - site_class: passwd
+  - site_class: passwd.user
     module: passwd
     mitre: [T1136.001]
     loci:
       - /etc/passwd
-      - /etc/shadow
-      - /etc/group
-      - /etc/gshadow
-    status: planned
+    status: wip
     test_coverage: none
     notes: |
-      One record per user with uid 0 or shell other than /usr/sbin/nologin
-      and /bin/false. /etc/shadow read attempts capture only the locked/
-      unlocked state via the first char of the hash field; the hash itself
-      is never emitted.
+      One record per user with uid 0 OR shell not in
+      {/usr/sbin/nologin, /sbin/nologin, /bin/false, /usr/bin/false}.
+      Per-line granularity. Signal passwd_uid_zero fires when uid=0
+      and username != "root" (non-root uid-0 account is anomalous).
+
+  - site_class: passwd.shadow
+    module: passwd
+    mitre: [T1136.001]
+    loci:
+      - /etc/shadow
+    status: wip
+    test_coverage: none
+    notes: |
+      One record per shadow line corresponding to a passwd.user entry
+      (same filter applied). Password hash NEVER emitted (ADR-0005);
+      only password_status enum: set / locked / disabled / empty /
+      unknown. Signal passwd_no_password fires when status == empty.
+
+  - site_class: passwd.group
+    module: passwd
+    mitre: [T1136.001]
+    loci:
+      - /etc/group
+    status: wip
+    test_coverage: none
+    notes: |
+      One record per group line. Members are sorted alphabetically
+      in the canonical form for stacking. Any change to membership
+      (an attacker adding a user to wheel, sudo, docker, etc.)
+      surfaces immediately as a singleton.
+
+  - site_class: passwd.gshadow
+    module: passwd
+    mitre: [T1136.001]
+    loci:
+      - /etc/gshadow
+    status: wip
+    test_coverage: none
+    notes: |
+      One record per gshadow line. Group password hash treated under
+      the same policy as user password hash (ADR-0005): hash never
+      emitted, only password_status enum.
 
   - site_class: profile.system
     module: profile
@@ -269,11 +310,17 @@ site_classes:
       - /etc/zsh/zshenv
       - /etc/zsh/zprofile
       - /etc/environment
-    status: planned
+    status: wip
     test_coverage: none
     notes: |
-      System-wide shell init. Normalization strips comments and trailing
-      whitespace; preserves declarations and command invocations.
+      System-wide shell init. Per-file record granularity (pattern
+      from cron.periodic). content_norm_sha256 is computed over a
+      normalized form that strips comments (any line starting with
+      '#' after left-trim, including shebangs since these files are
+      sourced not executed), drops blank lines and trims trailing
+      whitespace per line. content_sha256 is over the raw file
+      bytes. No module-specific signals; standard core signals
+      (recent_mtime_*, world_writable, non_root_owner) apply.
 
   - site_class: profile.user
     module: profile
@@ -291,11 +338,14 @@ site_classes:
       - /home/*/.profile
       - /home/*/.zshrc
       - /home/*/.zshenv
-    status: planned
+    status: wip
     test_coverage: none
     notes: |
-      Per-user shell init. One record per file. Bash login order is
-      enforced for stacking comparability.
+      Per-user shell init. Same canonicalization rules as
+      profile.system. Walker enumerates /root/ and /home/*/ and
+      probes each file in the candidate set; missing files produce
+      no record. Order across files within a host is NOT recorded
+      -- each file is independent for LFA purposes.
 
   - site_class: motd
     module: motd
