@@ -15,9 +15,9 @@ GOFLAGS := -trimpath -buildvcs=false -tags=osusergo,netgo
 # linux/<arch>[/<goarm>]
 TARGETS := linux/amd64 linux/arm64 linux/386 linux/arm/7
 
-.PHONY: all build build-all verify test test-race lint fmt clean help
+.PHONY: all build build-all verify test test-race lint fmt audit clean help
 
-all: lint test build
+all: lint test audit build
 
 build:
 	CGO_ENABLED=0 go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o dist/linpersist ./cmd/linpersist
@@ -57,6 +57,12 @@ lint:
 fmt:
 	gofmt -w .
 
+# audit is the release gate from ADR-0001: it diffs matrix.yaml against
+# the modules the code actually emits. Fails on drift; prints a
+# one-line summary on success.
+audit:
+	go run ./cmd/matrix-audit
+
 clean:
 	rm -rf dist/
 
@@ -69,4 +75,5 @@ help:
 	@echo "  test-race  run unit tests with -race"
 	@echo "  lint       run go vet and gofmt check"
 	@echo "  fmt        run gofmt -w"
+	@echo "  audit      matrix.yaml <-> code drift gate (ADR-0001)"
 	@echo "  clean      remove dist/"

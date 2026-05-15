@@ -129,3 +129,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/schema-v1.md` host_meta section now spells out the
   normalization rule next to `hostname_hash` and clarifies that the
   opt-in plaintext `hostname` field is NOT normalized.
+- `Makefile`: new `audit` target; the default `all` target now runs
+  it between `test` and `build` so a local `make` catches matrix
+  drift before producing a binary.
+
+### Added (matrix-audit)
+- `cmd/matrix-audit/main.go` release gate per ADR-0001. Loads
+  `matrix.yaml`, instantiates the same modules `cmd/linpersist`
+  registers, and reports four classes of drift:
+  `code-without-matrix`, `matrix-lying`, `planned-with-code`,
+  `module-name-mismatch`. Also rejects invalid status values,
+  duplicate site_class entries, and two modules emitting the same
+  site_class. Exit 1 on any drift, exit 0 with a one-line summary
+  on stderr otherwise.
+- `cmd/matrix-audit/main_test.go` covering happy path plus every
+  drift class on the pure `audit()` function, parser error path,
+  status-summary counts, and stable alphabetical ordering of drift
+  messages.
+- New build-time dependency: `gopkg.in/yaml.v3` (pure-Go, on the
+  project's approved list).
