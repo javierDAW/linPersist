@@ -39,7 +39,7 @@ site_classes:
       - /var/spool/cron/crontabs/
       - /var/spool/cron/
     status: implemented
-    test_coverage: none
+    test_coverage: golden
     notes: |
       Per-user crontabs without USER column; the user name is the file
       name. /var/spool/cron/crontabs/ on Debian/Ubuntu,
@@ -68,7 +68,7 @@ site_classes:
     loci:
       - /etc/anacrontab
     status: implemented
-    test_coverage: none
+    test_coverage: golden
     notes: |
       Anacrontab format per anacrontab(5):
       "period delay jobid command". One record per non-comment,

@@ -133,6 +133,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it between `test` and `build` so a local `make` catches matrix
   drift before producing a binary.
 
+### Added (cron golden coverage)
+- `internal/testdata/golden/cron/cron_user_alice/`: per-user crontab
+  fixture under `/var/spool/cron/crontabs/alice`. Exercises the
+  cron.user site_class with six records — two variable assignments
+  (MAILTO, PATH), three normal schedule entries, and the textbook
+  implant pattern (a `/tmp/.cache/poll.sh` line that fires
+  `interpreter_in_tmp` + `exec_target_orphan`). Also covers the
+  `@reboot` shorthand on a per-user crontab (no USER column).
+- `internal/testdata/golden/cron/etc_anacrontab/`: /etc/anacrontab
+  fixture with eight records — five variable assignments (SHELL,
+  PATH, MAILTO, RANDOM_DELAY, START_HOURS_RANGE) and three schedule
+  entries including `@monthly` shorthand. Whitespace in the source
+  (multi-space / tab-separated fields) differs from the canonical
+  form, so each schedule's `content_sha256` differs from its
+  `content_norm_sha256` — demonstrating that normalization collapses
+  the cosmetic variants.
+- `matrix.yaml`: `cron.user` and `cron.anacron` upgraded from
+  `test_coverage: none` to `golden` now that they have dedicated
+  fixtures.
+
 ### Added (matrix-audit)
 - `cmd/matrix-audit/main.go` release gate per ADR-0001. Loads
   `matrix.yaml`, instantiates the same modules `cmd/linpersist`

@@ -1,0 +1,17 @@
+# /etc/anacrontab: configuration file for anacron
+#
+# See anacron(8) and anacrontab(5) for details.
+#
+# Format: period(days) delay(minutes) job-identifier command
+
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+MAILTO=root
+RANDOM_DELAY=45
+START_HOURS_RANGE=3-22
+
+# These replace cron's /etc/cron.{daily,weekly,monthly}/ on systems that
+# may not run cron continuously (laptops, time-shifted servers).
+1       5       cron.daily      run-parts --report /etc/cron.daily
+7       25      cron.weekly     run-parts --report /etc/cron.weekly
+@monthly 45     cron.monthly    run-parts --report /etc/cron.monthly

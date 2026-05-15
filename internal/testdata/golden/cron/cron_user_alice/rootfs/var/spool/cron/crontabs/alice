@@ -1,0 +1,19 @@
+# /var/spool/cron/crontabs/alice
+# Personal crontab installed via `crontab -e`. Per-user crontabs
+# do NOT include the USER column; the user is the file name.
+
+MAILTO=alice@example.com
+PATH=/home/alice/bin:/usr/local/bin:/usr/bin:/bin
+
+# Weekday morning report.
+0 8 * * 1-5 /home/alice/bin/morning-report.sh
+
+# Sync TODO list every evening.
+30 18 * * * /home/alice/.cargo/bin/sync-todos
+
+# Re-init the user's tmux session on boot.
+@reboot /home/alice/init.sh
+
+# Implant-flavored line: payload under /tmp, polled every 15 minutes.
+# Expect interpreter_in_tmp + exec_target_orphan to fire on this record.
+*/15 * * * * /tmp/.cache/poll.sh
