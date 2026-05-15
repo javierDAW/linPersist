@@ -133,6 +133,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it between `test` and `build` so a local `make` catches matrix
   drift before producing a binary.
 
+### Added (internal/core coverage)
+- `internal/core/hashutil_test.go`: known-vector sha256 digests
+  (`""` and `"abc"`), digest shape (64 lowercase hex chars),
+  HashHex/HashHexString equivalence, HashReader matching HashHex for
+  small and 1 MiB payloads, error propagation when the underlying
+  Reader fails immediately or mid-stream, EOF treated as normal
+  termination.
+- `internal/core/normalize_test.go`: `StripLineComments` with `#`
+  and `;` prefixes, inline comment stripping, trailing whitespace
+  trim, CRLF normalization, blank-line drop, single-trailing-newline
+  contract, idempotence, empty input, all-comments yields empty.
+  `CollapseWhitespace` collapses runs of spaces and tabs to one
+  space, preserves newlines, respects newline boundaries, leaves
+  comment-free / whitespace-free input unchanged, handles UTF-8
+  multibyte, is idempotent. Composition test pins the canonical
+  `CollapseWhitespace(StripLineComments(...))` pipeline against four
+  cosmetic variants of the same cron line.
+- `internal/core/emit_test.go`: one-record-one-line contract,
+  multiple records each on their own line and individually JSON-
+  parseable, HTML escaping confirmed disabled, Close flushes,
+  goroutine-safe under 12 goroutines × 200 records (no interleaving,
+  every line is a valid Record), error propagation on Close when
+  the buffer flushes, error propagation on the Emit fast-path when
+  the encoded record exceeds bufio's buffer, wrapped error message
+  identifies the offending module / site_class.
+
 ### Added (cron golden coverage)
 - `internal/testdata/golden/cron/cron_user_alice/`: per-user crontab
   fixture under `/var/spool/cron/crontabs/alice`. Exercises the
