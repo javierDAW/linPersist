@@ -73,40 +73,57 @@ rule for that site_class family.
 See [`matrix.yaml`](./matrix.yaml) for the authoritative per-site_class
 status, loci, and notes.
 
-## End-to-end: from one host to a stacking query
+## End-to-end: from one host to a triage page
+
+The project ships two binaries from the same build (`make build-all`
+produces both): `linpersist` is the agent, `linpersist-report` is the
+self-contained HTML report generator. Pick the path that fits your
+fleet size.
+
+### Path A — `linpersist-report` (recommended for fleets ≤ ~10k hosts)
 
 ```sh
-# 1. Build once. Static, single binary, no CGO.
+# 1. Build both binaries (static, no CGO).
 make build-all
 file dist/linpersist-linux-amd64
 # linpersist-linux-amd64: ELF 64-bit LSB executable, x86-64, statically linked, ...
 
-# 2. Deploy and run on every host (cron-driven, ~10 MB binary, runs in seconds).
+# 2. Deploy linpersist and run on every host (~10 MB, seconds to complete).
 ./linpersist --output /var/log/linpersist/$(hostname).ndjson
 
-# 3. Pull the per-host files into one place, load into DuckDB.
+# 3. Pull the per-host files into one directory and generate the report.
+./linpersist-report -i fleet/ -o report.html
+# Or, from an SSH-only jump host without a browser:
+./linpersist-report -i fleet/ -format text | less -R
+
+# 4. Open report.html — fleet overview, 6 stacking queries, signal
+#    distribution, LFA histogram, all in one self-contained page.
+```
+
+`linpersist-report` ships two output formats from the same binary:
+**HTML** (default — dark/light themes, sortable tables, live search,
+zero network calls) and **text** (column-aligned ASCII for
+terminals, ANSI-colored when stdout is a TTY). Email the HTML, page
+the text through `less` on a jump host, or commit either to a
+triage-evidence repo. See [`docs/report.md`](./docs/report.md) for
+the anatomy of each section and the when-to-use-which matrix; the
+binding design decision lives in
+[ADR-0008](./docs/adr/0008-report-dual-rendering.md).
+
+### Path B — DuckDB cookbook (for larger fleets or power users)
+
+```sh
+# Same steps 1-2. Then:
 duckdb fleet.duckdb <<EOF
 CREATE TABLE r AS SELECT * FROM read_ndjson_auto('fleet/*.ndjson', ignore_errors=true);
-EOF
-
-# 4. Ask: what does NO other host have?  (LFA / least-frequency analysis)
-duckdb fleet.duckdb <<EOF
-SELECT
-  any_value(coalesce(host_meta.hostname, host_id)) AS host,
-  module, site_class, any_value(locus) AS locus, any_value(content_snippet) AS snippet
-FROM r
-GROUP BY module, site_class, content_norm_sha256
-HAVING count(DISTINCT host_id) = 1
-ORDER BY module, site_class;
+.read tools/stack_demo.sql
 EOF
 ```
 
-On a fleet of clean Ubuntu/Debian/RHEL/Amazon Linux/Alpine hosts with
-five implants seeded, the query returns a small handful of rows — each
-exactly one of the implants. Baseline (package-managed) artifacts are
-identical across peers and never appear. See
-[`docs/stacking-cookbook.md`](./docs/stacking-cookbook.md) for six
-canonical queries and the false-positive patterns to filter out.
+Columnar engine scales past the ~10k-host envelope where the Go
+report starts taking minutes. The same six queries, executable.
+[`docs/stacking-cookbook.md`](./docs/stacking-cookbook.md) walks
+through each query with false-positive guidance.
 
 ## Why this and not osquery / Velociraptor / UAC
 
@@ -210,6 +227,8 @@ signals.
 - [`docs/stacking-cookbook.md`](./docs/stacking-cookbook.md) — six
   canonical DuckDB queries with prose walkthrough and false-positive
   guide.
+- [`docs/report.md`](./docs/report.md) — anatomy of the HTML report
+  produced by `linpersist-report`.
 - [`docs/modules/`](./docs/modules) — per-module reference (loci,
   signals, false-positive patterns). Only `systemd.md` is populated
   today; the rest is paid down as queries surface gaps.

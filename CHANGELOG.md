@@ -7,7 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-(no changes yet)
+### Added (linpersist-report)
+- `cmd/linpersist-report` — a second static binary that turns a
+  directory of agent NDJSON output into a report. Same build
+  discipline as the agent: `CGO_ENABLED=0`, build tags
+  `osusergo netgo`, vendored CSS and JS embedded via `embed.FS`,
+  zero network fetches at view time. Cross-compiled alongside
+  `linpersist` by `make build-all`.
+- **Two output formats** controlled by `-format`: `html` (default,
+  self-contained, shareable) and `text` (terminal-friendly,
+  jump-host friendly, ANSI-color-on-TTY). Both formats consume the
+  same `Report` data structure; the trade-off is interaction vs.
+  portability. See ADR-0008 for the rendering policy and
+  `docs/report.md` for the when-to-use-which matrix.
+- Text mode uses `text/tabwriter` for column alignment and gates
+  ANSI escapes via `-color auto|on|off` (auto = TTY and not
+  redirected). Three color uses, mirrored from the HTML accent
+  palette: bold section headings, red `Q4 implant hits` count
+  when > 0, orange LFA-singletons histogram bar. Everything else
+  stays plain text so the analyst can `grep`/`awk` cleanly.
+- `docs/adr/0008-report-dual-rendering.md` ADR documenting the
+  decision to ship dual rendering rather than HTML-only or
+  Markdown-only.
+- The report covers all six cookbook queries (Q1-Q6) plus a fleet
+  overview: per-module / per-site_class / per-os_id counts, LFA
+  stacking histogram (singletons highlighted), signal distribution
+  bar chart. Each table is sortable by header click and filterable
+  via a live search input. Dark and light themes auto-switch via
+  `prefers-color-scheme`.
+- `docs/report.md` documents what each tab shows and the empirical
+  performance envelope (6k records ≈ 50 ms; 600k records ≈ 2.5 s).
+- `Makefile` now drives a `BINARIES := linpersist linpersist-report`
+  variable so the build/verify targets iterate over both binaries
+  without duplication.
 
 ## [0.1.0-alpha] - 2026-05-17
 

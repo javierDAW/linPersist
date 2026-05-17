@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{.Title}}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>{{.CSS}}</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>{{.Title}}</h1>
+  <div class="meta">
+    generated <b>{{.Report.Generated.Format "2006-01-02 15:04 UTC"}}</b>
+    · <b>{{.Report.Overview.TotalHosts}}</b> hosts
+    · <b>{{commaInt .Report.Overview.TotalRecords}}</b> records
+    · <b>{{.Report.Overview.TotalModules}}</b> modules
+    · <b>{{.Report.Overview.TotalSiteClasses}}</b> site_classes
+    {{if .Report.SkippedLines}}· <b style="color:var(--warn)">{{.Report.SkippedLines}}</b> malformed lines skipped{{end}}
+    {{if .Report.AgentVersion}}· agent <b>{{.Report.AgentVersion}}</b>{{end}}
+  </div>
+</header>
+
+<nav class="tabs">
+  <button data-tab="overview">Overview</button>
+  <button data-tab="q1">Q1 · LFA singletons</button>
+  <button data-tab="q2">Q2 · per-locus singletons</button>
+  <button data-tab="q3">Q3 · peer-group LFA</button>
+  <button data-tab="q4">Q4 · implant fingerprint</button>
+  <button data-tab="q5">Q5 · signal distribution</button>
+  <button data-tab="q6">Q6 · worm pattern</button>
+</nav>
+
+<main>
+
+  {{/* ========== Overview ========== */}}
+  <section class="pane" data-pane="overview">
+    <h2>Fleet overview</h2>
+    <p class="lede">High-level shape of the dataset. Use this to spot fleet-level anomalies (sudden mtime spike, signal explosion, OS imbalance) before drilling into the per-query tabs.</p>
+
+    <div class="cards">
+      <div class="card"><div class="k">Hosts</div><div class="v">{{.Report.Overview.TotalHosts}}</div></div>
+      <div class="card"><div class="k">Records</div><div class="v">{{commaInt .Report.Overview.TotalRecords}}</div></div>
+      <div class="card"><div class="k">Modules</div><div class="v">{{.Report.Overview.TotalModules}}</div></div>
+      <div class="card"><div class="k">Site_classes</div><div class="v">{{.Report.Overview.TotalSiteClasses}}</div></div>
+      <div class="card"><div class="k">Q1 singletons</div><div class="v">{{len .Report.Q1Singletons}}</div></div>
+      <div class="card"><div class="k">Q4 implant hits</div><div class="v" style="color:var(--tail)">{{len .Report.Q4ImplantFingerprint}}</div></div>
+    </div>
+
+    <h2>LFA stacking histogram</h2>
+    <p class="hint">Number of distinct <code>(module, content_norm_sha256)</code> groups that appear on N hosts. The singletons bucket is where attacker artefacts live; the right tail is the package-managed baseline.</p>
+    <div class="hist">
+      {{$max := histMax .Report.HistogramBuckets}}
+      {{range .Report.HistogramBuckets}}
+        <div class="bar{{if .IsTail}} tail{{end}}">
+          <div class="bar-fill" style="height:{{histPct .Count $max}}px"></div>
+          <div class="val">{{commaInt .Count}}</div>
+          <div class="lbl">{{.Label}}</div>
+        </div>
+      {{end}}
+    </div>
+
+    <h2>Modules</h2>
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-modules">
+        <thead><tr>
+          <th>module</th>
+          <th data-sort-type="num">records</th>
+          <th data-sort-type="num">hosts</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.Overview.ByModule}}
+          <tr><td>{{.Name}}</td><td class="num">{{commaInt .Records}}</td><td class="num">{{.Hosts}}</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Site classes</h2>
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-siteclasses">
+        <thead><tr>
+          <th>site_class</th>
+          <th data-sort-type="num">records</th>
+          <th data-sort-type="num">hosts</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.Overview.BySiteClass}}
+          <tr><td>{{.Name}}</td><td class="num">{{commaInt .Records}}</td><td class="num">{{.Hosts}}</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+
+    <h2>OS distribution</h2>
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-os">
+        <thead><tr>
+          <th>os_id</th>
+          <th data-sort-type="num">hosts</th>
+          <th data-sort-type="num">records</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.Overview.ByOSID}}
+          <tr><td>{{.Name}}</td><td class="num">{{.Hosts}}</td><td class="num">{{commaInt .Records}}</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Signal distribution (fleet-wide)</h2>
+    <p class="hint">Signals fired least often are the most analytically interesting (rare events). Bars represent host count.</p>
+    {{$sigMax := signalMax .Report.Overview.BySignal}}
+    <div class="bars">
+      {{range .Report.Overview.BySignal}}
+        <div class="row">
+          <span class="name">{{.Name}}</span>
+          <span class="bar"><span class="fill" style="width:{{signalPct .Hosts $sigMax}}%"></span></span>
+          <span class="n">{{.Hosts}} / {{commaInt .Records}}</span>
+        </div>
+      {{end}}
+    </div>
+  </section>
+
+  {{/* ========== Q1 ========== */}}
+  <section class="pane" data-pane="q1">
+    <h2>Q1 · Pure LFA singletons</h2>
+    <p class="lede">Records whose <code>content_norm_sha256</code> appears on exactly one host in the fleet. This is the load-bearing query: an attacker who appends a malicious line to <code>/etc/crontab</code> on one host produces a digest no other host has, and it surfaces here.</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q1">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q1">
+        <thead><tr>
+          <th>module</th><th>site_class</th>
+          <th>content_norm</th><th>sample_host</th>
+          <th>sample_locus</th><th>sample_snippet</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.Q1Singletons}}
+          <tr>
+            <td>{{.Module}}</td><td>{{.SiteClass}}</td>
+            <td class="hash">{{.ContentNorm}}</td>
+            <td>{{.SampleHost}}</td>
+            <td class="path">{{.SampleLocus}}</td>
+            <td class="snippet">{{.SampleSnippet}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="6" style="text-align:center;color:var(--fg-mute)">no singletons — the entire fleet shares its baseline (rare; expected on a 1-host fleet)</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {{/* ========== Q2 ========== */}}
+  <section class="pane" data-pane="q2">
+    <h2>Q2 · Per-locus LFA singletons</h2>
+    <p class="lede">Like Q1 but also groups by <code>locus</code>. Catches the case where the same content is universal but appears at an unusual path on one host (renamed copy, look-alike location).</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q2">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q2">
+        <thead><tr>
+          <th>module</th><th>site_class</th><th>locus</th>
+          <th>content_norm</th><th>sample_host</th><th>sample_snippet</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.Q2LocusSingletons}}
+          <tr>
+            <td>{{.Module}}</td><td>{{.SiteClass}}</td>
+            <td class="path">{{.Locus}}</td>
+            <td class="hash">{{.ContentNorm}}</td>
+            <td>{{.SampleHost}}</td>
+            <td class="snippet">{{.SampleSnippet}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="6" style="text-align:center;color:var(--fg-mute)">no per-locus singletons</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {{/* ========== Q3 ========== */}}
+  <section class="pane" data-pane="q3">
+    <h2>Q3 · Peer-group LFA by os_id</h2>
+    <p class="lede">Singletons inside their own OS bucket. Fixes Q1's fragmentation: a Debian-only baseline does not look like a singleton in a mixed Debian/RHEL fleet. Only peer groups with &gt;2 hosts are included (smaller groups have no baseline to compare against).</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q3">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q3">
+        <thead><tr>
+          <th>os_id</th><th>module</th><th>site_class</th>
+          <th>content_norm</th>
+          <th data-sort-type="num">peer_size</th>
+          <th>sample_host</th>
+          <th>sample_locus</th>
+          <th>sample_snippet</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.Q3PeerGroupSingletons}}
+          <tr>
+            <td>{{.OSID}}</td><td>{{.Module}}</td><td>{{.SiteClass}}</td>
+            <td class="hash">{{.ContentNorm}}</td>
+            <td class="num">{{.PeerSize}}</td>
+            <td>{{.SampleHost}}</td>
+            <td class="path">{{.SampleLocus}}</td>
+            <td class="snippet">{{.SampleSnippet}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="8" style="text-align:center;color:var(--fg-mute)">no peer-group singletons (fleet may be too small or too homogeneous)</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {{/* ========== Q4 ========== */}}
+  <section class="pane" data-pane="q4">
+    <h2>Q4 · Implant fingerprint (orphan + tmp)</h2>
+    <p class="lede">Records carrying <em>both</em> <code class="sig warn">exec_target_orphan</code> and <code class="sig warn">interpreter_in_tmp</code>. The conjunction is very rare in legitimate configuration; singletons here deserve immediate triage even before correlating with the LFA queries.</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q4">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q4">
+        <thead><tr>
+          <th>host</th><th>module</th><th>site_class</th>
+          <th>locus</th><th>exec_target</th><th>signals</th><th>snippet</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.Q4ImplantFingerprint}}
+          <tr>
+            <td>{{.Host}}</td><td>{{.Module}}</td><td>{{.SiteClass}}</td>
+            <td class="path">{{.Locus}}</td>
+            <td class="target">{{.ExecTarget}}</td>
+            <td class="sig-list">{{range .Signals}}<span class="sig{{if signalIsWarn .}} warn{{end}}">{{.}}</span>{{end}}</td>
+            <td class="snippet">{{.Snippet}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="7" style="text-align:center;color:var(--fg-mute)">no records match the implant fingerprint — clean fleet</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {{/* ========== Q5 ========== */}}
+  <section class="pane" data-pane="q5">
+    <h2>Q5 · Signal distribution by module</h2>
+    <p class="lede">For each <code>(module, signal)</code> pair: how many hosts fire it, how many records carry it. Signals that fire on few hosts are inherently interesting; signals that fire on most hosts are baselines used to <em>calibrate</em> other queries.</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q5">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q5">
+        <thead><tr>
+          <th>module</th><th>signal</th>
+          <th data-sort-type="num">hosts</th>
+          <th data-sort-type="num">records</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.Q5SignalDistribution}}
+          <tr>
+            <td>{{.Module}}</td>
+            <td><span class="sig{{if signalIsWarn .Signal}} warn{{end}}">{{.Signal}}</span></td>
+            <td class="num">{{.Hosts}}</td>
+            <td class="num">{{commaInt .Records}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="4" style="text-align:center;color:var(--fg-mute)">no signals fired across the fleet</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {{/* ========== Q6 ========== */}}
+  <section class="pane" data-pane="q6">
+    <h2>Q6 · Cross-host exec_target stacking (worm pattern)</h2>
+    <p class="lede">Records on different hosts whose persistence text differs but whose <code>exec_target_sha256</code> matches: identical payload, polymorphic persistence. Filtered to <code>2 ≤ hosts &lt; 10% of fleet</code> to skip both singletons (Q1 turf) and baseline binaries.</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q6">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q6">
+        <thead><tr>
+          <th>exec_target_sha256</th>
+          <th data-sort-type="num">hosts</th>
+          <th data-sort-type="num">records</th>
+          <th data-sort-type="num">modules</th>
+          <th>sample_target</th>
+          <th>spread</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.Q6ExecTargetStacking}}
+          <tr>
+            <td class="hash">{{.ExecTargetSHA256}}</td>
+            <td class="num">{{.Hosts}}</td>
+            <td class="num">{{commaInt .Records}}</td>
+            <td class="num">{{.Modules}}</td>
+            <td class="target">{{.SampleTarget}}</td>
+            <td class="sig-list">{{range .SpreadModules}}<span class="sig">{{.}}</span>{{end}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="6" style="text-align:center;color:var(--fg-mute)">no cross-host worm pattern detected</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  generated by <code>linpersist-report</code>{{if .Report.AgentVersion}} · agent {{.Report.AgentVersion}}{{end}} ·
+  {{len .Report.Sources}} source file(s) ·
+  <a href="https://attack.mitre.org/matrices/enterprise/linux/" target="_blank" rel="noopener">MITRE ATT&amp;CK · Linux matrix</a>
+</footer>
+
+<script>{{.JS}}</script>
+</body>
+</html>

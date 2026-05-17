@@ -1,0 +1,202 @@
+/*
+ * linpersist-report inline stylesheet.
+ *
+ * Goals:
+ *   - one ~6 KB file, zero external assets, zero CDN fetches;
+ *   - readable on any terminal-adjacent monitor;
+ *   - dark/light auto via prefers-color-scheme;
+ *   - sticky tab nav so the analyst can scroll within a large table
+ *     and still jump tabs;
+ *   - monospace cells for hashes, locus paths, exec_target values.
+ */
+
+:root {
+  --bg: #ffffff;
+  --bg-alt: #f6f7f9;
+  --fg: #14181f;
+  --fg-mute: #5a6472;
+  --border: #d8dde6;
+  --accent: #2858c2;
+  --accent-soft: #e3edff;
+  --tail: #b14820;
+  --tail-soft: #fdecdf;
+  --good: #266c3a;
+  --warn: #a3690a;
+  --code-bg: #f1f2f4;
+  --shadow: 0 1px 2px rgba(20, 24, 31, 0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1116;
+    --bg-alt: #161b22;
+    --fg: #e6edf3;
+    --fg-mute: #8b96a4;
+    --border: #2a3140;
+    --accent: #6ea8ff;
+    --accent-soft: #1c2940;
+    --tail: #e08562;
+    --tail-soft: #3a261c;
+    --good: #5fb87a;
+    --warn: #d8a44a;
+    --code-bg: #1a2030;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--bg);
+}
+code, pre, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono",
+  Menlo, Consolas, "Liberation Mono", monospace; font-size: 12.5px; }
+
+header.top {
+  padding: 20px 28px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+  position: sticky; top: 0; z-index: 9;
+}
+header.top h1 {
+  margin: 0 0 4px 0;
+  font-size: 18px; font-weight: 600;
+}
+header.top .meta {
+  color: var(--fg-mute); font-size: 12px;
+}
+header.top .meta b { color: var(--fg); font-weight: 600; }
+
+nav.tabs {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  padding: 8px 28px;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 64px; z-index: 8;
+}
+nav.tabs button {
+  background: transparent; color: var(--fg-mute);
+  border: 1px solid transparent;
+  padding: 6px 12px; border-radius: 6px;
+  font-size: 13px; cursor: pointer; font-family: inherit;
+}
+nav.tabs button:hover { background: var(--accent-soft); color: var(--fg); }
+nav.tabs button.active {
+  background: var(--accent-soft); color: var(--accent);
+  border-color: var(--accent);
+}
+
+main { padding: 18px 28px 60px; max-width: 1400px; margin: 0 auto; }
+section.pane { display: none; }
+section.pane.active { display: block; }
+
+h2 { font-size: 16px; margin: 14px 0 6px; }
+p { margin: 0 0 12px; }
+p.lede { color: var(--fg-mute); margin-top: 0; }
+.hint { color: var(--fg-mute); font-size: 12px; margin: 6px 0 18px; }
+
+/* Card grid (overview) */
+.cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px; margin: 8px 0 22px;
+}
+.card {
+  background: var(--bg-alt); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px 14px; box-shadow: var(--shadow);
+}
+.card .k { font-size: 11px; color: var(--fg-mute); text-transform: uppercase; letter-spacing: 0.04em; }
+.card .v { font-size: 22px; font-weight: 600; color: var(--fg); margin-top: 2px; }
+
+/* Tables */
+.tbl-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+table {
+  border-collapse: collapse; width: 100%; min-width: 600px;
+  background: var(--bg);
+}
+th, td {
+  padding: 7px 10px; text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+thead th {
+  background: var(--bg-alt); color: var(--fg-mute);
+  font-weight: 600; font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.03em;
+  cursor: pointer; user-select: none;
+  /* No `position: sticky` here. A sticky thead inside a wrapper with
+     `overflow-x: auto` becomes its own scroll container and the
+     headers detach mid-table -- visible as data rows above the
+     header row. The trade-off: when an analyst scrolls a long
+     table the column labels scroll off the top. Acceptable for v1;
+     v2 could move the scroll container to the table itself. */
+  border-bottom: 2px solid var(--border);
+}
+thead th:hover { color: var(--fg); }
+thead th.sort-asc::after { content: " ▲"; color: var(--accent); }
+thead th.sort-desc::after { content: " ▼"; color: var(--accent); }
+tbody tr:nth-child(even) { background: var(--bg-alt); }
+tbody tr:hover { background: var(--accent-soft); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.hash, td.path, td.target, td.snippet { font-family: ui-monospace, monospace; font-size: 12px; }
+td.snippet { color: var(--fg-mute); }
+
+/* Search */
+input.search {
+  width: 100%; max-width: 320px; padding: 6px 10px;
+  border: 1px solid var(--border); border-radius: 6px;
+  font-size: 13px; background: var(--bg); color: var(--fg);
+  margin: 8px 0;
+}
+
+/* Signal pills */
+.sig {
+  display: inline-block; padding: 1px 6px; margin: 1px 2px;
+  border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+  font-family: ui-monospace, monospace; font-size: 11px;
+}
+.sig.warn { background: var(--tail-soft); color: var(--tail); }
+.sig-list { white-space: normal; }
+
+/* Histogram (LFA stacking) */
+.hist {
+  display: flex; align-items: flex-end; gap: 14px;
+  background: var(--bg-alt); border: 1px solid var(--border);
+  border-radius: 8px; padding: 16px; margin-bottom: 20px;
+}
+.hist .bar {
+  display: flex; flex-direction: column; align-items: center;
+  flex: 1 1 80px; min-width: 80px;
+}
+.hist .bar .bar-fill {
+  width: 100%; background: var(--accent);
+  border-radius: 3px 3px 0 0;
+  transition: opacity .2s;
+}
+.hist .bar.tail .bar-fill { background: var(--tail); }
+.hist .bar .lbl { font-size: 11px; color: var(--fg-mute); margin-top: 4px; }
+.hist .bar .val { font-size: 13px; font-weight: 600; margin-top: 2px; }
+.hist .bar.tail .val { color: var(--tail); }
+
+/* Bar chart (signals) */
+.bars { display: flex; flex-direction: column; gap: 3px; margin: 8px 0 20px; }
+.bars .row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.bars .row .name { width: 220px; color: var(--fg-mute); font-family: ui-monospace, monospace; font-size: 11.5px; }
+.bars .row .bar { flex: 1; background: var(--bg-alt); border-radius: 3px; height: 14px; position: relative; border: 1px solid var(--border); }
+.bars .row .fill { background: var(--accent); height: 100%; border-radius: 2px; }
+.bars .row .n { width: 70px; text-align: right; font-variant-numeric: tabular-nums; }
+
+footer {
+  margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--border);
+  font-size: 11.5px; color: var(--fg-mute); text-align: center;
+}
+footer a { color: var(--accent); }
+
+@media (max-width: 720px) {
+  header.top, nav.tabs, main { padding-left: 14px; padding-right: 14px; }
+  thead th { position: static; }
+  .bars .row .name { width: 140px; }
+}

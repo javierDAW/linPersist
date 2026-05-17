@@ -17,27 +17,40 @@ TARGETS := linux/amd64 linux/arm64 linux/386 linux/arm/7
 
 .PHONY: all build build-all verify test test-race lint fmt audit clean help
 
+# The set of cmd/<NAME> binaries the build system knows about. Adding a
+# new top-level binary is a one-line edit here plus the cmd/<name>/
+# package.
+BINARIES := linpersist linpersist-report
+
 all: lint test audit build
 
 build:
-	CGO_ENABLED=0 go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o dist/linpersist ./cmd/linpersist
+	@for b in $(BINARIES); do \
+	  echo ">> dist/$$b"; \
+	  CGO_ENABLED=0 go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o dist/$$b ./cmd/$$b || exit 1; \
+	done
 
 build-all:
 	@mkdir -p dist
-	@for t in $(TARGETS); do \
-	  os=$$(echo $$t | cut -d/ -f1); \
-	  arch=$$(echo $$t | cut -d/ -f2); \
-	  goarm=$$(echo $$t | cut -d/ -f3); \
-	  suffix=""; \
-	  [ -n "$$goarm" ] && suffix="v$$goarm"; \
-	  out=dist/linpersist-$$os-$$arch$$suffix; \
-	  echo ">> $$out"; \
-	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch GOARM=$$goarm \
-	    go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o $$out ./cmd/linpersist || exit 1; \
+	@for b in $(BINARIES); do \
+	  for t in $(TARGETS); do \
+	    os=$$(echo $$t | cut -d/ -f1); \
+	    arch=$$(echo $$t | cut -d/ -f2); \
+	    goarm=$$(echo $$t | cut -d/ -f3); \
+	    suffix=""; \
+	    [ -n "$$goarm" ] && suffix="v$$goarm"; \
+	    out=dist/$$b-$$os-$$arch$$suffix; \
+	    echo ">> $$out"; \
+	    CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch GOARM=$$goarm \
+	      go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o $$out ./cmd/$$b || exit 1; \
+	  done; \
 	done
 
 verify:
-	@./tools/verify_static.sh dist/linpersist-linux-amd64
+	@for b in $(BINARIES); do \
+	  echo ">> verify dist/$$b-linux-amd64"; \
+	  ./tools/verify_static.sh dist/$$b-linux-amd64 || exit 1; \
+	done
 
 test:
 	go test -count=1 ./...

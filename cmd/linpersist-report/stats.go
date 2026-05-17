@@ -1,0 +1,647 @@
+package main
+
+import (
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/jarmidaw/linpersist/internal/core"
+)
+
+// Report is the top-level data passed to the HTML template.
+type Report struct {
+	Generated    time.Time
+	AgentVersion string
+	Sources      []string
+	SkippedLines int
+
+	Overview Overview
+
+	Q1Singletons          []SingletonRow
+	Q2LocusSingletons     []LocusSingletonRow
+	Q3PeerGroupSingletons []PeerGroupRow
+	Q4ImplantFingerprint  []ImplantRow
+	Q5SignalDistribution  []SignalRow
+	Q6ExecTargetStacking  []ExecTargetRow
+
+	// HistogramBuckets is the per-bucket count of (module,
+	// content_norm_sha256) groups by how many hosts share them.
+	// Buckets: 1 (singleton), 2-4 (rare), 5-9 (uncommon), 10-49,
+	// 50-99, >=100. The buckets are emitted as inline SVG.
+	HistogramBuckets []HistogramBucket
+}
+
+type Overview struct {
+	TotalRecords     int
+	TotalHosts       int
+	TotalModules     int
+	TotalSiteClasses int
+	ByModule         []NamedCount
+	BySiteClass      []NamedCount
+	ByOSID           []NamedCount
+	BySignal         []NamedCount
+}
+
+type NamedCount struct {
+	Name    string
+	Records int
+	Hosts   int
+}
+
+type SingletonRow struct {
+	Module        string
+	SiteClass     string
+	ContentNorm   string // shortened to 12 chars for display
+	SampleHost    string
+	SampleLocus   string
+	SampleSnippet string
+}
+
+type LocusSingletonRow struct {
+	Module        string
+	SiteClass     string
+	Locus         string
+	ContentNorm   string
+	SampleHost    string
+	SampleSnippet string
+}
+
+type PeerGroupRow struct {
+	OSID          string
+	Module        string
+	SiteClass     string
+	ContentNorm   string
+	HostsInOS     int
+	PeerSize      int
+	SampleHost    string
+	SampleLocus   string
+	SampleSnippet string
+}
+
+type ImplantRow struct {
+	Host       string
+	Module     string
+	SiteClass  string
+	Locus      string
+	ExecTarget string
+	Signals    []string
+	Snippet    string
+}
+
+type SignalRow struct {
+	Module  string
+	Signal  string
+	Hosts   int
+	Records int
+}
+
+type ExecTargetRow struct {
+	ExecTargetSHA256 string
+	Hosts            int
+	Records          int
+	Modules          int
+	SiteClasses      int
+	SampleTarget     string
+	SpreadModules    []string
+}
+
+type HistogramBucket struct {
+	Label  string
+	Count  int
+	IsTail bool // singletons get highlighted as the LFA target
+}
+
+// hostKey returns the canonical host identifier used to count distinct
+// hosts: hostname (when --include-hostname was set on the agent) or
+// host_id otherwise. Falls back to "<unknown>" if neither is present.
+func hostKey(r core.Record) string {
+	if r.HostMeta.Hostname != "" {
+		return r.HostMeta.Hostname
+	}
+	if r.HostID != "" {
+		return r.HostID
+	}
+	return "<unknown>"
+}
+
+// shortHash returns the first 12 hex chars of a sha256 string for
+// display.
+func shortHash(s string) string {
+	if len(s) >= 12 {
+		return s[:12]
+	}
+	return s
+}
+
+// snippetTrim caps a snippet at maxLen chars for display, appending an
+// ellipsis when truncated.
+func snippetTrim(s string, maxLen int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\t", " ")
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-1] + "…"
+}
+
+// build assembles a Report from a flat slice of records.
+func build(records []core.Record, sources []string, skipped int, agentVersion string) *Report {
+	r := &Report{
+		Generated:    time.Now().UTC(),
+		AgentVersion: agentVersion,
+		Sources:      sources,
+		SkippedLines: skipped,
+	}
+	r.Overview = computeOverview(records)
+	r.Q1Singletons = computeQ1(records)
+	r.Q2LocusSingletons = computeQ2(records)
+	r.Q3PeerGroupSingletons = computeQ3(records)
+	r.Q4ImplantFingerprint = computeQ4(records)
+	r.Q5SignalDistribution = computeQ5(records)
+	r.Q6ExecTargetStacking = computeQ6(records)
+	r.HistogramBuckets = computeHistogram(records)
+	return r
+}
+
+// --- Overview ----------------------------------------------------------
+
+func computeOverview(records []core.Record) Overview {
+	hosts := map[string]struct{}{}
+	modulesCount := map[string]struct {
+		records int
+		hosts   map[string]struct{}
+	}{}
+	siteClassCount := map[string]struct {
+		records int
+		hosts   map[string]struct{}
+	}{}
+	osIDCount := map[string]struct {
+		records int
+		hosts   map[string]struct{}
+	}{}
+	signalCount := map[string]struct {
+		records int
+		hosts   map[string]struct{}
+	}{}
+
+	for _, rec := range records {
+		hk := hostKey(rec)
+		hosts[hk] = struct{}{}
+
+		m := modulesCount[rec.Module]
+		if m.hosts == nil {
+			m.hosts = map[string]struct{}{}
+		}
+		m.records++
+		m.hosts[hk] = struct{}{}
+		modulesCount[rec.Module] = m
+
+		sc := siteClassCount[rec.SiteClass]
+		if sc.hosts == nil {
+			sc.hosts = map[string]struct{}{}
+		}
+		sc.records++
+		sc.hosts[hk] = struct{}{}
+		siteClassCount[rec.SiteClass] = sc
+
+		osid := rec.HostMeta.OSID
+		if osid == "" {
+			osid = "<unknown>"
+		}
+		o := osIDCount[osid]
+		if o.hosts == nil {
+			o.hosts = map[string]struct{}{}
+		}
+		o.records++
+		o.hosts[hk] = struct{}{}
+		osIDCount[osid] = o
+
+		for _, sig := range rec.Signals {
+			s := signalCount[sig]
+			if s.hosts == nil {
+				s.hosts = map[string]struct{}{}
+			}
+			s.records++
+			s.hosts[hk] = struct{}{}
+			signalCount[sig] = s
+		}
+	}
+
+	ov := Overview{
+		TotalRecords:     len(records),
+		TotalHosts:       len(hosts),
+		TotalModules:     len(modulesCount),
+		TotalSiteClasses: len(siteClassCount),
+	}
+	for name, c := range modulesCount {
+		ov.ByModule = append(ov.ByModule, NamedCount{Name: name, Records: c.records, Hosts: len(c.hosts)})
+	}
+	sort.Slice(ov.ByModule, func(i, j int) bool { return ov.ByModule[i].Name < ov.ByModule[j].Name })
+	for name, c := range siteClassCount {
+		ov.BySiteClass = append(ov.BySiteClass, NamedCount{Name: name, Records: c.records, Hosts: len(c.hosts)})
+	}
+	sort.Slice(ov.BySiteClass, func(i, j int) bool { return ov.BySiteClass[i].Records > ov.BySiteClass[j].Records })
+	for name, c := range osIDCount {
+		ov.ByOSID = append(ov.ByOSID, NamedCount{Name: name, Records: c.records, Hosts: len(c.hosts)})
+	}
+	sort.Slice(ov.ByOSID, func(i, j int) bool { return ov.ByOSID[i].Hosts > ov.ByOSID[j].Hosts })
+	for name, c := range signalCount {
+		ov.BySignal = append(ov.BySignal, NamedCount{Name: name, Records: c.records, Hosts: len(c.hosts)})
+	}
+	sort.Slice(ov.BySignal, func(i, j int) bool {
+		if ov.BySignal[i].Hosts != ov.BySignal[j].Hosts {
+			return ov.BySignal[i].Hosts < ov.BySignal[j].Hosts
+		}
+		return ov.BySignal[i].Name < ov.BySignal[j].Name
+	})
+	return ov
+}
+
+// --- Q1: pure LFA singletons -------------------------------------------
+
+type q1Key struct{ module, siteClass, contentNorm string }
+type q1Agg struct {
+	hosts         map[string]struct{}
+	sampleHost    string
+	sampleLocus   string
+	sampleSnippet string
+}
+
+func computeQ1(records []core.Record) []SingletonRow {
+	agg := map[q1Key]*q1Agg{}
+	for _, r := range records {
+		if r.ContentNormSHA256 == "" {
+			continue
+		}
+		k := q1Key{r.Module, r.SiteClass, r.ContentNormSHA256}
+		a := agg[k]
+		if a == nil {
+			a = &q1Agg{hosts: map[string]struct{}{}, sampleLocus: r.Locus, sampleSnippet: r.ContentSnippet}
+			agg[k] = a
+		}
+		hk := hostKey(r)
+		a.hosts[hk] = struct{}{}
+		if a.sampleHost == "" {
+			a.sampleHost = hk
+		}
+	}
+	var out []SingletonRow
+	for k, a := range agg {
+		if len(a.hosts) != 1 {
+			continue
+		}
+		out = append(out, SingletonRow{
+			Module:        k.module,
+			SiteClass:     k.siteClass,
+			ContentNorm:   shortHash(k.contentNorm),
+			SampleHost:    a.sampleHost,
+			SampleLocus:   a.sampleLocus,
+			SampleSnippet: snippetTrim(a.sampleSnippet, 100),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Module != out[j].Module {
+			return out[i].Module < out[j].Module
+		}
+		if out[i].SiteClass != out[j].SiteClass {
+			return out[i].SiteClass < out[j].SiteClass
+		}
+		return out[i].SampleHost < out[j].SampleHost
+	})
+	return out
+}
+
+// --- Q2: per-locus LFA singletons --------------------------------------
+
+type q2Key struct{ module, siteClass, locus, contentNorm string }
+type q2Agg struct {
+	hosts         map[string]struct{}
+	sampleHost    string
+	sampleSnippet string
+}
+
+func computeQ2(records []core.Record) []LocusSingletonRow {
+	agg := map[q2Key]*q2Agg{}
+	for _, r := range records {
+		if r.ContentNormSHA256 == "" {
+			continue
+		}
+		k := q2Key{r.Module, r.SiteClass, r.Locus, r.ContentNormSHA256}
+		a := agg[k]
+		if a == nil {
+			a = &q2Agg{hosts: map[string]struct{}{}, sampleSnippet: r.ContentSnippet}
+			agg[k] = a
+		}
+		hk := hostKey(r)
+		a.hosts[hk] = struct{}{}
+		if a.sampleHost == "" {
+			a.sampleHost = hk
+		}
+	}
+	var out []LocusSingletonRow
+	for k, a := range agg {
+		if len(a.hosts) != 1 {
+			continue
+		}
+		out = append(out, LocusSingletonRow{
+			Module:        k.module,
+			SiteClass:     k.siteClass,
+			Locus:         k.locus,
+			ContentNorm:   shortHash(k.contentNorm),
+			SampleHost:    a.sampleHost,
+			SampleSnippet: snippetTrim(a.sampleSnippet, 100),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Module != out[j].Module {
+			return out[i].Module < out[j].Module
+		}
+		return out[i].Locus < out[j].Locus
+	})
+	return out
+}
+
+// --- Q3: peer-group LFA by os_id ---------------------------------------
+
+type q3Key struct{ osID, module, siteClass, contentNorm string }
+type q3Agg struct {
+	hosts         map[string]struct{}
+	sampleHost    string
+	sampleLocus   string
+	sampleSnippet string
+}
+
+func computeQ3(records []core.Record) []PeerGroupRow {
+	// peer-group size per os_id
+	peers := map[string]map[string]struct{}{}
+	for _, r := range records {
+		osid := r.HostMeta.OSID
+		if osid == "" {
+			continue
+		}
+		if peers[osid] == nil {
+			peers[osid] = map[string]struct{}{}
+		}
+		peers[osid][hostKey(r)] = struct{}{}
+	}
+
+	agg := map[q3Key]*q3Agg{}
+	for _, r := range records {
+		osid := r.HostMeta.OSID
+		if osid == "" || r.ContentNormSHA256 == "" {
+			continue
+		}
+		k := q3Key{osid, r.Module, r.SiteClass, r.ContentNormSHA256}
+		a := agg[k]
+		if a == nil {
+			a = &q3Agg{hosts: map[string]struct{}{}, sampleLocus: r.Locus, sampleSnippet: r.ContentSnippet}
+			agg[k] = a
+		}
+		hk := hostKey(r)
+		a.hosts[hk] = struct{}{}
+		if a.sampleHost == "" {
+			a.sampleHost = hk
+		}
+	}
+
+	var out []PeerGroupRow
+	for k, a := range agg {
+		peerSize := len(peers[k.osID])
+		if peerSize <= 2 {
+			continue
+		}
+		if len(a.hosts) != 1 {
+			continue
+		}
+		out = append(out, PeerGroupRow{
+			OSID:          k.osID,
+			Module:        k.module,
+			SiteClass:     k.siteClass,
+			ContentNorm:   shortHash(k.contentNorm),
+			HostsInOS:     len(a.hosts),
+			PeerSize:      peerSize,
+			SampleHost:    a.sampleHost,
+			SampleLocus:   a.sampleLocus,
+			SampleSnippet: snippetTrim(a.sampleSnippet, 100),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].OSID != out[j].OSID {
+			return out[i].OSID < out[j].OSID
+		}
+		return out[i].Module < out[j].Module
+	})
+	return out
+}
+
+// --- Q4: implant fingerprint -------------------------------------------
+
+func computeQ4(records []core.Record) []ImplantRow {
+	var out []ImplantRow
+	for _, r := range records {
+		if !containsAll(r.Signals, "exec_target_orphan", "interpreter_in_tmp") {
+			continue
+		}
+		out = append(out, ImplantRow{
+			Host:       hostKey(r),
+			Module:     r.Module,
+			SiteClass:  r.SiteClass,
+			Locus:      r.Locus,
+			ExecTarget: r.ExecTarget,
+			Signals:    r.Signals,
+			Snippet:    snippetTrim(r.ContentSnippet, 120),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Host != out[j].Host {
+			return out[i].Host < out[j].Host
+		}
+		if out[i].Module != out[j].Module {
+			return out[i].Module < out[j].Module
+		}
+		return out[i].Locus < out[j].Locus
+	})
+	return out
+}
+
+// containsAll returns true iff every needle is in haystack.
+func containsAll(haystack []string, needles ...string) bool {
+	if len(haystack) == 0 {
+		return false
+	}
+	set := map[string]struct{}{}
+	for _, h := range haystack {
+		set[h] = struct{}{}
+	}
+	for _, n := range needles {
+		if _, ok := set[n]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// --- Q5: signal distribution -------------------------------------------
+
+type q5Key struct{ module, signal string }
+type q5Agg struct {
+	hosts   map[string]struct{}
+	records int
+}
+
+func computeQ5(records []core.Record) []SignalRow {
+	agg := map[q5Key]*q5Agg{}
+	for _, r := range records {
+		for _, sig := range r.Signals {
+			k := q5Key{r.Module, sig}
+			a := agg[k]
+			if a == nil {
+				a = &q5Agg{hosts: map[string]struct{}{}}
+				agg[k] = a
+			}
+			a.records++
+			a.hosts[hostKey(r)] = struct{}{}
+		}
+	}
+	var out []SignalRow
+	for k, a := range agg {
+		out = append(out, SignalRow{
+			Module:  k.module,
+			Signal:  k.signal,
+			Hosts:   len(a.hosts),
+			Records: a.records,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Module != out[j].Module {
+			return out[i].Module < out[j].Module
+		}
+		if out[i].Hosts != out[j].Hosts {
+			return out[i].Hosts < out[j].Hosts
+		}
+		return out[i].Signal < out[j].Signal
+	})
+	return out
+}
+
+// --- Q6: cross-host exec_target stacking -------------------------------
+
+type q6Agg struct {
+	hosts        map[string]struct{}
+	records      int
+	modules      map[string]struct{}
+	siteClasses  map[string]struct{}
+	sampleTarget string
+}
+
+func computeQ6(records []core.Record) []ExecTargetRow {
+	agg := map[string]*q6Agg{}
+	totalHosts := map[string]struct{}{}
+	for _, r := range records {
+		totalHosts[hostKey(r)] = struct{}{}
+		if r.ExecTargetSHA256 == "" {
+			continue
+		}
+		a := agg[r.ExecTargetSHA256]
+		if a == nil {
+			a = &q6Agg{
+				hosts:        map[string]struct{}{},
+				modules:      map[string]struct{}{},
+				siteClasses:  map[string]struct{}{},
+				sampleTarget: r.ExecTarget,
+			}
+			agg[r.ExecTargetSHA256] = a
+		}
+		a.records++
+		a.hosts[hostKey(r)] = struct{}{}
+		a.modules[r.Module] = struct{}{}
+		a.siteClasses[r.SiteClass] = struct{}{}
+	}
+	// Upper bound philosophy: on a large fleet, skip baseline
+	// binaries (anything present on >= 10% of hosts) so the worm
+	// pattern stands out. On a small fleet (< 20 hosts), 10% would
+	// be 0-1 hosts, which would filter out all results. Disable
+	// the upper bound in that regime and let the analyst eyeball.
+	fleetSize := len(totalHosts)
+	upper := fleetSize / 10
+	useUpper := upper >= 2
+	var out []ExecTargetRow
+	for sha, a := range agg {
+		if len(a.hosts) < 2 {
+			continue
+		}
+		if useUpper && len(a.hosts) >= upper {
+			continue
+		}
+		mods := mapKeys(a.modules)
+		sort.Strings(mods)
+		out = append(out, ExecTargetRow{
+			ExecTargetSHA256: shortHash(sha),
+			Hosts:            len(a.hosts),
+			Records:          a.records,
+			Modules:          len(a.modules),
+			SiteClasses:      len(a.siteClasses),
+			SampleTarget:     a.sampleTarget,
+			SpreadModules:    mods,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Hosts != out[j].Hosts {
+			return out[i].Hosts > out[j].Hosts
+		}
+		return out[i].Modules > out[j].Modules
+	})
+	return out
+}
+
+func mapKeys(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// --- Histogram of host-frequency per (module, content_norm) group ------
+
+func computeHistogram(records []core.Record) []HistogramBucket {
+	type k struct{ module, contentNorm string }
+	agg := map[k]map[string]struct{}{}
+	for _, r := range records {
+		if r.ContentNormSHA256 == "" {
+			continue
+		}
+		key := k{r.Module, r.ContentNormSHA256}
+		if agg[key] == nil {
+			agg[key] = map[string]struct{}{}
+		}
+		agg[key][hostKey(r)] = struct{}{}
+	}
+	bands := []struct {
+		label  string
+		low    int
+		high   int // inclusive; -1 = no upper
+		isTail bool
+	}{
+		{"1 (singletons)", 1, 1, true},
+		{"2–4", 2, 4, false},
+		{"5–9", 5, 9, false},
+		{"10–49", 10, 49, false},
+		{"50–99", 50, 99, false},
+		{"≥100", 100, -1, false},
+	}
+	buckets := make([]HistogramBucket, len(bands))
+	for i, b := range bands {
+		buckets[i] = HistogramBucket{Label: b.label, IsTail: b.isTail}
+	}
+	for _, hostsSet := range agg {
+		n := len(hostsSet)
+		for i, b := range bands {
+			if n >= b.low && (b.high == -1 || n <= b.high) {
+				buckets[i].Count++
+				break
+			}
+		}
+	}
+	return buckets
+}
