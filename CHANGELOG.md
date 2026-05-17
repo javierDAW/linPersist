@@ -87,6 +87,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   zero-false-positive claim. The text is honest about what is
   shipped vs. what is local-only.
 
+### Changed (README rewrite)
+- `README.md` fully restructured around a clearer narrative: a
+  60-second quickstart (3 commands to a report), an explicit
+  two-binary overview, a "two analysis paths" section that
+  prescribes when to use the Go-native report vs. the DuckDB
+  cookbook, a "where the queries live" section with the same
+  10-query roster in both SQL and Go form, and a "bring your own
+  queries" snippet showing the `tools/ingest.sh -q FILE` invocation.
+- New SVG diagrams `docs/img/pipeline.svg` (collection → agent →
+  aggregation → two analysis paths) and `docs/img/queries.svg`
+  (10 queries with two implementations that are kept in sync
+  row-for-row). Hand-written, minimal monochrome, uses
+  `currentColor` so dark/light themes work without an extra
+  stylesheet.
+- All references to "six cookbook queries" replaced with "ten" --
+  the README was lagging the Q7-Q10 expansion.
+
+### Changed (ingest.sh ergonomics)
+- `tools/ingest.sh` now defaults `-q` to the bundled
+  `tools/stack_demo.sql` (resolved relative to the script's own
+  location, not the caller's `cwd`). The bare invocation
+  `./tools/ingest.sh fleet/` now does what most operators expected
+  on their first run: load the NDJSON and run the 10 cookbook
+  queries. Pass `-q ''` to keep the previous load-only behavior
+  (useful when combined with `-o fleet.parquet` for a pure
+  export). Help text and examples updated; the "six demo queries"
+  language is gone.
+
 ## [0.1.0-alpha] - 2026-05-17
 
 First publicly tagged snapshot. The v0.1.0 critical set of persistence

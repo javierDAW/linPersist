@@ -31,9 +31,10 @@ Options:
                    fleet.duckdb). Without -d, the database is
                    in-memory and only the Parquet export survives the
                    script's exit.
-  -q QUERIES_SQL   Run this SQL file against r after loading. The
-                   shipped tools/stack_demo.sql is the canonical
-                   choice.
+  -q QUERIES_SQL   Run this SQL file against r after loading. Defaults
+                   to the bundled tools/stack_demo.sql (the 10 expert
+                   cookbook queries). Pass -q '' to skip the SQL pass
+                   entirely (load-only).
   -h               This message.
 
 The script prints a single summary row to stderr after loading:
@@ -42,11 +43,14 @@ so a wrapping cron job can detect zero-result loads.
 
 Examples:
 
-  # Load one day's NDJSON and run the six demo queries:
-  $0 -q tools/stack_demo.sql ./fleet-2026-05-17/
+  # Default: run the 10 cookbook queries against the fleet.
+  $0 ./fleet-2026-05-17/
 
-  # Build a Parquet export for repeat analysis:
-  $0 -o fleet.parquet ./fleet-2026-05-17/
+  # Same, but with an explicit custom SQL pack of your own.
+  $0 -q my-hunting-queries.sql ./fleet-2026-05-17/
+
+  # Load only, no SQL pass (just produce a Parquet export):
+  $0 -q '' -o fleet.parquet ./fleet-2026-05-17/
 
   # Persist a DuckDB file an analyst can attach interactively:
   $0 -d fleet.duckdb ./fleet-2026-05-17/
@@ -56,19 +60,30 @@ EOF
 
 PARQUET_OUT=""
 DB_OUT=""
+# QUERIES_SQL starts unset so we can distinguish "user did not pass -q"
+# (fall back to the bundled stack_demo.sql) from "user passed -q ''"
+# (skip the SQL pass entirely).
+QUERIES_SQL_SET=0
 QUERIES_SQL=""
 
 while getopts ":o:d:q:h" opt; do
     case "$opt" in
         o) PARQUET_OUT="$OPTARG" ;;
         d) DB_OUT="$OPTARG" ;;
-        q) QUERIES_SQL="$OPTARG" ;;
+        q) QUERIES_SQL="$OPTARG"; QUERIES_SQL_SET=1 ;;
         h) usage; exit 0 ;;
         \?) echo "Unknown option: -$OPTARG" >&2; usage >&2; exit 2 ;;
         :)  echo "Option -$OPTARG requires an argument" >&2; usage >&2; exit 2 ;;
     esac
 done
 shift $((OPTIND - 1))
+
+# Resolve the default queries file relative to this script so the
+# defaulting works no matter where the user invokes ingest.sh from.
+if [[ $QUERIES_SQL_SET -eq 0 ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    QUERIES_SQL="${SCRIPT_DIR}/stack_demo.sql"
+fi
 
 if [[ $# -ne 1 ]]; then
     usage >&2
