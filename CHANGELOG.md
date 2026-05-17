@@ -29,17 +29,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/adr/0008-report-dual-rendering.md` ADR documenting the
   decision to ship dual rendering rather than HTML-only or
   Markdown-only.
-- The report covers all six cookbook queries (Q1-Q6) plus a fleet
-  overview: per-module / per-site_class / per-os_id counts, LFA
-  stacking histogram (singletons highlighted), signal distribution
-  bar chart. Each table is sortable by header click and filterable
-  via a live search input. Dark and light themes auto-switch via
-  `prefers-color-scheme`.
-- `docs/report.md` documents what each tab shows and the empirical
+- The report covers **all ten canonical cookbook queries (Q1-Q10)**
+  plus a fleet overview: per-module / per-site_class / per-os_id
+  counts, LFA stacking histogram (singletons highlighted), signal
+  distribution bar chart. Each table is sortable by header click and
+  filterable via a live search input. Dark and light themes
+  auto-switch via `prefers-color-scheme`.
+- Q7-Q10 Go-native implementations in `cmd/linpersist-report/stats.go`
+  bring the report binary to parity with `tools/stack_demo.sql` so
+  analysts no longer need DuckDB at view time:
+  - **Q7 implant roll-call**: cross-cutting union of seven disjoint
+    clauses (orphan+tmp, sudoers backdoors, uid=0 backdoors, kmod
+    install directives, profile/motd curl|wget content, sysv
+    referencing `/tmp`). Validated against a 25-host synthetic fleet
+    with 13 documented implants: 13 rows, zero false positives.
+  - **Q8 recent-mtime concentration**: per `(host, module)`
+    aggregation surfacing config-management pushes or
+    post-compromise sweeps. Filters on `count >= 5`.
+  - **Q9 exec targets in tmp-class directories**: Q4's open half --
+    `exec_target` under `/tmp/`, `/var/tmp/`, `/dev/shm/`,
+    `/run/shm/` regardless of orphan state. Q9 minus Q4 yields
+    "currently armed implants".
+  - **Q10 per-host collection health**: records, distinct modules,
+    distinct site_classes, recent-mtime count. Sort ASC for silent
+    agent failures; DESC for anomaly outliers. Run first on any
+    new dataset.
+- Overview cards expanded from six to eight: added "Q7 roll-call"
+  and "Q8 mtime spikes" alongside the existing host/record/module/
+  site_class/singleton/Q4 counts.
+- `tools/stack_demo.sql` curated to **ten expert non-redundant
+  queries** (Q1-Q10) suitable as a default DuckDB pack. Header now
+  documents the `./tools/ingest.sh -q tools/stack_demo.sql /fleet/`
+  invocation contract. Q1-Q6 retained verbatim; Q7-Q10 added with
+  the same clause logic the Go report uses, so the SQL and Go
+  outputs agree row-for-row.
+- `docs/stacking-cookbook.md` intro changed from "six" to "ten
+  canonical queries". New "Recommended workflow" reorders triage:
+  Q10 first (health check), Q7 second (roll-call), Q8/Q9 third.
+  New "Running the queries" section documents the
+  `tools/ingest.sh -q` argument.
+- `docs/report.md` documents all ten Q-sections, the
+  Go-native-no-DuckDB-at-runtime contract, and the empirical
   performance envelope (6k records ≈ 50 ms; 600k records ≈ 2.5 s).
 - `Makefile` now drives a `BINARIES := linpersist linpersist-report`
   variable so the build/verify targets iterate over both binaries
   without duplication.
+
+### Changed (README scope)
+- `README.md` "Lab" section replaced with a "Validation" section.
+  Removed all references to `lab/` and `lab-large/` -- those
+  directories are local development infrastructure, are
+  `.gitignored`, and never ship with the project. The new
+  Validation section documents the project's actual public testing
+  surface: golden fixtures per module, unit tests for normalizers
+  and parsers, the `matrix-audit` release gate, and the 25-host /
+  13-implant synthetic-fleet methodology used to validate Q7's
+  zero-false-positive claim. The text is honest about what is
+  shipped vs. what is local-only.
 
 ## [0.1.0-alpha] - 2026-05-17
 

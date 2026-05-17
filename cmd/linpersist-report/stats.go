@@ -23,6 +23,10 @@ type Report struct {
 	Q4ImplantFingerprint  []ImplantRow
 	Q5SignalDistribution  []SignalRow
 	Q6ExecTargetStacking  []ExecTargetRow
+	Q7ImplantRollCall     []RollCallRow
+	Q8MtimeConcentration  []MtimeConcRow
+	Q9ExecInTmp           []ExecInTmpRow
+	Q10HostCoverage       []HostCoverageRow
 
 	// HistogramBuckets is the per-bucket count of (module,
 	// content_norm_sha256) groups by how many hosts share them.
@@ -105,6 +109,53 @@ type ExecTargetRow struct {
 	SpreadModules    []string
 }
 
+// RollCallRow is one row of Q7: implant roll-call. Matches the SQL
+// clauses one-for-one (see tools/stack_demo.sql Q7).
+type RollCallRow struct {
+	Host          string
+	Module        string
+	SiteClass     string
+	Locus         string
+	ExecTarget    string
+	TriageSignals []string
+	Snippet       string
+}
+
+// MtimeConcRow is one row of Q8: recent-mtime concentration per
+// (host, module). Spikes mean "something rewrote a lot of config on
+// this host in the last 7 days".
+type MtimeConcRow struct {
+	Host          string
+	Module        string
+	RecentRecords int
+	RecentLoci    int
+}
+
+// ExecInTmpRow is one row of Q9: exec_target in /tmp, /var/tmp,
+// /dev/shm, /run/shm. Complements Q4 by surfacing armed implants
+// whose payload IS currently on disk (no orphan signal).
+type ExecInTmpRow struct {
+	Host       string
+	Module     string
+	SiteClass  string
+	Locus      string
+	ExecTarget string
+	IsOrphan   bool
+	Snippet    string
+}
+
+// HostCoverageRow is one row of Q10: per-host collection health
+// and coverage outliers. Sort DESC for outliers above the median,
+// ASC for collection failures below it.
+type HostCoverageRow struct {
+	Host          string
+	OSID          string
+	Records       int
+	Modules       int
+	SiteClasses   int
+	RecentRecords int
+}
+
 type HistogramBucket struct {
 	Label  string
 	Count  int
@@ -159,6 +210,10 @@ func build(records []core.Record, sources []string, skipped int, agentVersion st
 	r.Q4ImplantFingerprint = computeQ4(records)
 	r.Q5SignalDistribution = computeQ5(records)
 	r.Q6ExecTargetStacking = computeQ6(records)
+	r.Q7ImplantRollCall = computeQ7(records)
+	r.Q8MtimeConcentration = computeQ8(records)
+	r.Q9ExecInTmp = computeQ9(records)
+	r.Q10HostCoverage = computeQ10(records)
 	r.HistogramBuckets = computeHistogram(records)
 	return r
 }
@@ -644,4 +699,259 @@ func computeHistogram(records []core.Record) []HistogramBucket {
 		}
 	}
 	return buckets
+}
+
+// --- Q7: implant roll-call (cross-cutting union) -----------------------
+
+// rollCallSignals are the signals surfaced as "triage" pills in the
+// Q7 row. They are a curated subset of all signals: the ones that
+// historically correlate with offensive patterns (matches the SQL
+// list in tools/stack_demo.sql Q7).
+var rollCallSignals = []string{
+	"exec_target_orphan",
+	"interpreter_in_tmp",
+	"ssh_forced_command",
+	"sudoers_nopasswd",
+	"sudoers_all_commands",
+	"passwd_uid_zero",
+	"sshd_authorized_keys_command",
+	"sshd_permit_root_login_yes",
+	"kmod_install_directive",
+	"udev_run_directive",
+	"systemd_external_unit_symlink",
+	"sysv_external_init_symlink",
+}
+
+// rollCallMatches encodes the seven clauses of Q7. Each clause
+// captures a class of implants the others miss; they are deliberately
+// disjoint.
+func rollCallMatches(r core.Record) bool {
+	sigs := sigSet(r.Signals)
+	// Clause 1: orphan + tmp -- textbook implant fingerprint.
+	if _, ok := sigs["exec_target_orphan"]; ok {
+		if _, ok2 := sigs["interpreter_in_tmp"]; ok2 {
+			return true
+		}
+	}
+	// Clause 2-4: signal-only matches.
+	for _, s := range []string{
+		"sudoers_nopasswd",
+		"sudoers_all_commands",
+		"passwd_uid_zero",
+		"kmod_install_directive",
+	} {
+		if _, ok := sigs[s]; ok {
+			return true
+		}
+	}
+	// Clauses 5-7: module + content-pattern matches.
+	switch r.Module {
+	case "profile":
+		if strings.Contains(r.ContentSnippet, "curl") ||
+			strings.Contains(r.ContentSnippet, "wget") {
+			return true
+		}
+	case "sysv":
+		if strings.Contains(r.ContentSnippet, "/tmp/") {
+			return true
+		}
+	case "motd":
+		if strings.Contains(r.ContentSnippet, "curl") ||
+			strings.Contains(r.ContentSnippet, "wget") {
+			return true
+		}
+	}
+	return false
+}
+
+func computeQ7(records []core.Record) []RollCallRow {
+	var out []RollCallRow
+	for _, r := range records {
+		if !rollCallMatches(r) {
+			continue
+		}
+		out = append(out, RollCallRow{
+			Host:          hostKey(r),
+			Module:        r.Module,
+			SiteClass:     r.SiteClass,
+			Locus:         r.Locus,
+			ExecTarget:    r.ExecTarget,
+			TriageSignals: filterSignals(r.Signals, rollCallSignals),
+			Snippet:       snippetTrim(r.ContentSnippet, 120),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Host != out[j].Host {
+			return out[i].Host < out[j].Host
+		}
+		if out[i].Module != out[j].Module {
+			return out[i].Module < out[j].Module
+		}
+		return out[i].Locus < out[j].Locus
+	})
+	return out
+}
+
+// sigSet returns a presence map of signals on a record. Used by
+// rollCallMatches for O(1) lookups.
+func sigSet(sigs []string) map[string]struct{} {
+	m := make(map[string]struct{}, len(sigs))
+	for _, s := range sigs {
+		m[s] = struct{}{}
+	}
+	return m
+}
+
+// filterSignals returns the subset of `actual` that appears in `pick`,
+// preserving the order of `pick`. Used to emit the triage_signals
+// column in the Q7 row in the same canonical order across the report.
+func filterSignals(actual, pick []string) []string {
+	present := sigSet(actual)
+	var out []string
+	for _, s := range pick {
+		if _, ok := present[s]; ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// --- Q8: recent-mtime concentration per (host, module) ----------------
+
+func computeQ8(records []core.Record) []MtimeConcRow {
+	type k struct{ host, module string }
+	type agg struct {
+		recs int
+		loci map[string]struct{}
+	}
+	m := map[k]*agg{}
+	for _, r := range records {
+		if !containsAll(r.Signals, "recent_mtime_7d") {
+			continue
+		}
+		key := k{hostKey(r), r.Module}
+		a := m[key]
+		if a == nil {
+			a = &agg{loci: map[string]struct{}{}}
+			m[key] = a
+		}
+		a.recs++
+		a.loci[r.Locus] = struct{}{}
+	}
+	var out []MtimeConcRow
+	for k, a := range m {
+		if a.recs < 5 {
+			continue
+		}
+		out = append(out, MtimeConcRow{
+			Host:          k.host,
+			Module:        k.module,
+			RecentRecords: a.recs,
+			RecentLoci:    len(a.loci),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].RecentRecords != out[j].RecentRecords {
+			return out[i].RecentRecords > out[j].RecentRecords
+		}
+		if out[i].Host != out[j].Host {
+			return out[i].Host < out[j].Host
+		}
+		return out[i].Module < out[j].Module
+	})
+	return out
+}
+
+// --- Q9: exec_target under tmp-class directories ----------------------
+
+func computeQ9(records []core.Record) []ExecInTmpRow {
+	tmpPrefixes := []string{"/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"}
+	var out []ExecInTmpRow
+	for _, r := range records {
+		if r.ExecTarget == "" {
+			continue
+		}
+		matched := false
+		for _, p := range tmpPrefixes {
+			if strings.HasPrefix(r.ExecTarget, p) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		sigs := sigSet(r.Signals)
+		_, isOrphan := sigs["exec_target_orphan"]
+		out = append(out, ExecInTmpRow{
+			Host:       hostKey(r),
+			Module:     r.Module,
+			SiteClass:  r.SiteClass,
+			Locus:      r.Locus,
+			ExecTarget: r.ExecTarget,
+			IsOrphan:   isOrphan,
+			Snippet:    snippetTrim(r.ContentSnippet, 100),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Host != out[j].Host {
+			return out[i].Host < out[j].Host
+		}
+		if out[i].Module != out[j].Module {
+			return out[i].Module < out[j].Module
+		}
+		return out[i].Locus < out[j].Locus
+	})
+	return out
+}
+
+// --- Q10: per-host collection health and coverage outliers ------------
+
+func computeQ10(records []core.Record) []HostCoverageRow {
+	type agg struct {
+		osID          string
+		records       int
+		modules       map[string]struct{}
+		siteClasses   map[string]struct{}
+		recentRecords int
+	}
+	m := map[string]*agg{}
+	for _, r := range records {
+		h := hostKey(r)
+		a := m[h]
+		if a == nil {
+			a = &agg{
+				modules:     map[string]struct{}{},
+				siteClasses: map[string]struct{}{},
+			}
+			m[h] = a
+		}
+		if a.osID == "" && r.HostMeta.OSID != "" {
+			a.osID = r.HostMeta.OSID
+		}
+		a.records++
+		a.modules[r.Module] = struct{}{}
+		a.siteClasses[r.SiteClass] = struct{}{}
+		if _, ok := sigSet(r.Signals)["recent_mtime_7d"]; ok {
+			a.recentRecords++
+		}
+	}
+	var out []HostCoverageRow
+	for h, a := range m {
+		out = append(out, HostCoverageRow{
+			Host:          h,
+			OSID:          a.osID,
+			Records:       a.records,
+			Modules:       len(a.modules),
+			SiteClasses:   len(a.siteClasses),
+			RecentRecords: a.recentRecords,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Records != out[j].Records {
+			return out[i].Records > out[j].Records
+		}
+		return out[i].Host < out[j].Host
+	})
+	return out
 }

@@ -86,6 +86,8 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		{"site_classes", strconv.Itoa(report.Overview.TotalSiteClasses)},
 		{"Q1 singletons", strconv.Itoa(len(report.Q1Singletons))},
 		{"Q4 implant hits", maybeRed(a, strconv.Itoa(len(report.Q4ImplantFingerprint)), len(report.Q4ImplantFingerprint) > 0)},
+		{"Q7 roll-call", maybeRed(a, strconv.Itoa(len(report.Q7ImplantRollCall)), len(report.Q7ImplantRollCall) > 0)},
+		{"Q8 mtime spikes", strconv.Itoa(len(report.Q8MtimeConcentration))},
 	}
 	for _, s := range summary {
 		fmt.Fprintf(out, "  %-18s %s\n", s.k+":", s.v)
@@ -255,6 +257,89 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 			fmt.Fprintf(tw, "  %s\t%d\t%s\t%d\t%s\t%s\n",
 				r.ExecTargetSHA256, r.Hosts, commaInt(r.Records),
 				r.Modules, trimLen(r.SampleTarget, 40), trimLen(spread, 40))
+		}
+		tw.Flush()
+	}
+	fmt.Fprintln(out)
+
+	// --- Q7: implant roll-call --------------------------------------
+	nQ7 := len(report.Q7ImplantRollCall)
+	q7Title := fmt.Sprintf("Q7 · Implant roll-call (%s)",
+		maybeRed(a, strconv.Itoa(nQ7), nQ7 > 0))
+	textSection(out, a, q7Title)
+	fmt.Fprintln(out, "Cross-cutting union: every record matching any canonical implant pattern.")
+	fmt.Fprintln(out)
+	if nQ7 == 0 {
+		fmt.Fprintln(out, "  no rows")
+	} else {
+		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "  host\tmodule\tsite_class\tlocus\texec_target\ttriage_signals")
+		for _, r := range report.Q7ImplantRollCall {
+			sigs := strings.Join(r.TriageSignals, ",")
+			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
+				r.Host, r.Module, r.SiteClass,
+				trimLen(r.Locus, 40), trimLen(r.ExecTarget, 30),
+				trimLen(sigs, 60))
+		}
+		tw.Flush()
+	}
+	fmt.Fprintln(out)
+
+	// --- Q8: recent-mtime concentration ----------------------------
+	textSection(out, a, fmt.Sprintf("Q8 · Recent-mtime concentration (%d)",
+		len(report.Q8MtimeConcentration)))
+	fmt.Fprintln(out, "host × module pairs with >=5 records touched in the last 7 days.")
+	fmt.Fprintln(out)
+	if len(report.Q8MtimeConcentration) == 0 {
+		fmt.Fprintln(out, "  no rows")
+	} else {
+		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "  host\tmodule\trecent_records\trecent_loci")
+		for _, r := range report.Q8MtimeConcentration {
+			fmt.Fprintf(tw, "  %s\t%s\t%d\t%d\n",
+				r.Host, r.Module, r.RecentRecords, r.RecentLoci)
+		}
+		tw.Flush()
+	}
+	fmt.Fprintln(out)
+
+	// --- Q9: exec targets in tmp ------------------------------------
+	textSection(out, a, fmt.Sprintf("Q9 · Exec targets under /tmp, /var/tmp, /dev/shm, /run/shm (%d)",
+		len(report.Q9ExecInTmp)))
+	fmt.Fprintln(out, "Q4's open half: exec_target in tmp-class dirs, orphan or not.")
+	fmt.Fprintln(out)
+	if len(report.Q9ExecInTmp) == 0 {
+		fmt.Fprintln(out, "  no rows")
+	} else {
+		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "  host\tmodule\tsite_class\tlocus\texec_target\torphan")
+		for _, r := range report.Q9ExecInTmp {
+			orph := "no"
+			if r.IsOrphan {
+				orph = "yes"
+			}
+			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
+				r.Host, r.Module, r.SiteClass,
+				trimLen(r.Locus, 40), trimLen(r.ExecTarget, 30), orph)
+		}
+		tw.Flush()
+	}
+	fmt.Fprintln(out)
+
+	// --- Q10: per-host collection health ----------------------------
+	textSection(out, a, fmt.Sprintf("Q10 · Per-host collection health (%d hosts)",
+		len(report.Q10HostCoverage)))
+	fmt.Fprintln(out, "Sort DESC for anomaly outliers, ASC for collection failures.")
+	fmt.Fprintln(out)
+	if len(report.Q10HostCoverage) == 0 {
+		fmt.Fprintln(out, "  no rows")
+	} else {
+		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "  host\tos_id\trecords\tmodules\tsite_classes\trecent")
+		for _, r := range report.Q10HostCoverage {
+			fmt.Fprintf(tw, "  %s\t%s\t%s\t%d\t%d\t%d\n",
+				r.Host, r.OSID, commaInt(r.Records),
+				r.Modules, r.SiteClasses, r.RecentRecords)
 		}
 		tw.Flush()
 	}

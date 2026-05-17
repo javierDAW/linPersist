@@ -6,8 +6,12 @@ is malicious. That decision lives downstream, in a database that has
 seen the same artifacts on every other host in the fleet. The
 technique is frequency stacking, also known as Least Frequency
 Analysis (LFA). This cookbook explains the model, walks through the
-six canonical queries shipped in `tools/stack_demo.sql`, and lists
+ten canonical queries shipped in `tools/stack_demo.sql`, and lists
 the false-positive patterns that the analyst learns to filter out.
+The ten queries are a curated, non-redundant expert set: each adds
+a distinct analytical angle. Per-module variants (e.g. "cron LFA")
+are NOT separate queries — the analyst adds a `WHERE module = 'cron'`
+filter to Q1.
 
 ## The model: why frequency stacking surfaces malware
 
@@ -228,6 +232,100 @@ almost always lateral movement.
   it really is because the digest fragments. Group by exec basename
   in a follow-up query to disambiguate.
 
+### Query 7 — Implant roll-call (cross-cutting union)
+
+The textbook fingerprint of Q4 catches every implant whose
+`exec_target` lives under `/tmp` and is currently absent — about
+half of the implant classes observed in the wild. The rest need a
+different shape:
+
+- A sudoers `NOPASSWD: ALL` row has no `exec_target` at all.
+- A uid=0 backdoor in `/etc/passwd` is not a script; it's a database
+  row.
+- A `curl|bash` line in `/root/.bashrc` references an external URL,
+  not a path.
+- A `kmod install …` directive carries `/bin/sh` as its
+  `exec_target` (the shell running `-c '...'`); the malicious script
+  is inside the `-c` argument.
+
+Q7 is the cross-cutting union that the analyst runs first on every
+new fleet: it returns one row per record that matches **any** of
+the known implant shapes. Validated against the lab-large fleet
+(25 hosts, 13 documented implants across 5 hosts): exactly 13 rows,
+zero false positives. The clauses are deliberately disjoint to keep
+each implant on exactly one row.
+
+The query's source comment lists every clause and why it earns its
+place. Module-specific signals
+(`kmod_install_directive`, `sudoers_nopasswd`,
+`sudoers_all_commands`, `passwd_uid_zero`) carry the load; content
+patterns fill the gaps for shell-init implants
+(`profile`, `motd`, `sysv`) where the `exec_target` is the script
+itself rather than the malicious payload.
+
+### Query 8 — Recent-mtime concentration per host × module
+
+Q1-Q7 slice the data by content. Q8 slices by time. For each
+`(host, module)` pair, count records carrying the `recent_mtime_7d`
+signal. The interesting output is concentration: one host with 50+
+recent records across half its modules is, by definition, doing
+something the rest of the fleet is not.
+
+Two interpretations of a spike:
+
+1. **Config-management push** — Ansible / Salt / Chef just rolled
+   a playbook against this host. Correlate with the orchestration
+   tool's change log; if the timing matches, it's noise.
+2. **Post-compromise sweep** — the attacker is hardening
+   persistence after initial access: rewriting `authorized_keys`,
+   dropping new cron entries, layering systemd units, rotating
+   bashrc. The timing pattern is more clustered than a tool would
+   produce.
+
+The query returns ZERO rows on a quiet fleet because most
+persistence files are touched once at install and never again. Any
+output above the `HAVING count(*) >= 5` floor is by definition
+worth a look.
+
+### Query 9 — Exec targets under /tmp (regardless of orphan)
+
+Q4 demands BOTH `exec_target_orphan` AND `interpreter_in_tmp`. The
+conjunction is precise: it catches the implant whose payload was
+deleted post-execution (orphan) or has not been deployed yet. It
+misses the case where the payload is on disk right now — exactly
+the period when the attacker is still operational.
+
+Q9 closes that gap. Any record whose `exec_target` lives under
+`/tmp`, `/var/tmp`, `/dev/shm`, or `/run/shm` surfaces here,
+orphan or not. The `is_orphan` column on each row tells the analyst
+which of Q4 vs "armed but on disk" they're looking at.
+
+Q9 set minus Q4 set = "currently armed implants". That's the
+analyst's worst-case list: persistence wired to a payload that
+exists on disk right now.
+
+### Query 10 — Per-host collection health and coverage outliers
+
+A fleet-health and collection-validity check rather than a hunting
+query. For each host, count: records emitted, distinct modules,
+distinct site_classes, records with recent_mtime_7d.
+
+Two failure modes Q10 catches:
+
+1. **Silent collection failures.** A host with `records = 0` or
+   `modules = 1-2` against a fleet median of 10+ is almost
+   certainly a collection failure — the agent didn't run, ran
+   without read permissions, ran on a chroot, or got killed by
+   timeout. Cron-job alerting should pick this up but rarely does.
+2. **Coverage outliers.** A host emitting 3-5× more records than
+   its peers is doing something unusual. Could be a workload with
+   genuinely more services (k8s control plane, jump host with many
+   user accounts) — verify with `tags`. Could also be an attacker's
+   campaign of artifact drops.
+
+Sort by `records DESC` for outliers above the median; sort `ASC`
+for collection failures below it.
+
 ## False positives the analyst learns to filter
 
 Frequency stacking is not a verdict. The queries above produce
@@ -266,17 +364,47 @@ For day-to-day fleet triage:
 
 1. Collect once a day (cron-driven `linpersist --output /var/log/...`
    plus a sync to the warehouse).
-2. Run Query 4 first. It is cheap and the signal-to-noise ratio is
-   the best of the five.
-3. Run Query 3 per module. Per-module is cheaper than across-module
-   and the results are easier to skim.
-4. Cross-reference singletons from Query 1 against `host_meta.tags`,
-   change-management logs, and ticket trackers.
-5. Run Query 5 weekly as a fleet-health check.
+2. Run Q10 first. If hosts are missing or way below the fleet
+   median, you have a collection problem before you have a hunting
+   problem.
+3. Run Q7 (implant roll-call) second. It is the single highest-
+   signal query in the cookbook: a fleet of 25 hosts with 13
+   textbook implants produces exactly 13 rows in Q7 with zero
+   false positives. Output of Q7 is the analyst's triage queue
+   for the day.
+4. Run Q8 (recent-mtime concentration). Spikes that don't
+   correlate with a config-management push are the second-tier
+   triage queue.
+5. Run Q9 (exec targets in /tmp) and diff against Q4: the
+   difference is the "armed right now" subset.
+6. Per-module deep dives via Q1 with `WHERE module = 'X'`. Q3
+   when the fleet is mixed across distros.
 
-For an active investigation: cover Query 2 (per-locus) on the
-suspected hosts to surface anything common-but-misplaced, then
-Query 4 across the whole fleet to find lateral spread.
+For an active investigation: Q7 across the suspected hosts, then
+Q2 (per-locus) and Q6 (cross-host exec_target) to find lateral
+spread.
+
+## Running the queries
+
+```sh
+# Default — runs all ten against a directory of NDJSON:
+./tools/ingest.sh -q tools/stack_demo.sql ./fleet/
+
+# Custom set:
+./tools/ingest.sh -q my-custom.sql ./fleet/
+
+# Or interactively in DuckDB:
+duckdb fleet.duckdb -c "
+CREATE TABLE r AS SELECT * FROM read_ndjson_auto('fleet/*.ndjson', ignore_errors=true);
+.read tools/stack_demo.sql
+"
+```
+
+The `linpersist-report` binary embeds a Go-native subset of Q1-Q6
+for the no-DuckDB path (jump hosts without the DuckDB CLI, or
+analysts who prefer one-shot HTML output). The SQL file is the
+canonical source of truth; the Go path is a convenience for
+distribution.
 
 ## See also
 

@@ -60,6 +60,12 @@ filterable by the search input above it.
   (1-2 hosts) at the top of the list are the most interesting; they
   earn the analyst's triage time before frequent signals.
 
+The HTML and text reports cover **all ten canonical queries** from
+the cookbook (Q1-Q10), implemented in Go-native form so the binary
+needs no DuckDB at run time. The canonical SQL truth lives in
+`tools/stack_demo.sql`; the report binary's Go versions are kept
+in sync.
+
 ### Q1 · LFA singletons (`Q1`)
 
 Records whose `content_norm_sha256` appears on exactly one host.
@@ -99,6 +105,39 @@ whose persistence text differs. Identical payload, polymorphic
 persistence — the lateral-movement / worm signal. Filtered to
 `2 ≤ hosts < 10% of fleet` to skip both singletons (Q1 turf) and
 baseline binaries.
+
+### Q7 · Implant roll-call (`Q7`)
+
+The cross-cutting union. One row per record matching any canonical
+implant pattern: orphan+tmp, sudoers backdoors, uid=0 backdoors,
+kmod install replacements, profile/motd curl|wget content, sysv
+scripts referencing `/tmp`. The clauses are deliberately disjoint
+so every implant appears on exactly one row. Validated against a
+synthetic fleet of 25 hosts with 13 documented implants: 13 rows,
+zero false positives.
+
+### Q8 · Recent-mtime concentration (`Q8`)
+
+For each `(host, module)` pair with five or more records carrying
+`recent_mtime_7d`: count and distinct loci. Spikes mean
+config-management push or post-compromise sweep. Zero rows on a
+quiet fleet is the expected state.
+
+### Q9 · Exec targets in tmp-class directories (`Q9`)
+
+Q4's open half. Q4 requires both orphan AND interpreter_in_tmp;
+Q9 just filters `exec_target` by `/tmp/`, `/var/tmp/`,
+`/dev/shm/`, `/run/shm/` regardless of orphan. The `is_orphan`
+column tells the analyst whether the payload is currently armed.
+Q9 set minus Q4 = "currently armed implants".
+
+### Q10 · Per-host collection health and coverage (`Q10`)
+
+Per-host: records, distinct modules, distinct site_classes,
+recent records. Sort DESC for anomaly outliers (3× their peers);
+ASC for collection failures (zero or near-zero). Run this first
+on any new dataset — silent agent failures show up here before
+any threat-hunting query can run.
 
 ## Performance
 

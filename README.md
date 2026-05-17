@@ -198,24 +198,34 @@ Two fields are deliberately conservative by default:
   Only digests and a `password_status` enum (`set` / `locked` /
   `disabled` / `empty` / `unknown`). See ADR-0003 and ADR-0005.
 
-## Lab
+## Validation
 
-`lab/` and `lab-large/` are throwaway Docker setups for end-to-end
-validation:
+Every module ships with golden fixture tests under
+`internal/testdata/golden/<module>/` exercised by
+`go test ./internal/modules/...` — happy paths, edge cases,
+malformed inputs, robustness contracts. Plus a `matrix-audit`
+release gate (`make audit`) that fails the build if
+`matrix.yaml` and the registered modules drift apart.
 
-- `lab/` — 5 containers, one per distro, smoke test.
-- `lab-large/` — 25 containers, 5 per distro, exactly one implant host
-  per distro. Reproducible LFA workload: baseline records stack to 5
-  hosts within each `os_id`, implants stay singletons. See
-  [`lab-large/README.md`](./lab-large/README.md).
+Beyond the unit envelope, v0.1.0-alpha was validated end-to-end
+against a synthetic fleet of **25 Docker containers across five
+distros** (Debian 11, RHEL 8, Ubuntu 22.04, Amazon Linux 2023,
+Alpine 3.19), five per distro, with **thirteen textbook implants
+seeded across the five "compromised" hosts** — one per module
+covered by v0.1.0. Each implant maps to a different offensive
+pattern: orphan-in-tmp cron / ssh / sshd / pam / ldso / systemd
+unit / udev rule, NOPASSWD sudoers, uid-0 passwd backdoor,
+curl-bash in `.bashrc`, modprobe `install` directive, curl-bash
+in `update-motd.d`, init.d script pointing at `/tmp`.
 
-On lab-large the v0.1.0-alpha agent recovers all 5 textbook
-"orphan-in-tmp" implants with zero false positives via the
-[Query 4 fingerprint](./docs/stacking-cookbook.md) (`exec_target_orphan`
-AND `interpreter_in_tmp`); the remaining 3 implants (curl-bash in
-`.bashrc`, uid-0 backdoor in `/etc/passwd`, NOPASSWD `sudoers` entry)
-surface via Query 1 (LFA pure singleton) plus their module-specific
-signals.
+The full set of thirteen implants surfaces in Q7 (cross-cutting
+roll-call) of `tools/stack_demo.sql` with zero false positives.
+Q4 (orphan + tmp fingerprint) alone catches seven of them; the
+remaining six need their module-specific signals or content
+patterns. The fleet-scale validation setup is local development
+infrastructure and is not shipped with the project — running
+`linpersist-report` against your own NDJSON collection is the
+reproducible validation any operator can run.
 
 ## Documentation
 

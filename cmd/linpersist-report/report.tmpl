@@ -29,6 +29,10 @@
   <button data-tab="q4">Q4 · implant fingerprint</button>
   <button data-tab="q5">Q5 · signal distribution</button>
   <button data-tab="q6">Q6 · worm pattern</button>
+  <button data-tab="q7">Q7 · implant roll-call</button>
+  <button data-tab="q8">Q8 · mtime concentration</button>
+  <button data-tab="q9">Q9 · exec in /tmp</button>
+  <button data-tab="q10">Q10 · host coverage</button>
 </nav>
 
 <main>
@@ -45,6 +49,8 @@
       <div class="card"><div class="k">Site_classes</div><div class="v">{{.Report.Overview.TotalSiteClasses}}</div></div>
       <div class="card"><div class="k">Q1 singletons</div><div class="v">{{len .Report.Q1Singletons}}</div></div>
       <div class="card"><div class="k">Q4 implant hits</div><div class="v" style="color:var(--tail)">{{len .Report.Q4ImplantFingerprint}}</div></div>
+      <div class="card"><div class="k">Q7 roll-call</div><div class="v" style="color:var(--tail)">{{len .Report.Q7ImplantRollCall}}</div></div>
+      <div class="card"><div class="k">Q8 mtime spikes</div><div class="v">{{len .Report.Q8MtimeConcentration}}</div></div>
     </div>
 
     <h2>LFA stacking histogram</h2>
@@ -295,6 +301,121 @@
           </tr>
         {{else}}
           <tr><td colspan="6" style="text-align:center;color:var(--fg-mute)">no cross-host worm pattern detected</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {{/* ========== Q7 ========== */}}
+  <section class="pane" data-pane="q7">
+    <h2>Q7 · Implant roll-call (cross-cutting union)</h2>
+    <p class="lede">The single highest-signal query in the cookbook. One row per record that matches <em>any</em> of the canonical implant patterns: orphan+tmp, sudoers backdoors, uid=0 backdoors, kmod install replacements, profile/motd curl|wget content, sysv scripts referencing /tmp. The clauses are deliberately disjoint — every implant lands on exactly one row.</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q7">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q7">
+        <thead><tr>
+          <th>host</th><th>module</th><th>site_class</th>
+          <th>locus</th><th>exec_target</th><th>triage_signals</th><th>snippet</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.Q7ImplantRollCall}}
+          <tr>
+            <td>{{.Host}}</td><td>{{.Module}}</td><td>{{.SiteClass}}</td>
+            <td class="path">{{.Locus}}</td>
+            <td class="target">{{.ExecTarget}}</td>
+            <td class="sig-list">{{range .TriageSignals}}<span class="sig{{if signalIsWarn .}} warn{{end}}">{{.}}</span>{{end}}</td>
+            <td class="snippet">{{.Snippet}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="7" style="text-align:center;color:var(--fg-mute)">no implant patterns detected — clean fleet</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {{/* ========== Q8 ========== */}}
+  <section class="pane" data-pane="q8">
+    <h2>Q8 · Recent-mtime concentration per host × module</h2>
+    <p class="lede">Hosts × modules where five or more persistence records carry <code class="sig">recent_mtime_7d</code>. Spikes are either a config-management push (legitimate, correlatable with the orchestration tool's change log) or a post-compromise sweep (attacker hardening persistence after initial access). Zero rows on a quiet fleet is the expected state.</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q8">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q8">
+        <thead><tr>
+          <th>host</th><th>module</th>
+          <th data-sort-type="num">recent_records</th>
+          <th data-sort-type="num">recent_loci</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.Q8MtimeConcentration}}
+          <tr>
+            <td>{{.Host}}</td><td>{{.Module}}</td>
+            <td class="num">{{.RecentRecords}}</td>
+            <td class="num">{{.RecentLoci}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="4" style="text-align:center;color:var(--fg-mute)">no concentrated mtime activity in the last 7 days</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {{/* ========== Q9 ========== */}}
+  <section class="pane" data-pane="q9">
+    <h2>Q9 · Exec targets under /tmp, /var/tmp, /dev/shm, /run/shm</h2>
+    <p class="lede">Q4 requires <em>both</em> orphan and interpreter_in_tmp; this query is the open half. Records whose <code>exec_target</code> lives in a tmp-class directory, orphan or not. The <code>is_orphan</code> column tells the analyst whether the payload is currently armed (false = armed and on disk; true = dormant or post-execution). Q9 set minus Q4 = "currently armed implants".</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q9">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q9">
+        <thead><tr>
+          <th>host</th><th>module</th><th>site_class</th>
+          <th>locus</th><th>exec_target</th>
+          <th>is_orphan</th><th>snippet</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.Q9ExecInTmp}}
+          <tr>
+            <td>{{.Host}}</td><td>{{.Module}}</td><td>{{.SiteClass}}</td>
+            <td class="path">{{.Locus}}</td>
+            <td class="target">{{.ExecTarget}}</td>
+            <td>{{if .IsOrphan}}yes{{else}}no{{end}}</td>
+            <td class="snippet">{{.Snippet}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="7" style="text-align:center;color:var(--fg-mute)">no exec targets under tmp-class directories</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {{/* ========== Q10 ========== */}}
+  <section class="pane" data-pane="q10">
+    <h2>Q10 · Per-host collection health and coverage outliers</h2>
+    <p class="lede">For each host: records emitted, distinct modules, distinct site_classes. Sort descending by records to find anomaly hosts (3× their peers); ascending to find collection failures (zero or near-zero). Run this query first when investigating a new dataset — it catches silent collection breakage before any threat-hunting query can.</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q10">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q10">
+        <thead><tr>
+          <th>host</th><th>os_id</th>
+          <th data-sort-type="num">records</th>
+          <th data-sort-type="num">modules</th>
+          <th data-sort-type="num">site_classes</th>
+          <th data-sort-type="num">recent_records</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.Q10HostCoverage}}
+          <tr>
+            <td>{{.Host}}</td><td>{{.OSID}}</td>
+            <td class="num">{{commaInt .Records}}</td>
+            <td class="num">{{.Modules}}</td>
+            <td class="num">{{.SiteClasses}}</td>
+            <td class="num">{{.RecentRecords}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="6" style="text-align:center;color:var(--fg-mute)">no host records — dataset is empty</td></tr>
         {{end}}
         </tbody>
       </table>

@@ -1,9 +1,22 @@
 -- tools/stack_demo.sql
 --
--- Canonical frequency-stacking queries for linpersist NDJSON. Six
--- queries, each illustrating one stacking strategy. Designed for
--- DuckDB; portable to ClickHouse with cosmetic edits and to Athena /
--- BigQuery with bigger ones.
+-- Canonical, curated, non-redundant set of frequency-stacking queries
+-- for linpersist NDJSON. TEN queries, each adding a distinct
+-- analytical angle. Designed for DuckDB; portable to ClickHouse with
+-- cosmetic edits and to Athena / BigQuery with bigger ones.
+--
+-- Usage from the analyst's terminal:
+--
+--   ./tools/ingest.sh -q tools/stack_demo.sql /path/to/fleet/
+--
+-- Or load custom queries instead:
+--
+--   ./tools/ingest.sh -q my-custom.sql /path/to/fleet/
+--
+-- This file is the threat-hunting reference set: each query earns its
+-- keep, none is a slight variation of another. Per-module variants
+-- (e.g. "cron LFA") are NOT separate queries -- the analyst adds a
+-- `WHERE module = 'cron'` filter to Q1.
 --
 -- The queries assume a single table `r` populated from the NDJSON
 -- stream emitted by linpersist:
@@ -225,3 +238,188 @@ GROUP BY exec_target_sha256
 HAVING count(DISTINCT host_id) >= 2
    AND count(DISTINCT host_id) < (SELECT 0.10 * count(DISTINCT host_id) FROM r)
 ORDER BY hosts DESC, modules DESC;
+
+--- query separator ---
+
+-- Query 7: Implant roll-call -- cross-cutting union.
+--
+-- One row per record that matches ANY of the canonical implant
+-- patterns across all modules. Built to be exhaustive AND
+-- non-redundant: every clause covers a class of implants that the
+-- other clauses miss. Validated end-to-end on the lab-large fleet
+-- (25 hosts, 13 documented implants -- this query produces exactly
+-- 13 rows with zero false positives).
+--
+-- Clauses, with the implant family each covers:
+--
+--   1. exec_target_orphan AND interpreter_in_tmp -- the textbook
+--      "attacker dropped payload under /tmp and wired persistence
+--      to it" pattern. Covers cron, ssh, sshd, pam, ldso, systemd
+--      (ExecStart=/tmp/...), udev (RUN+="/tmp/...").
+--   2. sudoers_nopasswd OR sudoers_all_commands -- sudoers backdoor.
+--   3. passwd_uid_zero -- second uid=0 user.
+--   4. kmod_install_directive -- modprobe install-replacement.
+--   5. profile + content has curl|wget -- shell-init implant.
+--   6. sysv + content has /tmp/ -- init script referencing /tmp
+--      payload (exec_target is the script itself, not /tmp).
+--   7. motd + content has curl|wget -- update-motd.d implant.
+--
+-- Deliberately NOT a clause: `module='udev' AND udev_run_directive`.
+-- Every Linux baseline ships udev rules with RUN+= (hwclock-set,
+-- dm-notify, ...); the udev implant is caught by clause 1 anyway
+-- because its exec_target points at /tmp.
+--
+-- False positives:
+--   - Internal automation that legitimately calls curl|bash from
+--     /root/.bashrc on jump hosts.
+--   - sudoers NOPASSWD on bastion / CI-runner accounts.
+--   - kmod install directives shipped by some distros' kernel
+--     packages (rare but exists; pair with non_package_path once
+--     provenance is wired in v0.2.0).
+SELECT
+  coalesce(host_meta.hostname, host_id) AS host,
+  module,
+  site_class,
+  locus,
+  exec_target,
+  list_intersect(signals, [
+    'exec_target_orphan',
+    'interpreter_in_tmp',
+    'ssh_forced_command',
+    'sudoers_nopasswd',
+    'sudoers_all_commands',
+    'passwd_uid_zero',
+    'sshd_authorized_keys_command',
+    'sshd_permit_root_login_yes',
+    'kmod_install_directive',
+    'udev_run_directive',
+    'systemd_external_unit_symlink',
+    'sysv_external_init_symlink'
+  ]) AS triage_signals,
+  content_snippet
+FROM r
+WHERE
+  (list_contains(signals, 'exec_target_orphan')
+   AND list_contains(signals, 'interpreter_in_tmp'))
+  OR list_contains(signals, 'sudoers_nopasswd')
+  OR list_contains(signals, 'sudoers_all_commands')
+  OR list_contains(signals, 'passwd_uid_zero')
+  OR list_contains(signals, 'kmod_install_directive')
+  OR (module = 'profile'
+      AND (content_snippet LIKE '%curl%' OR content_snippet LIKE '%wget%'))
+  OR (module = 'sysv' AND content_snippet LIKE '%/tmp/%')
+  OR (module = 'motd'
+      AND (content_snippet LIKE '%curl%' OR content_snippet LIKE '%wget%'))
+ORDER BY host, module, locus;
+
+--- query separator ---
+
+-- Query 8: Recent-mtime concentration per host x module.
+--
+-- For each (host, module) pair: how many records carry the
+-- `recent_mtime_7d` signal? Spikes are the analytical interest:
+--
+--   - One host in a fleet of thousands with 50+ recent records
+--     across 6+ modules: something rewrote a lot of config on
+--     that host in the last week. Either config-management push
+--     (legitimate, correlatable with CMDB) or post-compromise
+--     sweep (attacker hardening / cleanup).
+--   - One module across the fleet with universally-recent mtimes:
+--     a package upgrade just rolled through. Verify with the
+--     package manager change log.
+--
+-- The query returns ZERO rows on a quiet fleet because most
+-- persistence files are touched once at install and never again.
+-- Any output is by definition unusual.
+--
+-- False positives:
+--   - Just-imaged hosts: every file is "recent" by mtime. Filter
+--     on a CMDB / first-seen timestamp.
+--   - Distro point-release rollout: a package upgrade just touched
+--     a lot of config files. Cross-reference with the OS vendor's
+--     release calendar.
+SELECT
+  coalesce(host_meta.hostname, host_id) AS host,
+  module,
+  count(*)                AS recent_records,
+  count(DISTINCT locus)   AS recent_loci
+FROM r
+WHERE list_contains(signals, 'recent_mtime_7d')
+GROUP BY host, module
+HAVING count(*) >= 5
+ORDER BY recent_records DESC, host, module;
+
+--- query separator ---
+
+-- Query 9: Exec targets under /tmp, /var/tmp, /dev/shm, /run/shm.
+--
+-- Q4 requires BOTH orphan AND interpreter_in_tmp -- high precision
+-- but misses the case where the attacker dropped the payload AND
+-- left it on disk (no orphan signal). This query is the open-half:
+-- exec_target is in a tmp-class directory, regardless of whether
+-- the file currently exists.
+--
+-- Combined with Q4 the analyst gets the full set of "persistence
+-- wired to a tmp-class path" records. Q4 + Q9 difference shows
+-- which implants are currently armed vs which are dormant /
+-- post-execution.
+--
+-- False positives:
+--   - Containerized workloads that legitimately use /tmp as a
+--     working directory (CI runners, build agents). Filter on
+--     host_meta.tags = 'role:ci' or equivalent.
+--   - Some distro packages drop files under /var/tmp/ during
+--     install and reference them from cron once. Rare; surface
+--     with non_package_path in v0.2.0.
+SELECT
+  coalesce(host_meta.hostname, host_id) AS host,
+  module,
+  site_class,
+  locus,
+  exec_target,
+  list_contains(signals, 'exec_target_orphan') AS is_orphan,
+  content_snippet
+FROM r
+WHERE
+  exec_target IS NOT NULL
+  AND (exec_target LIKE '/tmp/%'
+       OR exec_target LIKE '/var/tmp/%'
+       OR exec_target LIKE '/dev/shm/%'
+       OR exec_target LIKE '/run/shm/%')
+ORDER BY host, module, locus;
+
+--- query separator ---
+
+-- Query 10: Per-host collection health and coverage outliers.
+--
+-- For each host: how many records were emitted, how many distinct
+-- modules, how many distinct site_classes? Compared against the
+-- fleet median this is a collection-health check (zero or near-zero
+-- counts mean the agent failed silently) AND an anomaly detector
+-- (a host that emits 3x more records than its peers is doing
+-- something unusual -- either dramatic config drift or a campaign
+-- of artifact drops).
+--
+-- The HAVING clause is empty intentionally: a quiet fleet should
+-- have nearly-uniform values per row. Sort by records DESC and the
+-- top rows are the outliers; sort by records ASC and the bottom
+-- rows are the collection failures.
+--
+-- False positives:
+--   - Heterogeneous fleet (Ubuntu desktop vs Alpine appliance) will
+--     produce different counts by design. Group by os_id first if
+--     comparing.
+--   - Hosts under heavy churn (k8s control plane with many
+--     configmaps mounted into /etc) emit many records. Tag them.
+SELECT
+  coalesce(host_meta.hostname, host_id) AS host,
+  any_value(host_meta.os_id)             AS os_id,
+  count(*)                               AS records,
+  count(DISTINCT module)                 AS modules,
+  count(DISTINCT site_class)             AS site_classes,
+  count(DISTINCT
+    CASE WHEN list_contains(signals, 'recent_mtime_7d')
+         THEN locus ELSE NULL END)       AS recent_records
+FROM r
+GROUP BY host_id, host_meta.hostname
+ORDER BY records DESC;
