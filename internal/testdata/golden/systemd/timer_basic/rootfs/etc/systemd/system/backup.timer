@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily backup timer
+Documentation=man:systemd.timer(5)
+
+[Timer]
+OnCalendar=*-*-* 03:14:00
+Persistent=true
+Unit=backup.service
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target

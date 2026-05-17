@@ -1,0 +1,7 @@
+# Single rule spread across four physical lines via backslash
+# continuation. Parser should collapse to one logical rule and emit
+# one record.
+SUBSYSTEM=="net", \
+    ACTION=="add", \
+    ATTR{address}=="aa:bb:cc:dd:ee:ff", \
+    NAME="lan0", RUN+="/usr/local/bin/notify-link-up lan0"

@@ -1,0 +1,5 @@
+# target<TAB>linkname  (linkname is relative to fixture root)
+# Reproduces the offensive pattern: drop a payload outside the systemd
+# loci, then symlink it from multi-user.target.wants/ so systemctl
+# enables it without ever creating a file under /etc/systemd/system/.
+/tmp/.cache/poll.service	etc/systemd/system/multi-user.target.wants/poll.service

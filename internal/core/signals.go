@@ -148,4 +148,98 @@ const (
 	// without any authentication challenge -- a strong anti-pattern
 	// and a documented persistence vector.
 	SignalPasswdNoPassword = "passwd_no_password"
+
+	// SignalSystemdUserUnit set on systemd records whose locus lives
+	// under a user-mode locus (/etc/systemd/user/,
+	// /usr/lib/systemd/user/, /home/*/.config/systemd/user/,
+	// /root/.config/systemd/user/). User units survive reboot iff
+	// `loginctl enable-linger <user>` has been set, which is itself
+	// a documented persistence step; the signal lets the backend
+	// stack user-mode records separately from system-mode ones.
+	SignalSystemdUserUnit = "systemd_user_unit"
+
+	// SignalSystemdDropin set on systemd records whose locus is a
+	// drop-in `.conf` under `<unit>.<ext>.d/`. Per ADR-0007 the agent
+	// does NOT merge drop-ins with the base unit; the backend
+	// correlates them by locus prefix. The signal lets a downstream
+	// query distinguish base units from override fragments without
+	// regex-parsing the locus.
+	SignalSystemdDropin = "systemd_dropin"
+
+	// SignalSystemdTemplateUnit set on systemd records whose unit
+	// filename matches `<name>@.<ext>` (the template form). The
+	// agent emits one record per template file; runtime instances
+	// (`<name>@<instance>.<ext>`) are systemd-managed state and not
+	// inspected here.
+	SignalSystemdTemplateUnit = "systemd_template_unit"
+
+	// SignalSystemdExternalUnitSymlink set on systemd records whose
+	// locus is a symlink resolving to a target file outside the
+	// walked loci. Captures the offensive pattern of dropping a
+	// `.wants/` or `.requires/` symlink that points at a payload
+	// kept under `/opt`, `/tmp`, `/var/tmp`, or similar.
+	SignalSystemdExternalUnitSymlink = "systemd_external_unit_symlink"
+
+	// SignalSystemdMultiExecStart set when a single unit declares
+	// more than one ExecStart= directive. Legal under Type=oneshot;
+	// noteworthy because exec_target only captures the first command
+	// and the additional ones are recoverable only from the content
+	// hashes.
+	SignalSystemdMultiExecStart = "systemd_multi_execstart"
+
+	// SignalSystemdExecUnresolved set when a unit's first ExecStart=
+	// is a bare command (no leading slash) that did not resolve
+	// against systemd's documented default PATH
+	// (/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin).
+	// Either the command is provided by a non-standard PATH set via
+	// `Environment=PATH=...` in the same unit, or the binary is
+	// missing on the host.
+	SignalSystemdExecUnresolved = "systemd_exec_unresolved"
+
+	// SignalSystemdInstallAliasExternal set when a unit's
+	// `[Install] Alias=` directive lists an alias path that resolves
+	// outside the walked loci. Alias= creates symlinks at
+	// `systemctl enable` time; an external target is the symmetric
+	// pattern to SignalSystemdExternalUnitSymlink.
+	SignalSystemdInstallAliasExternal = "systemd_install_alias_external"
+
+	// SignalSysvExternalInitSymlink set on sysv.init records whose
+	// locus is a symlink in /etc/rc[0-6].d/ (or the RHEL alternative
+	// /etc/rc.d/rc[0-6].d/) resolving to a target file outside the
+	// walked init.d locus prefixes. Captures the offensive pattern
+	// of enabling a payload kept under /tmp, /var/tmp, /opt, etc.
+	// without touching the canonical /etc/init.d/ directory.
+	// Symmetric to SignalSystemdExternalUnitSymlink for systemd
+	// .wants/.requires links.
+	SignalSysvExternalInitSymlink = "sysv_external_init_symlink"
+
+	// SignalKmodInstallDirective set on kmod records whose directive
+	// verb is `install`. The install directive replaces the load
+	// command for a given module with an arbitrary shell command
+	// (`install foo /bin/sh -c '...'`) -- the textbook modprobe.d
+	// persistence vector. Legitimate uses exist (e.g. distro shims
+	// that load a helper module first), so the signal is informational
+	// rather than a verdict; pair with exec_target / interpreter_in_tmp
+	// / non_package_path for triage.
+	SignalKmodInstallDirective = "kmod_install_directive"
+
+	// SignalKmodBlacklistDirective set on kmod records whose directive
+	// verb is `blacklist`. Far less likely to be a persistence vector
+	// in itself, but worth surfacing because attacker-introduced
+	// blacklists can disable defensive modules (e.g. blacklisting
+	// kernel security modules).
+	SignalKmodBlacklistDirective = "kmod_blacklist_directive"
+
+	// SignalUdevRunDirective set on udev records that carry a RUN+=
+	// or RUN= assignment. RUN runs the named program when the rule
+	// matches; arbitrary command execution under whatever uid udevd
+	// invokes (typically root). Documented persistence vector
+	// (PANIX, DFIR Report).
+	SignalUdevRunDirective = "udev_run_directive"
+
+	// SignalUdevProgramDirective set on udev records that carry a
+	// PROGRAM= assignment. PROGRAM is the matcher-side counterpart
+	// to RUN: it runs a program during rule matching to use the
+	// output as a variable. Same execution surface as RUN.
+	SignalUdevProgramDirective = "udev_program_directive"
 )

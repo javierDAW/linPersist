@@ -1,0 +1,4 @@
+# Internal symlink: target is inside the walked init.d locus.
+# Walker should classify as internal and skip; only the init.d/myapp
+# file appears in the expected output.
+/etc/init.d/myapp	etc/rc2.d/S99myapp

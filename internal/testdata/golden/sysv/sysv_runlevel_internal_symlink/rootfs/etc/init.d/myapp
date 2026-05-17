@@ -1,0 +1,12 @@
+#!/bin/sh
+# Minimal init script -- the rc2.d/ symlink targets this file (internal,
+# should NOT emit its own record).
+
+DAEMON=/usr/local/bin/myapp
+
+case "$1" in
+    start) $DAEMON & ;;
+    stop) pkill -f "$DAEMON" ;;
+esac
+
+exit 0

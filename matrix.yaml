@@ -85,13 +85,22 @@ site_classes:
       - /lib/systemd/system/
       - /run/systemd/system/
       - /etc/systemd/user/
-      - ~/.config/systemd/user/
-    status: planned
-    test_coverage: none
+      - /usr/lib/systemd/user/
+      - /home/*/.config/systemd/user/
+      - /root/.config/systemd/user/
+    status: implemented
+    test_coverage: golden+unit
     notes: |
-      Normalization canonicalizes section order, key casing per
-      systemd.unit(5), strips comments and blank lines. ExecStart and
-      ExecStartPre/Post resolved against PATH to populate exec_target.
+      Per-file record granularity. Extensions in scope: .service,
+      .socket, .path, .mount, .automount, .swap, .target. .slice and
+      .scope deliberately out of scope for v0.1.0 (noise from
+      session-*.scope, user-*.slice; re-evaluate in v0.2.0). Drop-ins
+      at *.d/*.conf emit as independent records with signal
+      systemd_dropin. Canonical form joins line continuations, sorts
+      sections (Unit -> type -> Install) and keys alphabetically with
+      Exec* family exempted from sort, sorts whitespace-separated set
+      values (Wants, After, ...) alphabetically, preserves ExecStart
+      prefixes verbatim. See ADR-0007.
 
   - site_class: systemd.timer
     module: systemd
@@ -101,18 +110,29 @@ site_classes:
       - /usr/lib/systemd/system/
       - /lib/systemd/system/
       - /run/systemd/system/
-    status: planned
-    test_coverage: none
+      - /etc/systemd/user/
+      - /usr/lib/systemd/user/
+      - /home/*/.config/systemd/user/
+      - /root/.config/systemd/user/
+    status: implemented
+    test_coverage: golden+unit
     notes: |
-      Emits one record per .timer unit; cross-references the .service it
-      activates via Unit= or implicit naming convention.
+      One record per .timer file. Cross-references the .service it
+      activates via explicit Unit= or implicit naming convention
+      (foo.timer -> foo.service); the cross-reference is preserved
+      verbatim in the canonical form, the backend resolves it. Same
+      canonical-form pipeline as systemd.unit (see ADR-0007). User
+      timers under /home/*/.config/systemd/user/ collected (linger
+      hosts).
 
   - site_class: sysv.init
     module: sysv
     mitre: [T1037.004]
     loci:
       - /etc/init.d/
+      - /etc/rc.d/init.d/
       - /etc/rc.local
+      - /etc/rc.d/rc.local
       - /etc/rc0.d/
       - /etc/rc1.d/
       - /etc/rc2.d/
@@ -121,12 +141,23 @@ site_classes:
       - /etc/rc5.d/
       - /etc/rc6.d/
       - /etc/rcS.d/
-    status: planned
-    test_coverage: none
+      - /etc/rc.d/rc0.d/
+      - /etc/rc.d/rc1.d/
+      - /etc/rc.d/rc2.d/
+      - /etc/rc.d/rc3.d/
+      - /etc/rc.d/rc4.d/
+      - /etc/rc.d/rc5.d/
+      - /etc/rc.d/rc6.d/
+    status: implemented
+    test_coverage: golden+unit
     notes: |
       Largely legacy but still present on RHEL 7, Amazon Linux 2 and
-      embedded systems. rc*.d entries followed through symlinks to
-      /etc/init.d/<service>.
+      embedded systems. init.d/* files emit as records directly.
+      rc.local files emit as records too. rc[0-6].d/* symlinks are
+      treated like systemd .wants/.requires: internal targets (inside
+      init.d/) are skipped to avoid double-counting; external targets
+      (e.g. a symlink to /tmp/.cache/x.sh) emit a record with the
+      sysv_external_init_symlink signal.
 
   - site_class: ssh.authkeys
     module: ssh
@@ -349,17 +380,25 @@ site_classes:
 
   - site_class: motd
     module: motd
-    mitre: [T1037.004]
+    mitre: [T1037]
     loci:
-      - /etc/update-motd.d/
       - /etc/motd
-      - /etc/issue.net
-      - /etc/issue
-    status: planned
-    test_coverage: none
+      - /etc/motd.d/
+      - /etc/update-motd.d/
+    status: implemented
+    test_coverage: golden+unit
     notes: |
-      update-motd.d scripts run as root on each login on Debian/Ubuntu;
-      classic persistence path. Each script emitted as its own record.
+      MITRE ATT&CK does not (as of May 2026) carry a sub-technique
+      specific to motd-via-PAM. T1037 is used as the closest match
+      (Boot or Logon Initialization Scripts, parent technique).
+      Per-file granularity. Two canonical-form rules per locus:
+      plain text for /etc/motd and /etc/motd.d/* ('#' is content,
+      not a comment); shell for /etc/update-motd.d/* (strip '#'
+      comments + blank lines + trailing whitespace, same as profile
+      and sysv). exec_target is set only on update-motd.d/* records
+      (those scripts are invoked by pam_motd at login). /etc/issue
+      and /etc/issue.net are deliberately out of scope -- they are
+      pre-login banners, not a PAM-mediated persistence vector.
 
   - site_class: kmod
     module: kmod
@@ -367,16 +406,26 @@ site_classes:
     loci:
       - /etc/modules
       - /etc/modules-load.d/
+      - /usr/lib/modules-load.d/
+      - /run/modules-load.d/
       - /etc/modprobe.d/
       - /lib/modprobe.d/
       - /usr/lib/modprobe.d/
       - /run/modprobe.d/
-    status: planned
-    test_coverage: none
+    status: implemented
+    test_coverage: golden+unit
     notes: |
-      Auto-loaded kernel modules and modprobe options. Out-of-tree
-      modules surface via signals.non_package_path on the resolved
-      .ko file.
+      Per-directive (per-line) granularity. /etc/modules and
+      modules-load.d/* are simple lists of module names (one per
+      line). modprobe.d/* uses the modprobe(5) directive grammar:
+      alias, blacklist, install, options, remove, softdep. Line
+      continuations (`\` at EOL) are joined before parsing.
+      Canonical form lowercases the first whitespace token and
+      collapses runs of internal whitespace to a single space; values
+      keep their source case. install directives fire
+      kmod_install_directive and populate exec_target with argv[0] of
+      the replacement command -- the textbook modprobe.d persistence
+      vector. blacklist directives fire kmod_blacklist_directive.
 
   - site_class: udev
     module: udev
@@ -386,9 +435,16 @@ site_classes:
       - /lib/udev/rules.d/
       - /usr/lib/udev/rules.d/
       - /run/udev/rules.d/
-    status: planned
-    test_coverage: none
+    status: implemented
+    test_coverage: golden+unit
     notes: |
-      RUN+= rules in udev are a documented persistence vector. One
-      record per file; exec_target populated from RUN+= value.
-      Normalization preserves match key order.
+      Per-rule (per-logical-line) granularity. Backslash line
+      continuations are joined before parsing. Canonical form
+      collapses whitespace OUTSIDE quoted values to a single space
+      and standardizes spacing around commas to ", "; whitespace
+      INSIDE "..." quoted values is preserved verbatim. Key-op-value
+      triples retain source order. exec_target is the first token of
+      the first RUN+=/RUN= value found in the rule. RUN+= fires
+      udev_run_directive; PROGRAM= fires udev_program_directive.
+      MITRE T1546 (parent: Event Triggered Execution) -- ATT&CK has
+      no Linux-udev sub-technique as of May 2026.

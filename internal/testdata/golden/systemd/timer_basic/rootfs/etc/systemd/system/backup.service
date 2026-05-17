@@ -1,0 +1,7 @@
+[Unit]
+Description=Backup task invoked by backup.timer
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/backup --target /backup/repo

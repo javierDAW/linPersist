@@ -29,29 +29,36 @@ decides.
 
 ## Status
 
-Alpha, working toward v0.1.0. Eight modules implemented and golden-tested,
-covering 17 `site_class` values across nine MITRE ATT&CK techniques.
-Cross-compilation matrix and a multi-distro Docker lab are in place. Six
-critical modules from the v0.1.0 set are still pending (see below). The
-NDJSON schema is at v1; breaking changes will bump the major and ship
-with a migration note in `docs/`. See `matrix.yaml` for the canonical
-per-`site_class` status.
+Alpha, working toward v0.1.0. **Thirteen modules implemented and
+golden-tested, covering 23 `site_class` values across fourteen MITRE
+ATT&CK techniques.** The original v0.1.0 critical set is complete.
+Cross-compilation matrix and a multi-distro Docker lab are in place.
+The NDJSON schema is at v1; breaking changes will bump the major and
+ship with a migration note in `docs/`. See `matrix.yaml` for the
+canonical per-`site_class` status.
 
 ## Modules
 
-| Module    | site_classes covered                                          | MITRE                       |
-| --------- | ------------------------------------------------------------- | --------------------------- |
-| `cron`    | `cron.d`, `cron.user`, `cron.periodic`, `cron.anacron`        | T1053.003                   |
-| `ldso`    | `ldso.preload`, `ldso.conf`, `ldso.confd`                     | T1574.006                   |
-| `ssh`     | `ssh.authkeys`                                                | T1098.004                   |
-| `sshd`    | `sshd.config`                                                 | T1098.004, T1556            |
-| `sudoers` | `sudoers`                                                     | T1548.003                   |
-| `passwd`  | `passwd.user`, `passwd.shadow`, `passwd.group`, `passwd.gshadow` | T1136.001               |
-| `pam`     | `pam`                                                         | T1556.003                   |
-| `profile` | `profile.system`, `profile.user`                              | T1546.004                   |
+| Module    | site_classes covered                                              | MITRE                       |
+| --------- | ----------------------------------------------------------------- | --------------------------- |
+| `cron`    | `cron.d`, `cron.user`, `cron.periodic`, `cron.anacron`            | T1053.003                   |
+| `ldso`    | `ldso.preload`, `ldso.conf`, `ldso.confd`                         | T1574.006                   |
+| `ssh`     | `ssh.authkeys`                                                    | T1098.004                   |
+| `sshd`    | `sshd.config`                                                     | T1098.004, T1556            |
+| `sudoers` | `sudoers`                                                         | T1548.003                   |
+| `passwd`  | `passwd.user`, `passwd.shadow`, `passwd.group`, `passwd.gshadow`  | T1136.001                   |
+| `pam`     | `pam`                                                             | T1556.003                   |
+| `profile` | `profile.system`, `profile.user`                                  | T1546.004                   |
+| `systemd` | `systemd.unit`, `systemd.timer`                                   | T1543.002, T1053.006        |
+| `sysv`    | `sysv.init`                                                       | T1037.004                   |
+| `motd`    | `motd`                                                            | T1037                       |
+| `kmod`    | `kmod`                                                            | T1547.006                   |
+| `udev`    | `udev`                                                            | T1546                       |
 
-Pending for v0.1.0: `systemd.unit`, `systemd.timer`, `sysv.init`, `motd`,
-`kmod`, `udev`.
+v0.1.0 critical set complete. v0.2.0 roadmap: provenance (dpkg/rpm
+orphan checks wired into `exec_target_pkg_status`), more distro
+integration tests, ebpf state inspection, cloud-init / Docker /
+Kubernetes site_classes.
 
 ## Build
 
@@ -85,7 +92,10 @@ See `lab/README.md` for the end-to-end demo.
 - `docs/schema-v1.md` — canonical record description.
 - `docs/normalization-rules.md` — invariants every module's `Normalize`
   honors.
-- `docs/adr/` — Architecture Decision Records (currently five).
+- `docs/modules/<name>.md` — per-module reference (loci, normalization,
+  signals, false-positive patterns). Currently only `systemd.md` is
+  populated; the rest is debt to be paid back module by module.
+- `docs/adr/` — Architecture Decision Records (currently seven).
 
 ## License
 

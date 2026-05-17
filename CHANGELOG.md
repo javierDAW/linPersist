@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+(no changes yet)
+
+## [0.1.0-alpha] - 2026-05-17
+
+First publicly tagged snapshot. The v0.1.0 critical set of persistence
+modules (13 modules, 23 site_classes, 14 MITRE ATT&CK techniques) is
+implemented and golden-tested. NDJSON schema is at v1 and considered
+frozen for the v0.1.x line; any breaking change ships under v0.2.x
+with a documented migration. Static cross-compilation, multi-distro
+lab, and an LFA stacking cookbook accompany the agent.
+
 ### Added
 - Repository skeleton: layout, Makefile, Apache-2.0 LICENSE, .gitignore.
 - `matrix.yaml` source of truth for MITRE ATT&CK coverage (15 site_classes
@@ -178,6 +189,247 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `matrix.yaml`: `cron.user` and `cron.anacron` upgraded from
   `test_coverage: none` to `golden` now that they have dedicated
   fixtures.
+
+### Added (systemd module)
+- `systemd` module: collects `systemd.unit` (MITRE T1543.002) and
+  `systemd.timer` (MITRE T1053.006) from system-mode loci
+  (`/etc/systemd/system`, `/usr/lib/systemd/system`,
+  `/lib/systemd/system`, `/run/systemd/system`), system-installed
+  user loci (`/etc/systemd/user`, `/usr/lib/systemd/user`), and
+  per-user loci (`/root/.config/systemd/user`,
+  `/home/*/.config/systemd/user`). Per-file record granularity per
+  ADR-0007. Extensions in scope: `.service`, `.socket`, `.path`,
+  `.mount`, `.automount`, `.swap`, `.target`, `.timer`. `.slice` and
+  `.scope` deliberately excluded for v0.1.0 (noisy, rarely a
+  persistence vector). Drop-ins under `*.d/*.conf` emit as
+  independent records with the `systemd_dropin` signal; the agent
+  does NOT merge drop-ins with their base unit in memory.
+- `internal/modules/systemd/inifile.go` hand-rolled parser:
+  backslash line-continuation join, comment + blank-line skip,
+  malformed-input tolerance (PARSE_ERROR entries surface via
+  `Record.Errors`, never panic).
+- `internal/modules/systemd/normalize.go` canonical-form pipeline:
+  section names + order canonicalized (`[Unit]` -> type-specific ->
+  `[Install]` -> others alphabetical); key names + order
+  canonicalized (alphabetical case-insensitive, with the `Exec*=`
+  family exempted from sort and preserving source order); ~50
+  well-known keys get conventional capitalization; set-semantic
+  keys (`Wants=`, `After=`, `Requires=`, ...) accumulate across
+  lines, honor the empty-value reset, then sort+dedupe; `Exec*=`
+  family honors the empty-value reset and preserves `@-:!+`
+  prefixes verbatim. Pipeline is idempotent.
+- Symlink classification per ADR-0007 §6: internal symlinks
+  (target inside any walked locus) are skipped to avoid
+  double-counting; external symlinks (target outside walked loci)
+  emit a record carrying the resolved target's content hashes and
+  the `systemd_external_unit_symlink` signal. The `/home` walked
+  locus is matched by path shape (`/.config/systemd/user/...`)
+  rather than by prefix, so a symlink to an unrelated file under a
+  user's home still classifies as external.
+- ExecStart resolution: strips `@-:!+` prefixes, takes `argv[0]`,
+  resolves absolute paths directly and relative commands against
+  the documented systemd.exec(5) default PATH
+  (`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`).
+  Honors the empty-value reset idiom. `exec_target_sha256` is
+  streamed against the resolved binary.
+- Seven new core signals: `systemd_user_unit`, `systemd_dropin`,
+  `systemd_template_unit`, `systemd_external_unit_symlink`,
+  `systemd_multi_execstart`, `systemd_exec_unresolved`,
+  `systemd_install_alias_external`.
+- `docs/adr/0007-systemd-canonical-form.md` ADR documenting the
+  granularity (per-file), drop-in policy (independent records),
+  canonical-form pipeline, scope (`.slice` / `.scope` excluded),
+  symlink rules, and template-instance handling.
+- `docs/modules/systemd.md` first per-module reference doc in the
+  project (loci, canonical form, signals, false-positive patterns,
+  out-of-scope items). The other modules still owe the equivalent
+  doc; tracked as debt rather than blocking the v0.1.0 tag.
+- Eight golden fixture cases covering happy path
+  (`unit_basic_service`), line continuations
+  (`unit_line_continuation`), drop-ins (`dropin_overrides_exec`),
+  template units (`template_instance_unit`), user units
+  (`user_unit_alice`), external `.wants/` symlink
+  (`external_wants_symlink`, with `symlinks.txt` manifest so the
+  symlink is created at test time rather than checked into git),
+  timers (`timer_basic` with cross-referenced `.service`), and
+  parser robustness (`unit_malformed`).
+- Module unit tests cover Normalize (line continuations, comment
+  stripping, section + key reorder, set-semantic sort+dedupe,
+  empty-reset for both set-semantic and Exec* families,
+  equivalent-inputs collapse, idempotence, empty input), ParseUnitFile
+  (sections, continuations, malformed-line tolerance), helpers
+  (`stripExecPrefixes`, `isTemplateUnit`, `classifyExtension`,
+  `siteClassForDropinDir`), `resolveExecTarget` (absolute,
+  multi-ExecStart, no-ExecStart, unresolved-relative), and
+  `targetInsideWalkedLoci` (including the `/home` path-shape rule).
+- `cmd/linpersist` and `cmd/matrix-audit` updated to register the
+  new module; `matrix-audit` continues to pass.
+
+### Changed (matrix coverage)
+- `matrix.yaml`: `systemd.unit` and `systemd.timer` flipped from
+  `planned` to `implemented`. The `systemd.timer` entry's loci were
+  corrected to include the user-mode directories
+  (`/etc/systemd/user`, `/usr/lib/systemd/user`,
+  `/home/*/.config/systemd/user`, `/root/.config/systemd/user`);
+  the original entry only covered system-mode dirs which would have
+  missed user timers (a documented vector when
+  `loginctl enable-linger` is set on the user).
+
+### Added (sysv module)
+- `sysv` module: collects `sysv.init` (MITRE T1037.004) from
+  `/etc/init.d/*`, `/etc/rc.d/init.d/*` (RHEL variant),
+  `/etc/rc.local`, `/etc/rc.d/rc.local`, plus
+  external-target symlinks under `/etc/rc[0-6].d/`, `/etc/rcS.d/`,
+  and `/etc/rc.d/rc[0-6].d/`. Per-file record granularity.
+- Canonical form mirrors `profile`/`motd-shell`: strips `#`
+  comments (including shebangs and LSB `### BEGIN/END INIT INFO`
+  blocks), blank lines, and per-line trailing whitespace. The
+  executable body is what stacks; cosmetic header drift collapses.
+- Symlink classification analogous to `systemd`: internal symlinks
+  (target inside `init.d/`) are skipped to avoid double-counting;
+  external symlinks (target outside walked loci) emit a record
+  carrying the resolved target's content hashes and the
+  `sysv_external_init_symlink` signal. Captures the offensive
+  pattern of enabling a payload from `/tmp` or `/opt` via an
+  `rc2.d/S99payload -> /tmp/.cache/x.sh` symlink without touching
+  `/etc/init.d/`.
+- New core signal: `sysv_external_init_symlink`.
+- Four golden fixture cases covering happy path
+  (`sysv_initd_happy`), internal symlink that should be skipped
+  (`sysv_runlevel_internal_symlink`), external symlink to a
+  `/tmp` payload (`sysv_runlevel_external_symlink`), and the
+  RHEL `/etc/rc.d/init.d/` location (`sysv_rhel_rcd`).
+- Module unit tests cover `Normalize` (LSB-header strip,
+  equivalent-bodies collapse, trailing-whitespace strip, empty
+  inputs) and `targetInsideInitdLoci`.
+
+### Added (motd module)
+- `motd` module: collects `motd` (MITRE T1037, parent technique
+  -- ATT&CK has no sub-technique specific to motd-via-PAM as of
+  May 2026) from `/etc/motd`, `/etc/motd.d/*`, and
+  `/etc/update-motd.d/*`. Per-file record granularity.
+- Two canonical-form rules per locus: `NormalizeText` for
+  plain-text loci (only strip trailing whitespace + blank lines;
+  `#` is content, not a comment); `NormalizeShell` for
+  `/etc/update-motd.d/*` shell scripts (strip `#` comments +
+  blank lines + trailing whitespace, same as `profile` and
+  `sysv`). The walker picks the normalizer by path.
+- `exec_target` is set only on `update-motd.d/*` records; those
+  scripts are invoked by `pam_motd` at login, so the script
+  itself is the persistence target. Static-text loci leave
+  `exec_target` empty.
+- Three golden fixture cases: `motd_static` (legitimate
+  `/etc/motd` banner with `#` content preserved),
+  `motd_update_dir_clean` (Ubuntu defaults at 00-header and
+  10-help-text), `motd_update_dir_implant` (textbook
+  `curl|sh` line in 99-x).
+- Module unit tests verify `NormalizeText` preserves `#` lines
+  (banner content), `NormalizeShell` strips `#` lines (shell
+  semantics), equivalent shell bodies collapse to the same
+  canonical hash, and both normalizers handle empty input.
+- `/etc/issue` and `/etc/issue.net` deliberately out of scope:
+  those are pre-login banners, not a PAM-mediated persistence
+  vector. Re-evaluate if reporting from PANIX or DFIR Report
+  shows in-the-wild use.
+
+### Changed (matrix coverage)
+- `matrix.yaml`: `sysv.init` flipped from `planned` to
+  `implemented`. Loci expanded to include `/etc/rc.d/init.d/`,
+  `/etc/rc.d/rc.local`, and the RHEL `/etc/rc.d/rc[0-6].d/`
+  family alongside the existing `/etc/rc[0-6].d/` set. Notes
+  document the internal/external symlink classification policy.
+- `matrix.yaml`: `motd` flipped from `planned` to
+  `implemented`. MITRE changed from `T1037.004` (RC Scripts --
+  incorrect, that is sysv.init's technique) to `T1037` (parent,
+  no Linux-motd sub-technique exists yet). Loci trimmed to
+  `/etc/motd`, `/etc/motd.d/`, `/etc/update-motd.d/` -- removed
+  `/etc/issue` and `/etc/issue.net` from scope per the spec
+  discussion.
+
+### Added (kmod module)
+- `kmod` module: collects `kmod` (MITRE T1547.006) from
+  `/etc/modules`, `/etc/modules-load.d/*.conf`,
+  `/usr/lib/modules-load.d/*.conf`, `/run/modules-load.d/*.conf`,
+  `/etc/modprobe.d/*.conf`, `/lib/modprobe.d/*.conf`,
+  `/usr/lib/modprobe.d/*.conf`, `/run/modprobe.d/*.conf`.
+- Per-directive (per-line) record granularity. Each non-comment
+  non-blank logical line is one record. Backslash line continuations
+  are joined before parsing.
+- Canonical form: trim, collapse runs of whitespace to single space,
+  lowercase the first whitespace-token (directive verb for modprobe,
+  module name for /etc/modules-style). Values keep their source
+  case. Idempotent.
+- `install` directives fire `kmod_install_directive` and populate
+  `exec_target` with argv[0] of the replacement command -- the
+  textbook modprobe.d persistence vector
+  (`install X /bin/sh -c '...'`). `blacklist` directives fire
+  `kmod_blacklist_directive`. Standard core signals
+  (`recent_mtime_*`, `world_writable`, `non_root_owner`,
+  `exec_target_orphan`, `interpreter_in_tmp`, `shell_indirect`)
+  apply.
+- Two new core signals: `kmod_install_directive`,
+  `kmod_blacklist_directive`.
+- Four golden cases: `kmod_etc_modules` (three module names with
+  optional kernel-arg on one line), `kmod_modulesload_d`
+  (`/etc/modules-load.d/myapp.conf`), `kmod_modprobed_blacklist`
+  (six directives across blacklist + alias),
+  `kmod_install_implant` (textbook `install ip_tables /bin/sh -c`
+  pattern with line continuation).
+- Module unit tests cover `normalizeLine` (whitespace collapse,
+  verb lowercase, value-case preservation, idempotence, empty
+  input), `parseLogicalLines` (continuation join, comment + blank
+  drop), and `splitFirstToken`.
+
+### Added (udev module)
+- `udev` module: collects `udev` (MITRE T1546 parent -- ATT&CK has
+  no Linux-udev sub-technique as of May 2026) from
+  `/etc/udev/rules.d/*.rules`, `/lib/udev/rules.d/*.rules`,
+  `/usr/lib/udev/rules.d/*.rules`, `/run/udev/rules.d/*.rules`.
+- Per-rule (per-logical-line) record granularity. Backslash line
+  continuations are joined into a single logical rule before parsing.
+- Canonical form (`normalizeRule`): trim, collapse runs of
+  whitespace OUTSIDE quoted values to a single space, normalize
+  spacing around `,` to `, ` (comma followed by exactly one space).
+  Whitespace INSIDE `"..."` quoted values is preserved verbatim.
+  Key-op-value triples retain source order (assignment-side
+  operators like RUN+= are order-sensitive in udev semantics).
+- `extractAssignmentValue` is a stateful parser that finds the
+  first triple with a given key (case-insensitive) and operator
+  `=`/`+=`/`:=`. Matches are anchored on word boundaries so a key
+  like `PRERUN_HOOK` does not match a search for `RUN`. Supports
+  the curly-brace-qualified form `RUN{program}+=`.
+- `RUN+=` and `RUN=` rules fire `udev_run_directive` and populate
+  `exec_target` with the first whitespace-separated token of the
+  value. `PROGRAM=` fires `udev_program_directive` (no
+  `exec_target` populated; it is a matcher-side directive). Standard
+  core signals apply.
+- Two new core signals: `udev_run_directive`,
+  `udev_program_directive`.
+- Three golden cases: `udev_legit_rule` (vendor-rule for an FTDI
+  USB dongle, MODE+GROUP only), `udev_run_implant`
+  (`RUN+="/tmp/.cache/poll.sh"`), `udev_multikey_continuation`
+  (single rule across four physical lines via `\`).
+- Module unit tests cover `parseRules` (continuation join, comment
+  + blank drop), `normalizeRule` (whitespace collapse outside
+  quotes, comma spacing, quoted-whitespace preservation,
+  idempotence, empty input), `extractAssignmentValue` (RUN, PROGRAM,
+  brace-qualified RUN{program}+=, not-present, word-boundary),
+  and the file-level `Normalize`.
+
+### Changed (matrix coverage)
+- `matrix.yaml`: `kmod` flipped from `planned` to `implemented`.
+  Loci expanded to include `/usr/lib/modules-load.d/` and
+  `/run/modules-load.d/` alongside the existing
+  `/etc/modules-load.d/` (parity with the modprobe.d family).
+  Notes document the per-directive granularity decision, the
+  canonical-form rules, and the install/blacklist signal logic.
+- `matrix.yaml`: `udev` flipped from `planned` to `implemented`.
+  Notes document the per-rule (per-logical-line) granularity
+  decision (over per-file), the quote-aware canonical-form rules,
+  and the RUN+= / PROGRAM= exec_target / signal contract.
+- **v0.1.0 critical set is now complete.** All 13 site_classes
+  across 11 modules from the original v0.1.0 plan are implemented
+  with golden + unit tests.
 
 ### Added (matrix-audit)
 - `cmd/matrix-audit/main.go` release gate per ADR-0001. Loads

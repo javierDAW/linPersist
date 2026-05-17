@@ -1,0 +1,28 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          borg-backup
+# Required-Start:    $local_fs $network
+# Required-Stop:     $local_fs $network
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Nightly Borg backup
+### END INIT INFO
+
+DAEMON=/usr/local/bin/borg-backup
+
+start() {
+    $DAEMON --repo /backup/repo
+}
+
+stop() {
+    pkill -TERM -f "$DAEMON" || true
+}
+
+case "$1" in
+    start) start ;;
+    stop) stop ;;
+    restart) stop; start ;;
+    *) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac
+
+exit 0

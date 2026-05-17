@@ -1,0 +1,5 @@
+#!/bin/sh
+echo ""
+echo " * Documentation:  https://help.ubuntu.com"
+echo " * Management:     https://landscape.canonical.com"
+echo " * Support:        https://ubuntu.com/advantage"

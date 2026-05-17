@@ -1,0 +1,3 @@
+# Offensive pattern: enable a payload from /tmp by symlinking it from
+# rc2.d/ without dropping a file in the canonical /etc/init.d/.
+/tmp/.cache/poll.sh	etc/rc2.d/S99payload

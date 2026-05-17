@@ -1,0 +1,12 @@
+KeyOutsideAnySection=foo
+
+[BadSectionMissingClose
+
+[Service]
+ValidKey=ok
+NoEqualsHere
+=NoKeyHere
+ExecStart=/bin/echo malformed-but-mostly-parseable
+
+[Install]
+WantedBy=multi-user.target

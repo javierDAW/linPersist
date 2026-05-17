@@ -1,0 +1,12 @@
+[Unit]
+Description=Worker instance %i
+After=network.target
+
+[Service]
+Type=simple
+User=worker
+ExecStart=/usr/local/bin/worker --id %i --config /etc/workers/%i.yaml
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

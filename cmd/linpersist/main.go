@@ -19,13 +19,18 @@ import (
 
 	"github.com/jarmidaw/linpersist/internal/core"
 	"github.com/jarmidaw/linpersist/internal/modules/cron"
+	"github.com/jarmidaw/linpersist/internal/modules/kmod"
 	"github.com/jarmidaw/linpersist/internal/modules/ldso"
+	"github.com/jarmidaw/linpersist/internal/modules/motd"
 	"github.com/jarmidaw/linpersist/internal/modules/pam"
 	"github.com/jarmidaw/linpersist/internal/modules/passwd"
 	"github.com/jarmidaw/linpersist/internal/modules/profile"
 	"github.com/jarmidaw/linpersist/internal/modules/ssh"
 	"github.com/jarmidaw/linpersist/internal/modules/sshd"
 	"github.com/jarmidaw/linpersist/internal/modules/sudoers"
+	"github.com/jarmidaw/linpersist/internal/modules/systemd"
+	"github.com/jarmidaw/linpersist/internal/modules/sysv"
+	"github.com/jarmidaw/linpersist/internal/modules/udev"
 )
 
 // version and commit are stamped at link time via -ldflags.
@@ -108,6 +113,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		passwd.New(passwd.Options{}),
 		pam.New(pam.Options{}),
 		profile.New(profile.Options{}),
+		systemd.New(systemd.Options{}),
+		sysv.New(sysv.Options{}),
+		motd.New(motd.Options{}),
+		kmod.New(kmod.Options{}),
+		udev.New(udev.Options{}),
 	)
 
 	agentVersion := fmt.Sprintf("linpersist-%s", version)

@@ -1,0 +1,14 @@
+[Unit]
+Description=Borg offsite backup
+Documentation=man:borg(1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/borg-backup --repo /backup/repo
+StandardOutput=journal
+
+[Install]
+WantedBy=multi-user.target

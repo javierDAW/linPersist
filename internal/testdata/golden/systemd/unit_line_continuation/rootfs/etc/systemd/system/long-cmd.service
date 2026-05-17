@@ -1,0 +1,13 @@
+[Unit]
+Description=App with multi-line ExecStart
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/app/main.py \
+    --config /etc/app/config.yaml \
+    --log-level info \
+    --workers 4
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

@@ -129,10 +129,10 @@ func TestHashHostname_MatchesManualSha256(t *testing.T) {
 // values unquoted, comments and blank lines tolerated.
 func TestReadOSRelease(t *testing.T) {
 	cases := []struct {
-		name       string
-		content    string
-		wantID     string
-		wantVerID  string
+		name      string
+		content   string
+		wantID    string
+		wantVerID string
 	}{
 		{
 			name: "ubuntu 22.04 style",
@@ -219,10 +219,10 @@ func TestReadOSRelease_MissingFile(t *testing.T) {
 func TestReadFirstLine(t *testing.T) {
 	dir := t.TempDir()
 	cases := []struct {
-		name      string
-		content   string
-		want      string
-		wantErr   bool
+		name    string
+		content string
+		want    string
+		wantErr bool
 	}{
 		{"single line no trailing newline", "5.15.0-91-generic", "5.15.0-91-generic", false},
 		{"single line with trailing newline", "5.15.0-91-generic\n", "5.15.0-91-generic", false},

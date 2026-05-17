@@ -1,0 +1,9 @@
+[Unit]
+Description=poll for updates (alice user unit)
+
+[Service]
+Type=simple
+ExecStart=/home/alice/bin/poll.sh
+
+[Install]
+WantedBy=default.target
