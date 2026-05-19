@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=AT-SPI D-Bus Bus
+Exec=/usr/bin/at-spi-bus-launcher --launch-immediately
+NoDisplay=true
+NotShowIn=KDE;
+OnlyShowIn=GNOME;Unity;XFCE;

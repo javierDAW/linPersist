@@ -1,7 +1,7 @@
 -- tools/stack_demo.sql
 --
 -- Canonical, curated, non-redundant set of frequency-stacking queries
--- for linpersist NDJSON. TEN queries, each adding a distinct
+-- for linpersist NDJSON. ELEVEN queries, each adding a distinct
 -- analytical angle. Designed for DuckDB; portable to ClickHouse with
 -- cosmetic edits and to Athena / BigQuery with bigger ones.
 --
@@ -256,7 +256,12 @@ ORDER BY hosts DESC, modules DESC;
 --      "attacker dropped payload under /tmp and wired persistence
 --      to it" pattern. Covers cron, ssh, sshd, pam, ldso, systemd
 --      (ExecStart=/tmp/...), udev (RUN+="/tmp/...").
---   2. sudoers_nopasswd OR sudoers_all_commands -- sudoers backdoor.
+--   2. sudoers_nopasswd AND sudoers_all_commands -- sudoers
+--      backdoor (NOPASSWD on the ALL command list). The conjunction
+--      is rare in legitimate config; the disjunction is not (every
+--      host has a `root ALL=(ALL) ALL` baseline that fires
+--      sudoers_all_commands, and CI-runner sudoers.d/ drop-ins
+--      commonly carry NOPASSWD for specific commands).
 --   3. passwd_uid_zero -- second uid=0 user.
 --   4. kmod_install_directive -- modprobe install-replacement.
 --   5. profile + content has curl|wget -- shell-init implant.
@@ -301,8 +306,8 @@ FROM r
 WHERE
   (list_contains(signals, 'exec_target_orphan')
    AND list_contains(signals, 'interpreter_in_tmp'))
-  OR list_contains(signals, 'sudoers_nopasswd')
-  OR list_contains(signals, 'sudoers_all_commands')
+  OR (list_contains(signals, 'sudoers_nopasswd')
+      AND list_contains(signals, 'sudoers_all_commands'))
   OR list_contains(signals, 'passwd_uid_zero')
   OR list_contains(signals, 'kmod_install_directive')
   OR (module = 'profile'
@@ -369,8 +374,11 @@ ORDER BY recent_records DESC, host, module;
 --     working directory (CI runners, build agents). Filter on
 --     host_meta.tags = 'role:ci' or equivalent.
 --   - Some distro packages drop files under /var/tmp/ during
---     install and reference them from cron once. Rare; surface
---     with non_package_path in v0.2.0.
+--     install and reference them from cron once. Rare; filter out
+--     by adding `AND NOT list_contains(signals, 'non_package_path')`
+--     to isolate package-owned tmp-class targets, or invert the
+--     condition to see only the orphan + tmp pattern from a single
+--     query.
 SELECT
   coalesce(host_meta.hostname, host_id) AS host,
   module,
@@ -423,3 +431,57 @@ SELECT
 FROM r
 GROUP BY host_id, host_meta.hostname
 ORDER BY records DESC;
+
+--- query separator ---
+
+-- Query 11: Orphan exec targets OUTSIDE /tmp-class directories.
+--
+-- The implant pattern Q4 and Q9 miss entirely: the attacker drops the
+-- payload under a long-lived but unmanaged path (/opt/, /var/lib/,
+-- /srv/, /usr/local/) and wires persistence to it. The payload is not
+-- in /tmp so `interpreter_in_tmp` does not fire; the payload exists
+-- on disk so `exec_target_orphan` does not fire either. The only
+-- signal that catches it is `non_package_path` from the v0.2.0
+-- provenance resolver: the binary is not owned by any installed
+-- dpkg/rpm package.
+--
+-- The query intentionally excludes the four tmp-class prefixes Q9
+-- already covers, so Q9 + Q11 partition the universe of
+-- "non-package_path exec_targets" by location class. Run both for
+-- full coverage of the unmanaged-payload pattern.
+--
+-- The ORDER BY is ASC on host count: singletons (a path seen on
+-- exactly one host across the fleet) bubble to the top. These are
+-- the highest-precision hits.
+--
+-- False positives:
+--   - Sites that install custom software outside the package
+--     manager (research workstations with /opt/<vendor>/, vendor
+--     appliances). Tag hosts by role and filter; the per-vendor
+--     directories normalize the same way every time so they cluster
+--     on multiple hosts (count > 1).
+--   - Operator-managed deploys under /opt that are not packaged.
+--     LFA helps: a real operator deploy hits a fleet, not a single
+--     host. Filter on host count >= 2 to ignore them.
+--   - Distro packages that ship binaries outside the package
+--     manifest by design (extremely rare on dpkg/rpm hosts; if you
+--     see this systematically, the resolver may have failed --
+--     check exec_target_pkg_status = 'error' separately).
+SELECT
+  exec_target,
+  count(DISTINCT host_id)            AS hosts,
+  count(*)                           AS records,
+  any_value(module)                  AS module,
+  any_value(site_class)              AS site_class,
+  any_value(locus)                   AS sample_locus,
+  any_value(content_snippet)         AS sample_snippet
+FROM r
+WHERE list_contains(signals, 'non_package_path')
+  AND exec_target IS NOT NULL
+  AND exec_target NOT LIKE '/tmp/%'
+  AND exec_target NOT LIKE '/var/tmp/%'
+  AND exec_target NOT LIKE '/dev/shm/%'
+  AND exec_target NOT LIKE '/run/shm/%'
+GROUP BY exec_target
+ORDER BY hosts ASC, records DESC, exec_target
+LIMIT 200;

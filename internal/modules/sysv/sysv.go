@@ -75,6 +75,13 @@ type Options struct {
 	Root        string
 	Now         func() time.Time
 	MaxFileSize int64
+	// Provenance annotates exec_target paths (resolved init-script
+	// targets) with their owning package. Nil defaults to
+	// core.NoopProvenance.
+	Provenance core.Provenance
+	// LiveProcessSet membership check for the live_process_attached
+	// signal.
+	LiveProcessSet core.LiveProcessSet
 }
 
 // DefaultMaxFileSize is the per-file byte cap. Init scripts are small;
@@ -93,6 +100,12 @@ func New(opts Options) *Module {
 	}
 	if opts.MaxFileSize <= 0 {
 		opts.MaxFileSize = DefaultMaxFileSize
+	}
+	if opts.Provenance == nil {
+		opts.Provenance = core.NoopProvenance{}
+	}
+	if opts.LiveProcessSet == nil {
+		opts.LiveProcessSet = core.NoopLiveProcessSet{}
 	}
 	return &Module{opts: opts}
 }
@@ -255,6 +268,8 @@ func (m *Module) processInitFile(ctx context.Context, logical, real string, info
 		return
 	}
 	rec := m.buildRecord(logical, info, raw)
+	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
+	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	emit(rec)
 }
 
@@ -279,6 +294,8 @@ func (m *Module) processRunlevelSymlink(ctx context.Context, logical, real strin
 		rec.Signals = appendUnique(rec.Signals, core.SignalSysvExternalInitSymlink)
 		rec.Signals = appendUnique(rec.Signals, core.SignalExecTargetOrphan)
 		rec.ExecTarget = absTarget
+		core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
+		core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 		emit(rec)
 		return
 	}
@@ -306,6 +323,8 @@ func (m *Module) processRunlevelSymlink(ctx context.Context, logical, real strin
 	if isInterpreterInTmp(absTarget) {
 		rec.Signals = appendUnique(rec.Signals, core.SignalInterpreterInTmp)
 	}
+	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
+	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	emit(rec)
 }
 
@@ -403,6 +422,25 @@ func skipName(name string) bool {
 	}
 	for _, frag := range []string{".dpkg-", ".rpmsave", ".rpmnew", ".bak"} {
 		if strings.Contains(name, frag) {
+			return true
+		}
+	}
+	// Documentation files mixed into init.d directories. The
+	// distro-shipped initscripts package on RHEL / CentOS / AmazonLinux
+	// drops a README under /etc/init.d/ and /etc/rc.d/init.d/ that
+	// describes the deprecation of sysv init. The file is not honored
+	// as a boot script by any sysv init implementation -- it is purely
+	// documentation -- and emitting it as a sysv.init record only
+	// adds noise (lab-realistic v0.2.0 surfaced it on 15 hosts in Q11
+	// as a non_package_path false positive). Skip files whose
+	// lowercased name is `readme` or whose extension is one of the
+	// common documentation extensions.
+	lower := strings.ToLower(name)
+	if lower == "readme" {
+		return true
+	}
+	for _, ext := range []string{".md", ".txt", ".rst", ".html"} {
+		if strings.HasSuffix(lower, ext) {
 			return true
 		}
 	}

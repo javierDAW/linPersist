@@ -74,6 +74,14 @@ type Options struct {
 	Root        string
 	Now         func() time.Time
 	MaxFileSize int64
+	// Provenance resolves exec_target paths to their owning package.
+	// Nil defaults to core.NoopProvenance (every lookup returns
+	// Unknown so existing golden tests stay byte-identical).
+	Provenance core.Provenance
+	// LiveProcessSet membership check for the live_process_attached
+	// signal. Nil defaults to core.NoopLiveProcessSet (every lookup
+	// returns false, no signal emitted).
+	LiveProcessSet core.LiveProcessSet
 }
 
 // DefaultMaxFileSize is the per-file size limit when Options.MaxFileSize
@@ -93,6 +101,12 @@ func New(opts Options) *Module {
 	}
 	if opts.MaxFileSize <= 0 {
 		opts.MaxFileSize = DefaultMaxFileSize
+	}
+	if opts.Provenance == nil {
+		opts.Provenance = core.NoopProvenance{}
+	}
+	if opts.LiveProcessSet == nil {
+		opts.LiveProcessSet = core.NoopLiveProcessSet{}
 	}
 	return &Module{opts: opts}
 }
@@ -307,6 +321,8 @@ func (m *Module) recordFromParsedLine(logical string, info os.FileInfo, siteClas
 	}
 
 	rec.Signals = dedupSignals(signals)
+	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
+	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	return rec
 }
 
@@ -579,6 +595,8 @@ func (m *Module) processPeriodicFile(ctx context.Context, logical, real string, 
 		})
 	}
 	rec.Signals = dedupSignals(signals)
+	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
+	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	emit(rec)
 }
 

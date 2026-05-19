@@ -25,6 +25,16 @@ Thumbs.db
 .env
 .envrc
 
-# Local Docker labs (not versioned)
+# Local Docker labs (not versioned). Each has its own README; the
+# lab infrastructure itself is never published.
 lab/
 lab-large/
+lab-realistic/
+
+# Benchmark documents (privados hasta que v0.2.0 cierre). When v0.2.0
+# lands, remove the line below and commit the finalized benchmarks.
+docs/benchmarks/
+
+# Generated reports (rendered locally, not versioned)
+report.html
+report.txt

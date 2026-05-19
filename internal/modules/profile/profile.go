@@ -59,6 +59,14 @@ type Options struct {
 	Root        string
 	Now         func() time.Time
 	MaxFileSize int64
+	// Provenance is wired uniformly across modules. profile uses
+	// per-file granularity and does not populate ExecTarget, so the
+	// resolver is effectively unused here, but the field is present
+	// for API symmetry.
+	Provenance core.Provenance
+	// LiveProcessSet, also unused for profile (no ExecTarget) but
+	// present for API symmetry.
+	LiveProcessSet core.LiveProcessSet
 }
 
 const DefaultMaxFileSize = 1 << 20
@@ -73,6 +81,12 @@ func New(opts Options) *Module {
 	}
 	if opts.MaxFileSize <= 0 {
 		opts.MaxFileSize = DefaultMaxFileSize
+	}
+	if opts.Provenance == nil {
+		opts.Provenance = core.NoopProvenance{}
+	}
+	if opts.LiveProcessSet == nil {
+		opts.LiveProcessSet = core.NoopLiveProcessSet{}
 	}
 	return &Module{opts: opts}
 }

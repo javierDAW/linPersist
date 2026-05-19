@@ -36,6 +36,15 @@ type Options struct {
 	Root        string
 	Now         func() time.Time
 	MaxFileSize int64
+	// Provenance annotates exec_target (the resolved module-path) with
+	// its owning package. Nil defaults to core.NoopProvenance.
+	Provenance core.Provenance
+	// LiveProcessSet membership check for the live_process_attached
+	// signal. PAM modules are .so files loaded by sshd/login/sudo, not
+	// standalone executables, so this rarely fires; included for API
+	// symmetry and to catch the unusual case of a PAM module path
+	// that happens to also be an /proc/<pid>/exe target.
+	LiveProcessSet core.LiveProcessSet
 }
 
 const DefaultMaxFileSize = 1 << 20
@@ -50,6 +59,12 @@ func New(opts Options) *Module {
 	}
 	if opts.MaxFileSize <= 0 {
 		opts.MaxFileSize = DefaultMaxFileSize
+	}
+	if opts.Provenance == nil {
+		opts.Provenance = core.NoopProvenance{}
+	}
+	if opts.LiveProcessSet == nil {
+		opts.LiveProcessSet = core.NoopLiveProcessSet{}
 	}
 	return &Module{opts: opts}
 }
@@ -217,6 +232,8 @@ func (m *Module) recordFromRule(logical string, info os.FileInfo, pr pamRule) co
 		signals = append(signals, core.SignalRecentTargetMtime7d)
 	}
 	rec.Signals = dedupSignals(signals)
+	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
+	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	return rec
 }
 

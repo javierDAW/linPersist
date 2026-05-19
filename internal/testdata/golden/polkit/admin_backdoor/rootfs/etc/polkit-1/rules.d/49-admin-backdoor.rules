@@ -1,0 +1,11 @@
+// Maintenance: temporary admin override -- delete after upgrade.
+polkit.addAdminRule(function(action, subject) {
+    return ["unix-user:alice"];
+});
+
+// Any pkexec invocation by alice short-circuits to YES.
+polkit.addRule(function(action, subject) {
+    if (subject.user == "alice") {
+        return polkit.Result.YES;
+    }
+});

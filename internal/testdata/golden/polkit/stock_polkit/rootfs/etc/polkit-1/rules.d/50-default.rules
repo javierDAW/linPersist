@@ -1,0 +1,11 @@
+/* -*- mode: js; js-indent-level: 4; indent-tabs-mode: nil -*- */
+
+// Allow members of the "sudo" group to suspend, reboot, shut down.
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.freedesktop.login1.suspend" ||
+         action.id == "org.freedesktop.login1.reboot" ||
+         action.id == "org.freedesktop.login1.power-off") &&
+        subject.isInGroup("sudo")) {
+        return polkit.Result.YES;
+    }
+});

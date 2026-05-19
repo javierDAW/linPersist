@@ -6,9 +6,9 @@ is malicious. That decision lives downstream, in a database that has
 seen the same artifacts on every other host in the fleet. The
 technique is frequency stacking, also known as Least Frequency
 Analysis (LFA). This cookbook explains the model, walks through the
-ten canonical queries shipped in `tools/stack_demo.sql`, and lists
-the false-positive patterns that the analyst learns to filter out.
-The ten queries are a curated, non-redundant expert set: each adds
+eleven canonical queries shipped in `tools/stack_demo.sql`, and
+lists the false-positive patterns that the analyst learns to filter
+out. The eleven queries are a curated, non-redundant expert set: each adds
 a distinct analytical angle. Per-module variants (e.g. "cron LFA")
 are NOT separate queries — the analyst adds a `WHERE module = 'cron'`
 filter to Q1.
@@ -326,6 +326,43 @@ Two failure modes Q10 catches:
 Sort by `records DESC` for outliers above the median; sort `ASC`
 for collection failures below it.
 
+### Query 11 — Orphan exec_target OUTSIDE tmp-class directories
+
+Q4 and Q9 between them catch the textbook implant pattern where the
+payload lives in `/tmp`, `/var/tmp`, `/dev/shm`, or `/run/shm`. A
+more disciplined attacker drops the payload somewhere long-lived but
+unmanaged — `/opt/<innocuous-name>/`, `/var/lib/<service>/`, `/srv/`,
+`/usr/local/bin/<binary>` — and wires persistence to it. Neither
+`interpreter_in_tmp` nor `exec_target_orphan` fires for that record.
+The only thing that catches it is `non_package_path` from the
+v0.2.0 provenance resolver: the binary is not owned by any installed
+dpkg or rpm package.
+
+Q11 surfaces every record where the `exec_target` is flagged
+`non_package_path` AND lives outside the four tmp-class prefixes.
+The rows are aggregated by `exec_target` and sorted ascending on
+host count, so single-host targets bubble to the top of the table.
+
+The query intentionally excludes the tmp-class prefixes Q9 already
+covers, so **Q9 ∪ Q11 partitions** the universe of "non-package
+exec_target paths" by location class. Run both for full coverage
+of the unmanaged-payload pattern.
+
+False positives:
+
+- **Vendor-installed software outside the package manager.** A
+  workstation with `/opt/<vendor>/bin/<binary>` installed by a
+  vendor tarball produces `non_package_path` records that look like
+  hits but are normal for that role. Filter by `hosts >= 2` to
+  ignore them — a real operator deploy lands on a fleet, not one
+  host.
+- **Operator-managed deploys.** Same shape, same filter.
+- **Provenance build failure.** If `exec_target_pkg_status` is
+  `error` on many records, the resolver could not build its map
+  (rpm DB unreadable, dpkg/info missing). Q11 will be empty in
+  that case; check with a `WHERE exec_target_pkg_status = 'error'`
+  sanity query.
+
 ## False positives the analyst learns to filter
 
 Frequency stacking is not a verdict. The queries above produce
@@ -377,7 +414,11 @@ For day-to-day fleet triage:
    triage queue.
 5. Run Q9 (exec targets in /tmp) and diff against Q4: the
    difference is the "armed right now" subset.
-6. Per-module deep dives via Q1 with `WHERE module = 'X'`. Q3
+6. Run Q11 (orphan outside /tmp). Catches the disciplined-attacker
+   pattern Q4/Q9 miss: payloads under `/opt/`, `/var/lib/`, `/srv/`,
+   `/usr/local/` that look benign by location and are caught only by
+   the provenance resolver flagging them as `non_package_path`.
+7. Per-module deep dives via Q1 with `WHERE module = 'X'`. Q3
    when the fleet is mixed across distros.
 
 For an active investigation: Q7 across the suspected hosts, then
@@ -387,7 +428,7 @@ spread.
 ## Running the queries
 
 ```sh
-# Default — runs all ten against a directory of NDJSON:
+# Default — runs all eleven against a directory of NDJSON:
 ./tools/ingest.sh -q tools/stack_demo.sql ./fleet/
 
 # Custom set:
@@ -400,11 +441,12 @@ CREATE TABLE r AS SELECT * FROM read_ndjson_auto('fleet/*.ndjson', ignore_errors
 "
 ```
 
-The `linpersist-report` binary embeds a Go-native subset of Q1-Q6
-for the no-DuckDB path (jump hosts without the DuckDB CLI, or
-analysts who prefer one-shot HTML output). The SQL file is the
-canonical source of truth; the Go path is a convenience for
-distribution.
+The `linpersist-report` binary embeds a Go-native implementation of
+all eleven queries (Q1-Q11) so analysts on a jump host without the
+DuckDB CLI still get the full triage view. The SQL file is the
+canonical source of truth; the Go path is a row-for-row mirror kept
+in sync (the same WHERE clauses, the same aggregation, the same
+sort order).
 
 ## See also
 

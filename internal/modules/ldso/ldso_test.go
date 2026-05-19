@@ -20,7 +20,20 @@ import (
 // updateGolden regenerates expected.ndjson files when set:
 //
 //	go test ./internal/modules/ldso -run TestGolden -update
+//
+// Equivalently: LINPERSIST_UPDATE_GOLDEN=1 go test ./internal/modules/ldso/...
 var updateGolden = flag.Bool("update", false, "rewrite expected.ndjson files instead of comparing")
+
+// shouldUpdateGolden returns true when the test binary should regenerate
+// expected.ndjson files. The -update flag is the primary trigger;
+// LINPERSIST_UPDATE_GOLDEN=1 is a fallback for shells that pass env
+// vars more naturally than test flags (notably the make targets).
+func shouldUpdateGolden() bool {
+	if updateGolden != nil && *updateGolden {
+		return true
+	}
+	return os.Getenv("LINPERSIST_UPDATE_GOLDEN") == "1"
+}
 
 // fixedMtime mirrors the reference timestamp used by the cron golden
 // runner: six weeks before fixedNow so that recent_mtime_7d,
@@ -106,7 +119,7 @@ func runGolden(t *testing.T, caseDir string) {
 	}
 
 	expectedPath := filepath.Join(caseDir, "expected.ndjson")
-	if *updateGolden {
+	if shouldUpdateGolden() {
 		if err := os.WriteFile(expectedPath, got.Bytes(), 0o644); err != nil {
 			t.Fatalf("write expected: %v", err)
 		}

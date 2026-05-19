@@ -1,0 +1,3 @@
+#!/bin/sh
+# Run on every dhcpcd state transition before the daemon's own hooks.
+echo "dhcpcd: enter $reason on $interface" >&2

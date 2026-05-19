@@ -56,6 +56,12 @@ type Options struct {
 	Root        string
 	Now         func() time.Time
 	MaxFileSize int64
+	// Provenance annotates exec_target (set on update-motd.d scripts)
+	// with its owning package. Nil defaults to core.NoopProvenance.
+	Provenance core.Provenance
+	// LiveProcessSet membership check for the live_process_attached
+	// signal.
+	LiveProcessSet core.LiveProcessSet
 }
 
 // DefaultMaxFileSize bounds a single banner or script.
@@ -73,6 +79,12 @@ func New(opts Options) *Module {
 	}
 	if opts.MaxFileSize <= 0 {
 		opts.MaxFileSize = DefaultMaxFileSize
+	}
+	if opts.Provenance == nil {
+		opts.Provenance = core.NoopProvenance{}
+	}
+	if opts.LiveProcessSet == nil {
+		opts.LiveProcessSet = core.NoopLiveProcessSet{}
 	}
 	return &Module{opts: opts}
 }
@@ -204,6 +216,8 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 		rec.ExecTarget = logical
 		rec.ExecTargetSHA256 = rec.ContentSHA256
 	}
+	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
+	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	emit(rec)
 }
 

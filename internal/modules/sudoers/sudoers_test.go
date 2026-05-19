@@ -19,6 +19,15 @@ import (
 
 var updateGolden = flag.Bool("update", false, "rewrite expected.ndjson files instead of comparing")
 
+// shouldUpdateGolden accepts both the -update flag and the
+// LINPERSIST_UPDATE_GOLDEN=1 env var.
+func shouldUpdateGolden() bool {
+	if updateGolden != nil && *updateGolden {
+		return true
+	}
+	return os.Getenv("LINPERSIST_UPDATE_GOLDEN") == "1"
+}
+
 var fixedMtime = time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 var fixedNow = time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 
@@ -80,7 +89,7 @@ func runGolden(t *testing.T, caseDir string) {
 		}
 	}
 	expectedPath := filepath.Join(caseDir, "expected.ndjson")
-	if *updateGolden {
+	if shouldUpdateGolden() {
 		if err := os.WriteFile(expectedPath, got.Bytes(), 0o644); err != nil {
 			t.Fatalf("write expected: %v", err)
 		}

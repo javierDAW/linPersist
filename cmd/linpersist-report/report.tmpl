@@ -33,6 +33,7 @@
   <button data-tab="q8">Q8 · mtime concentration</button>
   <button data-tab="q9">Q9 · exec in /tmp</button>
   <button data-tab="q10">Q10 · host coverage</button>
+  <button data-tab="q11">Q11 · orphan outside /tmp</button>
 </nav>
 
 <main>
@@ -51,6 +52,7 @@
       <div class="card"><div class="k">Q4 implant hits</div><div class="v" style="color:var(--tail)">{{len .Report.Q4ImplantFingerprint}}</div></div>
       <div class="card"><div class="k">Q7 roll-call</div><div class="v" style="color:var(--tail)">{{len .Report.Q7ImplantRollCall}}</div></div>
       <div class="card"><div class="k">Q8 mtime spikes</div><div class="v">{{len .Report.Q8MtimeConcentration}}</div></div>
+      <div class="card"><div class="k">Q11 orphan outside /tmp</div><div class="v" style="color:var(--tail)">{{len .Report.Q11OrphanOutsideTmp}}</div></div>
     </div>
 
     <h2>LFA stacking histogram</h2>
@@ -416,6 +418,43 @@
           </tr>
         {{else}}
           <tr><td colspan="6" style="text-align:center;color:var(--fg-mute)">no host records — dataset is empty</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {{/* ========== Q11 ========== */}}
+  <section class="pane" data-pane="q11">
+    <h2>Q11 · Orphan exec_target OUTSIDE tmp-class directories</h2>
+    <p class="lede">The implant pattern Q4 and Q9 miss entirely: the attacker drops the payload under a long-lived but unmanaged path (<code>/opt/</code>, <code>/var/lib/</code>, <code>/srv/</code>, <code>/usr/local/</code>) and wires persistence to it. The payload is not in <code>/tmp</code> so <code>interpreter_in_tmp</code> does not fire; the payload exists on disk so <code>exec_target_orphan</code> does not fire either. The only signal that catches it is <code>non_package_path</code> from the provenance resolver. LFA-sorted (hosts ascending): singletons are the highest-precision hits.</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q11">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q11">
+        <thead><tr>
+          <th>exec_target</th>
+          <th data-sort-type="num">hosts</th>
+          <th data-sort-type="num">records</th>
+          <th>module</th>
+          <th>site_class</th>
+          <th>sample_host</th>
+          <th>sample_locus</th>
+          <th>sample_snippet</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.Q11OrphanOutsideTmp}}
+          <tr>
+            <td><code>{{.ExecTarget}}</code></td>
+            <td class="num">{{.Hosts}}</td>
+            <td class="num">{{.Records}}</td>
+            <td>{{.Module}}</td>
+            <td>{{.SiteClass}}</td>
+            <td>{{.SampleHost}}</td>
+            <td><code>{{.SampleLocus}}</code></td>
+            <td class="snippet">{{.SampleSnippet}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="8" style="text-align:center;color:var(--fg-mute)">no rows — every exec_target outside /tmp is package-owned</td></tr>
         {{end}}
         </tbody>
       </table>

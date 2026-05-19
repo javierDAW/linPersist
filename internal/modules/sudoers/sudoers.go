@@ -32,6 +32,14 @@ type Options struct {
 	Root        string
 	Now         func() time.Time
 	MaxFileSize int64
+	// Provenance is wired uniformly across modules. sudoers does not
+	// populate ExecTarget (rules describe principals, not binaries)
+	// so the resolver is effectively unused here, but the field is
+	// present for API symmetry.
+	Provenance core.Provenance
+	// LiveProcessSet, also unused for sudoers (no ExecTarget) but
+	// present for API symmetry across modules.
+	LiveProcessSet core.LiveProcessSet
 }
 
 const DefaultMaxFileSize = 1 << 20
@@ -48,6 +56,12 @@ func New(opts Options) *Module {
 	}
 	if opts.MaxFileSize <= 0 {
 		opts.MaxFileSize = DefaultMaxFileSize
+	}
+	if opts.Provenance == nil {
+		opts.Provenance = core.NoopProvenance{}
+	}
+	if opts.LiveProcessSet == nil {
+		opts.LiveProcessSet = core.NoopLiveProcessSet{}
 	}
 	return &Module{opts: opts}
 }

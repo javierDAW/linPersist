@@ -1,0 +1,17 @@
+#!/bin/sh
+# atrun uid=2001 gid=2001
+# mail bob 0
+umask 077
+HOME=/home/bob; export HOME
+PATH=/usr/bin:/bin; export PATH
+LOGNAME=bob; export LOGNAME
+USER=bob; export USER
+SHELL=/bin/sh; export SHELL
+TERM=linux; export TERM
+cd /home/bob || {
+	 echo 'Execution directory inaccessible' >&2
+	 exit 1
+}
+${SHELL:-/bin/sh} << 'TAGbob'
+/usr/local/bin/check-mail --once
+TAGbob

@@ -1,0 +1,2 @@
+# Hand-crafted spool file; no atd heredoc layout.
+/opt/x/run --silent

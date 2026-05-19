@@ -48,6 +48,12 @@ type Options struct {
 	Root        string
 	Now         func() time.Time
 	MaxFileSize int64
+	// Provenance annotates exec_target paths (forced commands) with
+	// their owning package. Nil defaults to core.NoopProvenance.
+	Provenance core.Provenance
+	// LiveProcessSet membership check for the live_process_attached
+	// signal. Nil defaults to core.NoopLiveProcessSet.
+	LiveProcessSet core.LiveProcessSet
 }
 
 // DefaultMaxFileSize is generous; real-world authorized_keys files
@@ -66,6 +72,12 @@ func New(opts Options) *Module {
 	}
 	if opts.MaxFileSize <= 0 {
 		opts.MaxFileSize = DefaultMaxFileSize
+	}
+	if opts.Provenance == nil {
+		opts.Provenance = core.NoopProvenance{}
+	}
+	if opts.LiveProcessSet == nil {
+		opts.LiveProcessSet = core.NoopLiveProcessSet{}
 	}
 	return &Module{opts: opts}
 }
@@ -273,8 +285,15 @@ func (m *Module) recordFromAuthKey(logical string, info os.FileInfo, siteClass s
 		ContentSnippet:    csInput,
 		ExecTargetSHA256:  targetSHA,
 	}
+	// exec_target is argv[0] of the forced command (the binary that
+	// sshd actually executes), NOT the full command string with all
+	// arguments. Capturing the full string defeats provenance lookup
+	// (the dpkg manifest has /usr/bin/rsync, not "rsync --server
+	// --sender -v..." as a path) and pollutes Q11's stacking by
+	// treating every distinct invocation as a unique non-package
+	// path. See lab-realistic v0.2.0 report Q6/Q11.
 	if pk.command != "" {
-		rec.ExecTarget = pk.command
+		rec.ExecTarget = firstCommandToken(pk.command)
 	}
 	fillFileMeta(&rec, info)
 
@@ -285,12 +304,41 @@ func (m *Module) recordFromAuthKey(logical string, info os.FileInfo, siteClass s
 	if pk.command != "" {
 		signals = append(signals, core.SignalSSHForcedCommand)
 	}
-	signals = append(signals, m.execTargetSignals(pk.command)...)
-	if m.targetMtimeRecent(pk.command) {
+	signals = append(signals, m.execTargetSignals(rec.ExecTarget)...)
+	if m.targetMtimeRecent(rec.ExecTarget) {
 		signals = append(signals, core.SignalRecentTargetMtime7d)
 	}
 	rec.Signals = dedupSignals(signals)
+	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
+	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	return rec
+}
+
+// firstCommandToken returns the first whitespace-delimited token of
+// cmd, with surrounding double quotes stripped. Single quotes are NOT
+// special in sshd_config Command= values per sshd(8) -- the parser
+// is shell-like but limited. Returns "" if cmd is empty.
+//
+// Matches the parsing minimalism used by xdg.normalize.firstArg.
+// Does NOT implement full shell escape handling: the persistence
+// signal that matters is the binary the forced command runs, not
+// its arguments.
+func firstCommandToken(cmd string) string {
+	cmd = strings.TrimLeft(cmd, " \t")
+	if cmd == "" {
+		return ""
+	}
+	if cmd[0] == '"' {
+		end := strings.IndexByte(cmd[1:], '"')
+		if end < 0 {
+			return strings.Trim(cmd, `"`)
+		}
+		return cmd[1 : 1+end]
+	}
+	if idx := strings.IndexAny(cmd, " \t"); idx >= 0 {
+		return cmd[:idx]
+	}
+	return cmd
 }
 
 // envelopeRecord builds a record that represents the file itself

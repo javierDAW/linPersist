@@ -1,0 +1,11 @@
+// Verify the parser preserves // and /* inside string literals.
+polkit.addRule(function(action, subject) {
+    var url = "http://example.org/path";
+    var binary = "/usr/local/bin/foo";
+    var template = "/* this is a string, not a comment */";
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        action.lookup("program") == binary) {
+        polkit.log("blocked exec of " + binary + " (see " + url + ")");
+        return polkit.Result.NO;
+    }
+});

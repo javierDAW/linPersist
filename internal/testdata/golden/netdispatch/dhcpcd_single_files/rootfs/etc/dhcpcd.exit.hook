@@ -1,0 +1,3 @@
+#!/bin/sh
+# Run on every dhcpcd state transition after the daemon's own hooks.
+echo "dhcpcd: exit $reason on $interface" >&2

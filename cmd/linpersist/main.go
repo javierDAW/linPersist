@@ -18,12 +18,16 @@ import (
 	"time"
 
 	"github.com/jarmidaw/linpersist/internal/core"
+	"github.com/jarmidaw/linpersist/internal/modules/atjobs"
 	"github.com/jarmidaw/linpersist/internal/modules/cron"
+	"github.com/jarmidaw/linpersist/internal/modules/grub"
 	"github.com/jarmidaw/linpersist/internal/modules/kmod"
 	"github.com/jarmidaw/linpersist/internal/modules/ldso"
 	"github.com/jarmidaw/linpersist/internal/modules/motd"
+	"github.com/jarmidaw/linpersist/internal/modules/netdispatch"
 	"github.com/jarmidaw/linpersist/internal/modules/pam"
 	"github.com/jarmidaw/linpersist/internal/modules/passwd"
+	"github.com/jarmidaw/linpersist/internal/modules/polkit"
 	"github.com/jarmidaw/linpersist/internal/modules/profile"
 	"github.com/jarmidaw/linpersist/internal/modules/ssh"
 	"github.com/jarmidaw/linpersist/internal/modules/sshd"
@@ -31,6 +35,7 @@ import (
 	"github.com/jarmidaw/linpersist/internal/modules/systemd"
 	"github.com/jarmidaw/linpersist/internal/modules/sysv"
 	"github.com/jarmidaw/linpersist/internal/modules/udev"
+	"github.com/jarmidaw/linpersist/internal/modules/xdg"
 )
 
 // version and commit are stamped at link time via -ldflags.
@@ -53,11 +58,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	var (
-		outputPath      = fs.String("output", "", "Write NDJSON to this file instead of stdout")
-		includeHostname = fs.Bool("include-hostname", false, "Include plaintext hostname in host_meta (default: hash only)")
-		moduleTimeout   = fs.Duration("module-timeout", core.DefaultModuleTimeout, "Per-module deadline")
-		logLevel        = fs.String("log-level", "warn", "Log level: debug|info|warn|error")
-		showVersion     = fs.Bool("version", false, "Print version and exit")
+		outputPath         = fs.String("output", "", "Write NDJSON to this file instead of stdout")
+		includeHostname    = fs.Bool("include-hostname", false, "Include plaintext hostname in host_meta (default: hash only)")
+		moduleTimeout      = fs.Duration("module-timeout", core.DefaultModuleTimeout, "Per-module deadline")
+		provenanceTimeout  = fs.Duration("provenance-timeout", core.DefaultProvenanceBuildTimeout, "Provenance map-build deadline (dpkg/rpm)")
+		disableProvenance  = fs.Bool("no-provenance", false, "Skip package-manager provenance lookups (every exec_target reports as Unknown)")
+		liveProcessTimeout = fs.Duration("live-process-timeout", core.DefaultProcLiveBuildTimeout, "/proc snapshot build deadline")
+		disableLiveProcess = fs.Bool("no-live-process", false, "Skip /proc snapshot (no live_process_attached signal)")
+		logLevel           = fs.String("log-level", "warn", "Log level: debug|info|warn|error")
+		showVersion        = fs.Bool("version", false, "Print version and exit")
 	)
 
 	if err := fs.Parse(args); err != nil {
@@ -101,23 +110,57 @@ func run(args []string, stdout, stderr io.Writer) int {
 		syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	// Build the provenance resolver and warm it up before any module
+	// runs. Warmup has its own deadline so a slow dpkg or rpm build
+	// never eats into a module budget. If --no-provenance is set, we
+	// skip the resolver entirely and modules receive a NoopProvenance
+	// that returns Unknown for every lookup.
+	var prov core.Provenance = core.NoopProvenance{}
+	if !*disableProvenance {
+		resolver := core.NewResolver(logger,
+			core.WithProvenanceBuildTimeout(*provenanceTimeout))
+		warmCtx, warmCancel := context.WithTimeout(ctx, *provenanceTimeout)
+		resolver.Warmup(warmCtx)
+		warmCancel()
+		prov = resolver
+	}
+
+	// Build the /proc snapshot scanner and warm it up. Same lifecycle
+	// pattern as provenance: bounded ctx separate from module budgets,
+	// NoopLiveProcessSet when --no-live-process is set so the
+	// live_process_attached signal is never emitted.
+	var liveProcs core.LiveProcessSet = core.NoopLiveProcessSet{}
+	if !*disableLiveProcess {
+		scanner := core.NewProcLiveScanner(logger,
+			core.WithProcLiveBuildTimeout(*liveProcessTimeout))
+		warmCtx, warmCancel := context.WithTimeout(ctx, *liveProcessTimeout)
+		scanner.Warmup(warmCtx)
+		warmCancel()
+		liveProcs = scanner
+	}
+
 	// Modules registered with the runner. Adding a module is a
 	// one-line change here plus the new package under
 	// internal/modules/<name>/.
 	runner := core.NewRunner(
-		cron.New(cron.Options{}),
-		ldso.New(ldso.Options{}),
-		ssh.New(ssh.Options{}),
-		sudoers.New(sudoers.Options{}),
-		sshd.New(sshd.Options{}),
-		passwd.New(passwd.Options{}),
-		pam.New(pam.Options{}),
-		profile.New(profile.Options{}),
-		systemd.New(systemd.Options{}),
-		sysv.New(sysv.Options{}),
-		motd.New(motd.Options{}),
-		kmod.New(kmod.Options{}),
-		udev.New(udev.Options{}),
+		atjobs.New(atjobs.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		cron.New(cron.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		ldso.New(ldso.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		ssh.New(ssh.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		sudoers.New(sudoers.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		sshd.New(sshd.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		passwd.New(passwd.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		pam.New(pam.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		profile.New(profile.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		systemd.New(systemd.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		sysv.New(sysv.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		motd.New(motd.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		kmod.New(kmod.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		udev.New(udev.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		polkit.New(polkit.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		netdispatch.New(netdispatch.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		grub.New(grub.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		xdg.New(xdg.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 	)
 
 	agentVersion := fmt.Sprintf("linpersist-%s", version)

@@ -1,0 +1,15 @@
+# Autostart entry for the Ubuntu update notifier.
+[Desktop Entry]
+Name=Update Notifier
+Comment=Daemon to detect available updates
+Exec=/usr/bin/update-notifier
+Terminal=false
+Type=Application
+X-Ubuntu-Gettext-Domain=update-notifier
+NoDisplay=true
+StartupNotify=false
+
+# Localized strings — must be filtered by normalize.go.
+Name[en_GB]=Update Notifier
+Name[de]=Aktualisierungsbenachrichtigung
+Comment[de]=Daemon zur Erkennung verfügbarer Aktualisierungen

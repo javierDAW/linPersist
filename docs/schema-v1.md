@@ -50,9 +50,9 @@ is still emitted; the `errors[]` array carries the field-scoped failure.
 | `content_snippet` | string | First 256 bytes of the normalized form, base64-safe. |
 | `exec_target` | string | The executable referenced by the artifact (e.g. cron command, ExecStart, RUN+= path). |
 | `exec_target_sha256` | string | sha256 of `exec_target` bytes if it exists on disk. |
-| `exec_target_pkg` | string | Package name owning `exec_target`. |
-| `exec_target_pkg_status` | string | One of `unknown`, `owned`, `orphan`, `error`. |
-| `exec_target_signed` | bool | Reserved for future signature checks; absent in v0.1.0. |
+| `exec_target_pkg` | string | Package name owning `exec_target`. Populated by the provenance resolver from `/var/lib/dpkg/info/*.list` (dpkg) or `rpm -qa` (rpm). Empty for any non-`owned` status. |
+| `exec_target_pkg_status` | string | One of `unknown`, `owned`, `orphan`, `error`. `unknown` is omitted from the wire (never serialized); the field's absence is the signal that the resolver had nothing to say (no package manager, `--no-provenance`, or warmup not yet complete). `error` is distinct from `unknown` and means the resolver attempted and failed. See ADR-0009. |
+| `exec_target_signed` | bool | Reserved for future signature checks; absent in v0.1.0 and v0.2.0. |
 | `signals` | array of strings | See [Signals](#signals). |
 | `errors` | array of objects | See [Errors](#errors). |
 

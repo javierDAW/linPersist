@@ -35,6 +35,13 @@ type Options struct {
 	Root        string
 	Now         func() time.Time
 	MaxFileSize int64
+	// Provenance annotates exec_target paths (AuthorizedKeysCommand,
+	// ForceCommand) with their owning package. Nil defaults to
+	// core.NoopProvenance.
+	Provenance core.Provenance
+	// LiveProcessSet membership check for the live_process_attached
+	// signal. Nil defaults to core.NoopLiveProcessSet.
+	LiveProcessSet core.LiveProcessSet
 }
 
 const DefaultMaxFileSize = 1 << 20
@@ -51,6 +58,12 @@ func New(opts Options) *Module {
 	}
 	if opts.MaxFileSize <= 0 {
 		opts.MaxFileSize = DefaultMaxFileSize
+	}
+	if opts.Provenance == nil {
+		opts.Provenance = core.NoopProvenance{}
+	}
+	if opts.LiveProcessSet == nil {
+		opts.LiveProcessSet = core.NoopLiveProcessSet{}
 	}
 	return &Module{opts: opts}
 }
@@ -228,6 +241,8 @@ func (m *Module) recordFromDirective(logical string, info os.FileInfo, pl parsed
 		signals = append(signals, m.execTargetSignals(rec.ExecTarget)...)
 	}
 	rec.Signals = dedupSignals(signals)
+	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
+	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	return rec
 }
 

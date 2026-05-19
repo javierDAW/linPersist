@@ -1,0 +1,22 @@
+[Desktop Entry]
+Type=Application
+Name=Multilingual App
+Name[en]=Multilingual App
+Name[en_GB]=Multilingual App
+Name[de]=Mehrsprachige Anwendung
+Name[es]=Aplicación multilingüe
+Name[fr]=Application multilingue
+Name[it]=Applicazione multilingue
+Name[ja]=多言語アプリ
+Name[pt_BR]=Aplicativo multilíngue
+Name[ru]=Многоязычное приложение
+Name[zh_CN]=多语言应用
+Comment=A localized .desktop fixture for the linpersist xdg parser.
+Comment[de]=Eine lokalisierte .desktop-Fixture für den linpersist xdg-Parser.
+Comment[es]=Una fixture .desktop localizada para el parser xdg de linpersist.
+Comment[ja]=linpersist xdgパーサ用のローカライズされた.desktopフィクスチャ。
+Exec=/usr/bin/multilingual-app
+Icon=multilingual
+GenericName=Multilingual Test
+GenericName[de]=Mehrsprachiger Test
+GenericName[fr]=Test multilingue

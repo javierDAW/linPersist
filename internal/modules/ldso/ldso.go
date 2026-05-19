@@ -51,10 +51,18 @@ var tmpDirs = []string{"/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"}
 // Root, Now and MaxFileSize follow the same convention as the cron
 // module: empty Root means absolute paths read as-is, Now defaults to
 // time.Now().UTC(), and MaxFileSize defaults to DefaultMaxFileSize.
+// Provenance is the resolver used to populate exec_target_pkg /
+// exec_target_pkg_status on records that carry an ExecTarget. Nil
+// defaults to core.NoopProvenance (every lookup returns Unknown,
+// which the helper treats as "do not annotate").
 type Options struct {
 	Root        string
 	Now         func() time.Time
 	MaxFileSize int64
+	Provenance  core.Provenance
+	// LiveProcessSet membership check for the live_process_attached
+	// signal. Nil defaults to core.NoopLiveProcessSet.
+	LiveProcessSet core.LiveProcessSet
 }
 
 // DefaultMaxFileSize bounds the per-file read. ld.so.conf and
@@ -74,6 +82,12 @@ func New(opts Options) *Module {
 	}
 	if opts.MaxFileSize <= 0 {
 		opts.MaxFileSize = DefaultMaxFileSize
+	}
+	if opts.Provenance == nil {
+		opts.Provenance = core.NoopProvenance{}
+	}
+	if opts.LiveProcessSet == nil {
+		opts.LiveProcessSet = core.NoopLiveProcessSet{}
 	}
 	return &Module{opts: opts}
 }
@@ -213,6 +227,8 @@ func (m *Module) recordFromPreloadToken(logical string, info os.FileInfo, lineHa
 		signals = append(signals, core.SignalRecentTargetMtime7d)
 	}
 	rec.Signals = dedupSignals(signals)
+	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, token)
+	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, token)
 	return rec
 }
 
@@ -324,6 +340,28 @@ func (m *Module) processConfFile(ctx context.Context, logical, real string, info
 
 // recordFromConfLine builds the per-line Record for one ld.so.conf
 // (or *.conf drop-in) entry.
+//
+// exec_target is NEVER populated on ldso.conf / ldso.confd records:
+//
+//   - `include` directives carry a glob like `/etc/ld.so.conf.d/*.conf`
+//     that the loader expands at runtime, not a binary it executes.
+//   - Search-path directives carry a directory (`/usr/local/lib`,
+//     `/usr/local/lib/x86_64-linux-gnu`) that ld.so SEARCHES for
+//     shared libraries. The directory itself is not a load target;
+//     the libraries inside are, and those are package-owned via
+//     their own dpkg/rpm manifests.
+//
+// Pretending either form is an exec_target pollutes Q11 stacking:
+// lab-realistic v0.2.0 surfaced `/etc/ld.so.conf.d/*.conf` on 43
+// hosts and `/usr/local/lib`/`/usr/local/lib/x86_64-linux-gnu` on 43
+// hosts each, all as non_package_path false positives. The
+// content_norm_sha256 still encodes the path verbatim; the backend
+// stacks search-path lines via content_snippet without the orphan /
+// non_package_path enrichments triggering.
+//
+// ldso.preload is the only sibling site_class where exec_target makes
+// sense — its lines name actual .so files the loader pre-loads —
+// and is handled by recordFromPreloadToken, not by this function.
 func (m *Module) recordFromConfLine(logical string, info os.FileInfo, siteClass string, pl parsedConfLine, lineHash string) core.Record {
 	canon := canonicalConf(pl)
 	rec := core.Record{
@@ -334,18 +372,10 @@ func (m *Module) recordFromConfLine(logical string, info os.FileInfo, siteClass 
 		ContentSHA256:     lineHash,
 		ContentNormSHA256: core.HashHexString(canon),
 		ContentSnippet:    snippet(canon),
-		ExecTarget:        pl.target,
 	}
 	fillFileMeta(&rec, info)
 
 	signals := m.baseSignals(info, logical)
-	signals = append(signals, m.execTargetSignals(pl.target)...)
-	if h, ok := m.hashExecTarget(pl.target); ok {
-		rec.ExecTargetSHA256 = h
-	}
-	if m.targetMtimeRecent(pl.target) {
-		signals = append(signals, core.SignalRecentTargetMtime7d)
-	}
 	rec.Signals = dedupSignals(signals)
 	return rec
 }

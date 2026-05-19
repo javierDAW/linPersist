@@ -1,0 +1,18 @@
+#!/bin/sh
+set -e
+
+# grub-mkconfig helper script.
+. /usr/share/grub/grub-mkconfig_lib
+
+CLASS="--class gnu-linux --class gnu --class os"
+case "${GRUB_DISTRIBUTOR}" in
+    Debian)  OS="${GRUB_DISTRIBUTOR} GNU/Linux" ;;
+    *)       OS="${GRUB_DISTRIBUTOR}" ;;
+esac
+
+linux_entry()
+{
+    cat << EOF
+menuentry '$1' ${CLASS} {
+EOF
+}

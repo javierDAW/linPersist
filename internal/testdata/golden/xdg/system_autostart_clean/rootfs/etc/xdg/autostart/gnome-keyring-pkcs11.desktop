@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=GNOME Keyring: PKCS11 Component
+Comment=PKCS11 module for GNOME Keyring
+Exec=/usr/bin/gnome-keyring-daemon --start --components=pkcs11
+OnlyShowIn=GNOME;Unity;MATE;Cinnamon;XFCE;LXDE;
+X-GNOME-Autostart-Phase=PreDisplayServer
+X-GNOME-AutoRestart=false
+X-GNOME-Autostart-Notify=true
+NoDisplay=true

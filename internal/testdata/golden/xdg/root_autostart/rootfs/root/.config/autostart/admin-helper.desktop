@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Admin Session Helper
+Exec=/usr/local/sbin/admin-helper --daemon
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

@@ -1,0 +1,13 @@
+#!/bin/sh
+# Run ifupdown scripts on NetworkManager events.
+# Shipped by network-manager.
+set -e
+
+case "$2" in
+    up|vpn-up)
+        run-parts --regex='^[a-zA-Z0-9._-]+$' /etc/network/if-up.d
+        ;;
+    down|vpn-down)
+        run-parts --regex='^[a-zA-Z0-9._-]+$' /etc/network/if-down.d
+        ;;
+esac

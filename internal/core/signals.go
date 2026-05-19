@@ -33,6 +33,40 @@ const (
 	// helper to have run successfully.
 	SignalNonPackagePath = "non_package_path"
 
+	// SignalLiveProcessAttached set when exec_target matches the
+	// resolved executable path of a process visible to the agent when
+	// the /proc snapshot was taken. The signal is informational; pair
+	// with non_package_path for the high-precision "unmanaged binary,
+	// currently running" pattern. See ADR-0010 for the snapshot
+	// semantics (one-shot, hidepid-aware, container-namespace-aware).
+	SignalLiveProcessAttached = "live_process_attached"
+
+	// SignalPolkitAdminRule set on polkit.rules records whose canonical
+	// content contains the `addAdminRule(` token. Polkit's
+	// addAdminRule() callback decides which principals can authenticate
+	// as admin for a given action; an attacker who can write a rule
+	// granting addAdminRule -> return ["unix-user:victim"] in effect
+	// promotes that user. Informational on its own (legitimate rules
+	// exist); LFA collapses the legitimate baseline.
+	SignalPolkitAdminRule = "polkit_admin_rule"
+
+	// SignalPolkitYesConstant set on polkit.rules records whose
+	// canonical content contains the `polkit.Result.YES` token. The
+	// constant is the polkit equivalent of "allow unconditionally";
+	// returning it from a rule callback grants the action without any
+	// further authentication. Informational; the legitimate baseline
+	// uses it sparingly (e.g. networkmanager actions on the console).
+	SignalPolkitYesConstant = "polkit_yes_constant"
+
+	// SignalGrubCmdlineInit set on kernel.grub.config records whose
+	// GRUB_CMDLINE_LINUX* value contains the literal `init=` token.
+	// The kernel honors `init=<path>` on its command line as the
+	// pid-1 binary -- an attacker who can edit /etc/default/grub can
+	// substitute the system init for an arbitrary binary at the next
+	// boot. The signal is binary; the analyst pairs it with
+	// `non_package_path` on the resolved target for triage.
+	SignalGrubCmdlineInit = "grub_cmdline_init"
+
 	// SignalInterpreterInTmp set when exec_target lives under /tmp,
 	// /var/tmp, /dev/shm or /run/shm.
 	SignalInterpreterInTmp = "interpreter_in_tmp"

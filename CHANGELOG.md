@@ -7,6 +7,520 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (v0.2.0 polish — D8 no-ellipsis report)
+- **D8. Report text and HTML modes no longer truncate column
+  content with "…"**. Operator feedback: an analyst running triage
+  needs the full snippet / locus / exec_target / signal list for
+  grep / awk / copy-paste / pasting into a ticket. Truncating with
+  the ellipsis character was actively hostile to that workflow.
+  Changed in `cmd/linpersist-report/render_text.go`: removed all
+  `trimLen` calls (12 sites across Q1, Q2, Q3, Q4, Q6, Q7, Q9, Q11)
+  and the `trimLen` helper itself. The text renderer now emits the
+  full string and lets `text/tabwriter` align columns as wide as
+  the content requires. Changed in `cmd/linpersist-report/stats.go`:
+  `snippetTrim` keeps its signature (call-site stability across 8
+  call sites) but now only normalizes embedded newlines and tabs
+  to spaces — no truncation. Maximum-length argument is ignored.
+  HTML mode is unchanged at the Go layer; the existing
+  `.tbl-wrap { overflow-x: auto; }` CSS rule makes the table
+  horizontally scrollable when content exceeds the viewport, which
+  is the correct browser-side behavior for inspection.
+
+### Changed (v0.2.0 polish — D1, D2, D6, D7)
+- **D1. Q7 sudoers clause requires NOPASSWD AND ALL together**.
+  The v0.2.0 lab-realistic Q7 returned 210 rows, ~175 of which were
+  the stock `root ALL=(ALL) ALL` line from /etc/sudoers on every
+  host (the `sudoers_all_commands` signal alone). The disjunction
+  also caught NOPASSWD-on-a-specific-command sudoers.d/ drop-ins
+  shipped by CI tooling (e.g. `gitlab-runner ALL=(ALL) NOPASSWD:
+  /usr/bin/docker`). Q7 now requires the conjunction
+  `sudoers_nopasswd AND sudoers_all_commands` — the textbook
+  backdoor pattern. The standalone signals are still emitted by the
+  agent (other downstream queries can use them); Q7 just no longer
+  treats either alone as an implant indicator. Predicted yield on
+  the lab fleet: 210 -> ~30-40 rows, all real implants. Applied to
+  both `tools/stack_demo.sql` Q7 and `cmd/linpersist-report/stats.go`
+  `rollCallMatches` so the SQL and Go-native paths stay in sync.
+- **D2. kmod skips install directive when argv[0] is modprobe
+  itself**. The distro-shipped `dist-alsa.conf` and similar files
+  carry `install <module> /sbin/modprobe --ignore-install ...` —
+  modprobe calling itself recursively as a hardware-alias shim.
+  This is configuration baseline, not a persistence vector, and the
+  v0.2.0 agent fired `kmod_install_directive` + `exec_target_orphan`
+  on it across both build-server-{amzn,rhel}-01 hosts (the
+  exec_target /sbin/modprobe doesn't exist in stripped container
+  images). New helper `isModprobeSelfCall` recognizes both the
+  historical /sbin/modprobe and the usr-merged /usr/sbin/modprobe
+  forms; the signal and exec_target are suppressed for matches.
+  The implant pattern — argv[0] being a shell, interpreter, or any
+  other binary — continues to surface. **Breaking** for the kmod
+  golden test if any fixture exercises the modprobe-self pattern;
+  regenerate via `go test ./internal/modules/kmod/... -update`.
+- **D6. Q11 adds a sample_host column**. The Q11 row now carries
+  the lexicographically-first host that produced the record (the
+  unique host for single-host singletons, an arbitrary deterministic
+  pick otherwise). Visible in both the HTML report (new column in
+  the Q11 pane) and the text renderer. Useful for the 1-host
+  singletons like `/usr/local/sbin/sync-agent` where the analyst
+  would otherwise need to grep the NDJSON to find which host
+  carried it.
+- **D7. Q6 ssh.authkeys rows display a sensible sample_target**.
+  Q6 stacks records by `exec_target_sha256` to find polymorphic
+  persistence, and validly groups SSH public keys re-authorized
+  across hosts (the hash of the key blob is in
+  `exec_target_sha256` even when `exec_target` is empty). The row
+  display previously showed an empty string for those keys,
+  confusing the analyst. Now substitutes `(ssh authorized key)`
+  when the record is `ssh.authkeys` with an empty `exec_target`.
+  Pure display polish; no semantic change to the stacking logic.
+
+### Fixed (lab-realistic v0.2.0 deep dive — A + B + C)
+- **A. rpm provenance switched to `rpm -qa --filesbypkg`**.
+  The v0.2.0 queryformat
+  `[%{FILENAMES}\t%{NAME}-%{VERSION}-%{RELEASE}\n]` produced silently
+  incomplete bracket-iteration on rpm 4.16+ in minimized container
+  images: the lab-realistic 75-host run surfaced this as a 27-host
+  systemd false-positive flood (every RHEL + Amazon Linux host
+  marked /usr/sbin/sshd, /usr/lib/systemd/systemd-*,
+  /usr/bin/systemctl, etc. as `non_package_path`). `--filesbypkg`
+  has been stable since rpm 4.4 (2005), uses a simpler line format
+  (`<package-name>  <whitespace>  <path>`), and side-steps the
+  queryformat ambiguities entirely. `--nosignature --nodigest` are
+  added to suppress sig/digest verification chatter. Map values
+  switch from NVR to bare package name; downstream
+  `exec_target_pkg` records carry just the name (consistent with
+  the dpkg backend's arch-suffix-stripped form). A defensive
+  `trimNVRSuffix` helper survives a future rpm release that
+  re-introduces NVR in the output. See ADR-0009 update for the
+  full rationale. Q5 systemd-with-`non_package_path` is expected
+  to drop from 3,330 records (34 hosts) to a couple of hundred
+  (real non-package units only) after this fix.
+- **B. ldso.conf / ldso.confd records no longer carry exec_target**.
+  Search-path directives in `/etc/ld.so.conf` and
+  `/etc/ld.so.conf.d/*.conf` reference directories (e.g.
+  `/usr/local/lib`, `/usr/local/lib/x86_64-linux-gnu`), not binaries
+  the loader runs. The directory itself is not a load target; the
+  shared libraries inside are, and those are package-owned via
+  their own dpkg/rpm manifests. Treating the directory as an
+  exec_target fired `non_package_path` on every host that ships
+  the libc.conf / x86_64-linux-gnu.conf drop-ins -- 43 hosts each
+  in the lab-realistic Q11. The fix mirrors the earlier
+  `include`-directive fix from the first lab pass: the record
+  still emits (the line still stacks on `content_norm_sha256`) but
+  without exec_target, so the orphan / non_package_path
+  enrichments stay silent. `ldso.preload` records, which DO name
+  actual .so files the loader pre-loads, continue to set
+  exec_target as before.
+- **C. sysv module skips documentation files**. The initscripts
+  package on RHEL / CentOS / Amazon Linux drops a `README` file
+  under `/etc/init.d/` and `/etc/rc.d/init.d/` describing the
+  deprecation of sysv init. The file is not honored as a boot
+  script by any init implementation -- it is documentation -- but
+  the agent was emitting it as a `sysv.init` record (15 hosts in
+  the lab-realistic Q11 as a non_package_path false positive).
+  `sysv.skipName` now filters files whose lowercased name is
+  `readme` or whose extension is `.md`, `.txt`, `.rst`, or
+  `.html`. The filter is documentation-class only; legitimate
+  init scripts use no extension and are unaffected.
+- Together these three fixes target the residual Q11 noise after
+  the first-pass v0.2.0 precision sweep. Expected Q11 row count
+  on the same lab fleet: 78 -> ~10-15, dominated by the real
+  unmanaged-payload patterns (`/usr/local/sbin/sync-agent`,
+  `/usr/local/sbin/borg-wrapper`, the deploy-sync.* trio across
+  three hosts).
+
+### Fixed (precision triage from lab-realistic v0.2.0 run)
+- `internal/core/provenance.go` — `Resolver.LookupPath` now returns
+  `PkgStatusUnknown` for any non-absolute path. Records whose
+  `exec_target` is a relative name (PAM module file like
+  `pam_unix.so`, PAM `@include` filename like `system-auth`, bare
+  crontab command token like `test`/`cd`/`runuser`) previously
+  resolved to `PkgStatusOrphan` because the dpkg/rpm path manifest
+  is keyed on absolute paths. The result was 8,472 PAM false
+  positives (a third of all fleet records) carrying
+  `non_package_path` in the lab-realistic 75-host capture. Treating
+  relative names as Unknown is the honest semantics: the resolver
+  cannot answer without PATH/LD_LIBRARY_PATH resolution.
+- `internal/core/provenance.go` — `Resolver.LookupPath` now retries
+  the usr-merge sibling form of a missed path before returning
+  Orphan. On modern Debian/Ubuntu the dpkg manifest lists files in
+  their pre-merge `/lib`, `/bin`, `/sbin` form, but systemd ExecStart
+  directives reference the post-merge `/usr/lib/...`, `/usr/bin/...`,
+  `/usr/sbin/...` paths. The pre-fix lookup missed both directions
+  because EvalSymlinks resolves /usr/lib/X to itself (the symlink
+  goes the OTHER way, /lib → /usr/lib). Hundreds of legitimate
+  systemd baseline records (systemd-tmpfiles, systemd-journald,
+  sshd, etc.) on 27 hosts each were marked `non_package_path`
+  before this fix. The new helper `usrMergeAlternates` enumerates
+  the bidirectional pairs and is tested for every prefix
+  combination plus the negative cases.
+- `internal/modules/ssh/ssh.go` — `exec_target` on `ssh.authkeys`
+  records carrying a `command="..."` forced command now contains
+  only argv[0] of that command, not the full string with all
+  arguments. The lab-realistic Q6 / Q11 output had three records
+  with `rsync --server --sender -vlogDtprze.iLsf . /var/...` as
+  `exec_target`; provenance lookup on that string always misses
+  because the dpkg manifest has `/usr/bin/rsync`, not the full
+  invocation. New helper `firstCommandToken` mirrors the parsing
+  minimalism of `xdg.normalize.firstArg`: strips surrounding double
+  quotes, splits on whitespace. **BREAKING** for golden tests that
+  exercised forced commands with arguments; regenerate with
+  `LINPERSIST_UPDATE_GOLDEN=1 go test ./internal/modules/ssh/...`.
+- `internal/modules/ldso/ldso.go` — `recordFromConfLine` no longer
+  sets `exec_target` on records emitted from an `include` directive
+  in `/etc/ld.so.conf`. The directive's argument is a glob
+  (`/etc/ld.so.conf.d/*.conf`) that the loader expands, not a binary
+  it executes. Pretending it is one pollutes Q11 stacking: the
+  lab-realistic run surfaced `/etc/ld.so.conf.d/*.conf` and the
+  bare-name variant `ld.so.conf.d/*.conf` on 43 + 27 hosts
+  respectively as `non_package_path`. The record is still emitted
+  (the include line itself stacks fine on `content_norm_sha256`);
+  it just no longer drags the orphan / non-package-path signals
+  with it.
+- Together, these three fixes are expected to drop Q11 from 127
+  rows (mostly false positives) to ~10-15 rows dominated by the
+  true unmanaged-payload patterns (`/usr/local/sbin/sync-agent`,
+  `/usr/local/sbin/borg-wrapper`, `/usr/local/lib/...` search paths).
+  Re-run the lab via
+  `LINPERSIST_HOST_BINARY="$PWD/dist/linpersist-linux-amd64" ./lab-realistic/collect.sh`
+  to verify.
+
+### Changed (lab-realistic iteration ergonomics)
+- `lab-realistic/collect.sh` accepts a new opt-in env var
+  `LINPERSIST_HOST_BINARY=<absolute or relative path>`. When set,
+  the named binary is bind-mounted read-only over
+  `/opt/linpersist/linpersist` in every container at run time. Lets
+  the operator A/B-test a fresh agent against the existing fleet in
+  the ~60 seconds the docker-run loop takes, instead of the ~60
+  minutes a full `build.sh` rebuild costs.
+- Default behavior is unchanged: an unset `LINPERSIST_HOST_BINARY`
+  runs the binary baked into each image at build time, exactly as
+  before. The new path is purely additive.
+
+### Added (kernel.grub module — T1542.003)
+- `internal/modules/grub/` — new module collecting GRUB bootloader
+  persistence sites. Two site_classes emitted, each with its own
+  granularity:
+  - `kernel.grub.config` (per-line) from `/etc/default/grub`.
+  - `kernel.grub.dropin` (per-file) from `/etc/grub.d/*`.
+- `internal/modules/grub/normalize.go` — two normalizers in one
+  package. The config normalizer strips an optional leading
+  `export ` keyword and trailing whitespace while preserving the
+  exact quoting around values (the quoting changes how
+  grub-mkconfig parses embedded whitespace). The dropin normalizer
+  is the standard shell-style strip pass (comments, blank lines,
+  trailing whitespace per line) shared with motd-shell / profile /
+  sysv / atjobs / netdispatch.
+- New core signal `grub_cmdline_init`: set on `kernel.grub.config`
+  records whose `GRUB_CMDLINE_LINUX*` value contains an `init=`
+  token. The kernel honors `init=<path>` on its command line as
+  the pid-1 binary, so an attacker who can edit `/etc/default/grub`
+  can substitute the system init for an arbitrary binary at the
+  next boot. When the signal fires, `exec_target` is populated
+  with the override path and the standard `interpreter_in_tmp` /
+  `exec_target_orphan` / `non_package_path` enrichments apply.
+- `kernel.grub.dropin` records set `exec_target` to the script
+  path itself (same model as `cron.periodic`): `grub-mkconfig`
+  executes the file at grub.cfg regeneration time.
+- Three golden test cases under `internal/testdata/golden/grub/`:
+  `ubuntu_baseline` (stock `/etc/default/grub` plus `10_linux` and
+  `40_custom` drop-ins — multiple records, no `grub_cmdline_init`
+  hits), `cmdline_init_implant`
+  (`GRUB_CMDLINE_LINUX_DEFAULT="quiet splash init=/tmp/.x/bd"` —
+  the textbook attack, the `grub_cmdline_init` +
+  `interpreter_in_tmp` + `exec_target_orphan` signals all fire on
+  one record), `dropin_backdoor` (`/etc/grub.d/45_implant` piping
+  a remote payload to `/bin/sh`).
+- Five parser unit tests cover basic `KEY=VALUE` extraction, the
+  `export ` keyword strip, `HasInitOverride` token detection,
+  `ExtractInit` path extraction, and the dropin shell-normalizer.
+- `matrix.yaml` updated with the two new site_classes.
+  `cmd/linpersist/main.go` and `cmd/matrix-audit/main.go` register
+  the new module.
+- MITRE T1542.003 (Pre-OS Boot: Bootkit). Cmdline injection alone
+  is technically a sub-case of T1547 but T1542.003 is the broader
+  pre-OS-tampering family the community uses for the technique.
+
+### Added (network.dispatchers module — T1546)
+- `internal/modules/netdispatch/` — new module collecting
+  network-event dispatcher scripts from four daemon families:
+  NetworkManager (`/etc/NetworkManager/dispatcher.d/*` plus
+  `pre-up.d/`, `pre-down.d/`, `no-wait.d/`), dhclient
+  (`/etc/dhcp/dhclient-{enter,exit}-hooks.d/*`), dhcpcd
+  (single-file hooks `/etc/dhcpcd.{enter,exit}.hook`), and ifupdown
+  (`/etc/network/if-{pre-up,up,down,post-down}.d/*`). Per-file
+  granularity.
+- `exec_target` set to the script file path itself (same pattern
+  as `cron.periodic`): the dispatcher daemon runs the file as a
+  shell script on every matching network event, granting recurring
+  code execution to anyone who can write the file.
+- `internal/modules/netdispatch/normalize.go` — shell-style
+  canonical form. Strips `#` comments (including the shebang line
+  since it is cosmetic for stacking), blank lines, and trailing
+  whitespace per line. Mirrors the `motd-shell` / `profile` /
+  `sysv` / `atjobs` normalizers so two scripts that differ only in
+  shebang or comment noise produce identical
+  `content_norm_sha256`.
+- Non-executable files emit a record carrying an `errors[]` entry
+  of code `NOT_EXECUTABLE`: a non-executable dispatcher script is
+  a dead drop (the daemon skips it at runtime) but still worth
+  surfacing because an attacker who staged a payload may have
+  forgotten the `chmod +x` step.
+- Three golden test cases under
+  `internal/testdata/golden/netdispatch/`:
+  `nm_dispatcher_clean` (two stock NetworkManager scripts plus an
+  ifupdown hook for cross-daemon coverage),
+  `dhclient_implant` (a `zz-update` hook under
+  `dhclient-enter-hooks.d/` that fetches and pipes a payload to
+  `/bin/sh` on every DHCP renewal), `dhcpcd_single_files` (covers
+  the single-file `dhcpcd.enter.hook` / `dhcpcd.exit.hook` path
+  that does not use a `*.d/` directory).
+- Two normalize unit tests cover the shebang+comment strip and the
+  cross-shebang equivalent-script collapse.
+- `matrix.yaml` updated with the new `network.dispatchers`
+  site_class. `cmd/linpersist/main.go` and
+  `cmd/matrix-audit/main.go` register the new module.
+- MITRE T1546 (Event Triggered Execution, parent technique). ATT&CK
+  has no Linux-network-dispatcher sub-technique as of May 2026 --
+  documented in matrix.yaml notes. PANIX, Mandiant, and The DFIR
+  Report have flagged this family in real campaigns.
+
+### Added (polkit.rules module — T1548)
+- `internal/modules/polkit/` — new module collecting polkit JS rule
+  files. Loci: `/etc/polkit-1/rules.d/*.rules` (admin/local rules)
+  and `/usr/share/polkit-1/rules.d/*.rules` (distro-shipped rules).
+  Per-file record granularity.
+- `internal/modules/polkit/normalize.go` — JS comment stripper
+  implemented as a small state machine respecting string literal
+  boundaries. `//` and `/* */` are stripped EXCEPT when they appear
+  inside `"..."`, `'...'`, or `` `...` `` literals (so a
+  `"http://example.org"` value is preserved as content). Newlines
+  inside block comments are kept so downstream line-based passes
+  see correct geometry.
+- Two new core signals: `polkit_admin_rule` (set when canonical
+  content contains the `addAdminRule(` token; polkit's admin
+  callback decides who can authenticate as admin, a malicious rule
+  granting it to an attacker-controlled account is a textbook
+  polkit backdoor) and `polkit_yes_constant` (set when canonical
+  content contains `polkit.Result.YES` or `Result.YES`;
+  informational on its own, high-precision when paired with
+  `polkit_admin_rule` or `non_root_owner`).
+- Three golden test cases under `internal/testdata/golden/polkit/`:
+  `stock_polkit` (two legitimate baseline files from
+  `/etc/polkit-1/rules.d/` and `/usr/share/polkit-1/rules.d/`),
+  `admin_backdoor` (the textbook `addAdminRule` returning a
+  user-controlled account), `string_with_slashes` (verifies that
+  `//` and `/*` inside string literals are NOT stripped as
+  comments — the parser respects string boundaries).
+- Five normalize unit tests cover: line-comment strip, block-comment
+  strip, string-literal protection, equivalent-rules canonical
+  collapse, and the token-search helpers used to derive the two
+  new signals.
+- `matrix.yaml` updated. `cmd/linpersist/main.go` and
+  `cmd/matrix-audit/main.go` register the new module.
+- MITRE T1548 (Abuse Elevation Control Mechanism). ATT&CK has no
+  Linux-polkit sub-technique as of May 2026 -- documented in
+  matrix.yaml notes.
+- `exec_target` is intentionally NOT populated for polkit records:
+  rules evaluate policy decisions, they do not execute binaries.
+  The standard `non_package_path` / `live_process_attached`
+  enrichments therefore do not fire on this site_class.
+
+### Added (at.jobs module — T1053.001)
+- `internal/modules/atjobs/` — new module collecting `at(1)` spool
+  entries. Loci: `/var/spool/at/` (most distros) and
+  `/var/spool/cron/atjobs/` (alternate path). Per-file granularity.
+- `internal/modules/atjobs/normalize.go` — heredoc body extractor.
+  The atd-prepended header (umask, HOME=, PATH=, LOGNAME=, USER=,
+  SHELL=, TERM=, cd) is intentionally NOT part of
+  content_norm_sha256: it is volatile per user and would prevent two
+  semantically-identical jobs scheduled by different accounts from
+  collapsing into one bucket. Canonical form is the heredoc body
+  (between `${SHELL:-/bin/sh} << 'MARKER'` and the closing `MARKER`
+  on its own line) with `#` comments and blank lines stripped.
+  Heredoc marker quoting variants (single, double, unquoted) and
+  the `<<-` tabs-form are all supported.
+- Hand-edited spool files that do not follow the atd layout fall
+  back to hashing the raw input with the same shell-style strip
+  pass. Deterministic but lower stacking yield against
+  atd-generated jobs.
+- `exec_target` set to the spool file path itself (same model as
+  `cron.periodic`): atd executes the spool entry as a shell script.
+- Three golden test cases under `internal/testdata/golden/atjobs/`:
+  `basic_alice_job` (single Alice job under `/var/spool/at/`),
+  `equivalent_users_collapse` (Alice job and Bob job at different
+  loci with different headers but identical inner body — must
+  produce the same `content_norm_sha256`), `hand_edited_spool`
+  (unstructured fallback path).
+- Four parser unit tests cover structured-job body extraction, the
+  unstructured fallback, the cross-user collapse property
+  (load-bearing for the normalize policy), and the heredoc-marker
+  quoting variants.
+- `matrix.yaml` updated. `cmd/linpersist/main.go` and
+  `cmd/matrix-audit/main.go` register the new module.
+- MITRE T1053.001 (Scheduled Task/Job: At).
+
+### Added (xdg.autostart module — T1547.013)
+- `internal/modules/xdg/` — new module collecting FreeDesktop
+  `.desktop` autostart entries. Loci: `/etc/xdg/autostart/*.desktop`
+  (system-wide), `/root/.config/autostart/*.desktop` and
+  `/home/*/.config/autostart/*.desktop` (per-user). Per-file record
+  granularity.
+- `internal/modules/xdg/normalize.go` — pure-Go INI parser for the
+  Desktop Entry Specification. Canonical form: sections in source
+  order, keys sorted alphabetically within each section, comments
+  and blank lines dropped, locale-suffixed keys
+  (`Name[en]`, `Comment[de]`, ...) filtered, trailing whitespace
+  stripped per value. Two semantically-equivalent `.desktop` files
+  collapse to the same `content_norm_sha256`.
+- `exec_target` set to argv[0] of the `Exec=` line in
+  `[Desktop Entry]` with FreeDesktop field codes (`%U`, `%f`, `%i`,
+  ...) stripped and surrounding double quotes removed. Field code
+  `%%` is preserved as a literal `%`.
+- Standard core signals fire on xdg records: `interpreter_in_tmp`,
+  `exec_target_orphan`, `shell_indirect`, `unqualified_exec_target`,
+  `recent_mtime_*`, `world_writable`, `non_root_owner` (gated to
+  system paths so `/home/*/.config/autostart/` does not fire it for
+  user-owned files), `non_package_path` and `live_process_attached`
+  via the resolver + scanner from earlier phases.
+- Four golden test cases under `internal/testdata/golden/xdg/`:
+  `system_autostart_clean` (three stock Ubuntu entries),
+  `user_autostart_implant` (single `/tmp/.cache/x/run` payload under
+  `/home/alice/.config/autostart/`), `locale_keys_normalize`
+  (entry with `Name[en]`, `Name[de]`, `Comment[es]`, ...; canonical
+  form must contain only unlocalized keys), `root_autostart`
+  (`/root/.config/autostart/admin-helper.desktop`).
+- Six parser unit tests in `xdg_test.go` cover: basic section
+  parsing, locale-key drop, equivalent-input canonical collapse,
+  Exec= field-code stripping, no-Exec case (Type=Link), and the
+  `%%` literal escape.
+- `matrix.yaml` updated with the new `xdg.autostart` site_class
+  entry. `cmd/linpersist/main.go` and `cmd/matrix-audit/main.go`
+  register the new module.
+- MITRE ATT&CK T1547.013 (Boot or Logon Autostart Execution: XDG
+  Autostart Entries).
+
+### Added (proc.live — live-process correlation)
+- `internal/core/proclive.go` — new `LiveProcessSet` interface
+  (`Warmup(ctx) / Has(path) bool`) with two implementations:
+  `NoopLiveProcessSet` (default, returns false) and `ProcLiveScanner`
+  (production, walks `/proc/[0-9]+/exe`). One-shot snapshot at agent
+  startup; the set is frozen for the remainder of the run so NDJSON
+  output stays deterministic.
+- New core signal `live_process_attached`: emitted on records whose
+  `exec_target` matches a path in the live-process set. Pair with
+  `non_package_path` for the high-precision "unmanaged binary,
+  currently running" pattern that characterizes an active implant.
+- `core.AnnotateLiveProcess(rec, lps, target)` helper. Every module
+  calls it immediately after `core.AnnotateExecTargetProvenance` at
+  every record emit site (15 call sites total across the 13 modules,
+  paired 1:1 with the provenance annotator).
+- Resolver lifecycle parallels provenance: graceful degrade on
+  hidepid (EACCES on `/proc/<pid>/exe`), ESRCH during walk, dangling
+  symlinks, and the literal `" (deleted)"` suffix Linux appends when
+  the underlying binary has been unlinked while the process holds
+  it open. Container namespace semantics documented in ADR-0010
+  (agent sees only what its PID namespace sees).
+- `cmd/linpersist`: new flags `--live-process-timeout` (default
+  `core.DefaultProcLiveBuildTimeout`, 5 s) and `--no-live-process`
+  (skip the snapshot; no `live_process_attached` ever emitted).
+  Warmup runs in `main` before the runner starts with its own
+  bounded context, identical pattern to provenance.
+- All 13 module Options structs carry a `LiveProcessSet
+  core.LiveProcessSet` field. Nil defaults to `core.NoopLiveProcessSet{}`
+  in `New()`, preserving byte-for-byte golden test compatibility.
+- Fifteen fresh unit tests in `internal/core/proclive_test.go`
+  cover: happy path with fake /proc fixtures, missing /proc root,
+  pre-warmup lookups, the deleted-suffix strip, non-PID directory
+  filter, dangling symlink tolerance, missing-exe-link degrade
+  (hidepid mirror), idempotent Warmup, concurrent Has under race,
+  bounded build timeout, AnnotateLiveProcess match/no-match/nil-safe
+  paths, and the isPIDDirName digit-only filter edge cases.
+- ADR-0010 added: `docs/adr/0010-proc-live-correlation.md`
+  documenting the snapshot semantics, the hidepid degrade policy,
+  the symlink-at-lookup rule, and the rejected alternatives
+  (continuous polling, eBPF, ps shell-out, deferral to v0.3.0).
+
+### Added (Q11 — orphan outside tmp-class dirs)
+- New cookbook query Q11 in `tools/stack_demo.sql`. Surfaces every
+  `exec_target` flagged `non_package_path` AND NOT under any of the
+  four tmp-class prefixes (`/tmp/`, `/var/tmp/`, `/dev/shm/`,
+  `/run/shm/`). Catches the disciplined-attacker pattern that drops
+  the payload under `/opt/`, `/var/lib/`, `/srv/`, `/usr/local/` —
+  which Q4 and Q9 miss entirely. LFA-sorted: single-host targets
+  bubble to the top.
+- Q11 implemented row-for-row in `cmd/linpersist-report/stats.go`
+  (`computeQ11`, `OrphanOutsideTmpRow`). Surfaces as a new overview
+  card "Q11 orphan outside /tmp" alongside Q4/Q7 in the HTML report
+  and the text renderer, plus a dedicated Q11 tab pane with the
+  standard sort/filter widgets.
+- `docs/stacking-cookbook.md` updated from "ten" to "eleven canonical
+  queries"; new "Query 11" section documents the predicate, the
+  Q9 ∪ Q11 partitioning, and the three expected false-positive
+  classes (vendor-installed software, operator deploys, provenance
+  build failure). The "Recommended workflow" section reorders triage
+  to insert Q11 between Q9 and per-module deep dives.
+- `docs/schema-v1.md` refreshed: the `exec_target_pkg` and
+  `exec_target_pkg_status` rows now spell out that the resolver is
+  live, `unknown` is never serialized (its absence is the signal),
+  and `error` is distinct from `unknown`. Cross-references ADR-0009.
+
+### Added (provenance, v0.2.0 cycle)
+- `internal/core/provenance.go` — real dpkg + rpm provenance resolver,
+  replacing the v0.1.0 stub. Detection of the host package manager
+  reads `/etc/os-release` ID and ID_LIKE plus the presence of
+  `/var/lib/dpkg/info/` or `/var/lib/rpm/`. The detection rules are
+  documented in `docs/adr/0009-provenance-dpkg-rpm.md`.
+- dpkg backend: pure-Go walker over `/var/lib/dpkg/info/*.list`. Builds
+  a path → package map in one pass; first-wins on file conflicts; the
+  `:amd64` arch suffix in package names is stripped; the conventional
+  `/.` entry is filtered.
+- rpm backend: bounded shell-out to `/usr/bin/rpm` (or `/bin/rpm`) via
+  `exec.CommandContext` with the queryformat
+  `[%{FILENAMES}\t%{NAME}-%{VERSION}-%{RELEASE}\n]`. ADR-0009 explains
+  why pure-Go RPM DB parsing was rejected (BDB + SQLite + ndb dep
+  cost vs. shell-out's reliability and triviality on every rpm host).
+- `core.Provenance` interface (small read API consumed by modules)
+  with `Warmup(ctx) / LookupPath(path) (pkg, status)` methods.
+- `core.NoopProvenance` zero-value implementation: every lookup
+  returns `PkgStatusUnknown`. Used as the default value when
+  `Options.Provenance` is left nil (preserves byte-for-byte golden
+  test compatibility from v0.1.0).
+- `core.AnnotateExecTargetProvenance(rec, prov, target)` helper —
+  every module calls it once per emit, immediately after setting
+  `rec.Signals`. Populates `Record.ExecTargetPkg` and
+  `Record.ExecTargetPkgStatus` when the lookup is informative;
+  appends `SignalNonPackagePath` when the target is `orphan`.
+  `Unknown` is treated as "resolver had nothing to say" and produces
+  no on-wire fields, so existing goldens stay identical.
+- Resolver lifecycle: `Warmup` is idempotent, runs in `main` before
+  the runner starts, and is bounded by `--provenance-timeout` (default
+  30 s). After warmup, `LookupPath` is a lock-free map read. A failed
+  build records the error once and every subsequent lookup degrades
+  to `PkgStatusError` (distinct from `Unknown`).
+- `cmd/linpersist`: new flags `--provenance-timeout` (caps the warmup
+  phase, default `core.DefaultProvenanceBuildTimeout`) and
+  `--no-provenance` (skip the resolver entirely; every exec_target
+  reports as `Unknown`). Warmup is charged against its own deadline,
+  outside the per-module timeout, so a slow dpkg/rpm build can never
+  eat into a module's 30 s budget.
+- All 13 modules (`cron`, `ldso`, `ssh`, `sshd`, `sudoers`, `pam`,
+  `passwd`, `profile`, `systemd`, `sysv`, `motd`, `kmod`, `udev`)
+  carry a uniform `Options.Provenance core.Provenance` field. The
+  field defaults to `core.NoopProvenance{}` inside each `New` so any
+  caller that left it unset continues to compile and behave exactly
+  as in v0.1.0.
+- Twelve fresh unit tests in `internal/core/provenance_test.go`
+  cover: detection on synthetic /etc/os-release fixtures, ID_LIKE
+  multi-token parsing, dpkg happy path with fixture .list files,
+  file-conflict first-wins policy, the `/.` filter, the `:arch`
+  suffix strip, the missing-info-dir degrade, missing-package-manager
+  hosts (PkgMgrNone returns Unknown), pre-warmup lookups, rpm
+  shell-out happy path against a fake-rpm shell script, rpm binary
+  missing → Error, rpm non-zero exit → Error, build-timeout
+  enforcement, idempotent Warmup, and a concurrent-lookup load test.
+- ADR-0009 added: `docs/adr/0009-provenance-dpkg-rpm.md`.
+
 ### Added (linpersist-report)
 - `cmd/linpersist-report` — a second static binary that turns a
   directory of agent NDJSON output into a report. Same build

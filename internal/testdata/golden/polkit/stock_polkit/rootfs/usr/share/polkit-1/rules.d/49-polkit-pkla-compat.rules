@@ -1,0 +1,9 @@
+/* Distro-shipped rule: backward-compatibility shim for the legacy
+   .pkla files. Do not edit -- modify /etc/polkit-1/rules.d/* instead. */
+
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.NetworkManager.enable-disable-network" &&
+        subject.local && subject.active) {
+        return polkit.Result.YES;
+    }
+});

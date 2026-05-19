@@ -50,6 +50,14 @@ type Options struct {
 	Root        string
 	Now         func() time.Time
 	MaxFileSize int64
+	// Provenance annotates exec_target paths (RUN+= and PROGRAM=
+	// argv[0]) with their owning package. Nil defaults to
+	// core.NoopProvenance.
+	Provenance core.Provenance
+	// LiveProcessSet membership check for the live_process_attached
+	// signal. A RUN+= target with a live PID means udev fired the
+	// rule recently AND the spawned process is still running.
+	LiveProcessSet core.LiveProcessSet
 }
 
 const DefaultMaxFileSize = 1 << 20
@@ -65,6 +73,12 @@ func New(opts Options) *Module {
 	}
 	if opts.MaxFileSize <= 0 {
 		opts.MaxFileSize = DefaultMaxFileSize
+	}
+	if opts.Provenance == nil {
+		opts.Provenance = core.NoopProvenance{}
+	}
+	if opts.LiveProcessSet == nil {
+		opts.LiveProcessSet = core.NoopLiveProcessSet{}
 	}
 	return &Module{opts: opts}
 }
@@ -184,6 +198,8 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, raw string) core.
 		rec.Signals = appendUnique(rec.Signals, core.SignalUdevProgramDirective)
 	}
 
+	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
+	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	return rec
 }
 

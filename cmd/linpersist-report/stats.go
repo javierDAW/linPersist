@@ -27,6 +27,7 @@ type Report struct {
 	Q8MtimeConcentration  []MtimeConcRow
 	Q9ExecInTmp           []ExecInTmpRow
 	Q10HostCoverage       []HostCoverageRow
+	Q11OrphanOutsideTmp   []OrphanOutsideTmpRow
 
 	// HistogramBuckets is the per-bucket count of (module,
 	// content_norm_sha256) groups by how many hosts share them.
@@ -156,6 +157,22 @@ type HostCoverageRow struct {
 	RecentRecords int
 }
 
+// OrphanOutsideTmpRow is one row of Q11: exec_target paths flagged as
+// non_package_path AND not located under any tmp-class prefix. The
+// implant pattern Q4 and Q9 miss entirely (payload dropped under
+// /opt/, /var/lib/, /srv/, /usr/local/, etc.). LFA-sorted so
+// single-host hits surface first.
+type OrphanOutsideTmpRow struct {
+	ExecTarget    string
+	Hosts         int
+	Records       int
+	Module        string
+	SiteClass     string
+	SampleHost    string // first host (lexicographic) that carries the record
+	SampleLocus   string
+	SampleSnippet string
+}
+
 type HistogramBucket struct {
 	Label  string
 	Count  int
@@ -184,15 +201,20 @@ func shortHash(s string) string {
 	return s
 }
 
-// snippetTrim caps a snippet at maxLen chars for display, appending an
-// ellipsis when truncated.
-func snippetTrim(s string, maxLen int) string {
+// snippetTrim normalizes a content snippet for display. It collapses
+// embedded newlines and tabs to spaces so the snippet renders on a
+// single line in column-aligned outputs (tabwriter text mode, HTML
+// table rows) and never breaks the surrounding layout.
+//
+// The maxLen argument is preserved for call-site signature stability
+// but is intentionally ignored: an analyst running triage needs the
+// full snippet for grep / awk / copy-paste / pasting into a ticket.
+// Truncating with "…" was the v0.2.0 behavior and was reverted in
+// the polish pass after operator feedback. Columns just get wider.
+func snippetTrim(s string, _ int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\t", " ")
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-1] + "…"
+	return s
 }
 
 // build assembles a Report from a flat slice of records.
@@ -214,6 +236,7 @@ func build(records []core.Record, sources []string, skipped int, agentVersion st
 	r.Q8MtimeConcentration = computeQ8(records)
 	r.Q9ExecInTmp = computeQ9(records)
 	r.Q10HostCoverage = computeQ10(records)
+	r.Q11OrphanOutsideTmp = computeQ11(records)
 	r.HistogramBuckets = computeHistogram(records)
 	return r
 }
@@ -603,7 +626,7 @@ func computeQ6(records []core.Record) []ExecTargetRow {
 				hosts:        map[string]struct{}{},
 				modules:      map[string]struct{}{},
 				siteClasses:  map[string]struct{}{},
-				sampleTarget: r.ExecTarget,
+				sampleTarget: q6SampleTarget(r),
 			}
 			agg[r.ExecTargetSHA256] = a
 		}
@@ -647,6 +670,24 @@ func computeQ6(records []core.Record) []ExecTargetRow {
 		return out[i].Modules > out[j].Modules
 	})
 	return out
+}
+
+// q6SampleTarget returns the display string for a Q6 row's
+// sample_target column. Most records carry an absolute path in
+// ExecTarget and the path is the right answer; ssh.authkeys records
+// without a `command="..."` option carry an empty ExecTarget but a
+// non-empty ExecTargetSHA256 (the hash of the SSH public-key blob).
+// Showing "" in that case is confusing — the record IS the basis of
+// a cross-host stacking row, the analyst just can't see what kind.
+// Surface "(ssh authorized key)" instead so the row is self-describing.
+func q6SampleTarget(r core.Record) string {
+	if r.ExecTarget != "" {
+		return r.ExecTarget
+	}
+	if r.Module == "ssh" && r.SiteClass == "ssh.authkeys" {
+		return "(ssh authorized key)"
+	}
+	return ""
 }
 
 func mapKeys(m map[string]struct{}) []string {
@@ -722,9 +763,8 @@ var rollCallSignals = []string{
 	"sysv_external_init_symlink",
 }
 
-// rollCallMatches encodes the seven clauses of Q7. Each clause
-// captures a class of implants the others miss; they are deliberately
-// disjoint.
+// rollCallMatches encodes the clauses of Q7. Each clause captures a
+// class of implants the others miss; they are deliberately disjoint.
 func rollCallMatches(r core.Record) bool {
 	sigs := sigSet(r.Signals)
 	// Clause 1: orphan + tmp -- textbook implant fingerprint.
@@ -733,10 +773,22 @@ func rollCallMatches(r core.Record) bool {
 			return true
 		}
 	}
-	// Clause 2-4: signal-only matches.
+	// Clause 2: sudoers backdoor -- NOPASSWD AND ALL commands. Either
+	// signal alone is too noisy: every host's stock /etc/sudoers
+	// carries `root ALL=(ALL) ALL` (fires sudoers_all_commands on 75
+	// hosts × 178 records baseline); many distros ship sudoers.d/
+	// drop-ins with NOPASSWD: for specific package operations (e.g.
+	// `gitlab-runner ALL=(ALL) NOPASSWD: /usr/bin/docker`). The
+	// conjunction -- a principal granted NOPASSWD on the ALL command
+	// list -- is the textbook backdoor pattern and rare in legitimate
+	// configuration.
+	if _, ok := sigs["sudoers_nopasswd"]; ok {
+		if _, ok2 := sigs["sudoers_all_commands"]; ok2 {
+			return true
+		}
+	}
+	// Clause 3-4: signal-only matches that don't need correlation.
 	for _, s := range []string{
-		"sudoers_nopasswd",
-		"sudoers_all_commands",
 		"passwd_uid_zero",
 		"kmod_install_directive",
 	} {
@@ -953,5 +1005,97 @@ func computeQ10(records []core.Record) []HostCoverageRow {
 		}
 		return out[i].Host < out[j].Host
 	})
+	return out
+}
+
+// --- Q11: orphan exec_target OUTSIDE tmp-class directories ------------
+//
+// Clauses mirror tools/stack_demo.sql Q11 row-for-row:
+//   - exec_target IS NOT NULL
+//   - exec_target NOT LIKE /tmp/, /var/tmp/, /dev/shm/, /run/shm/
+//   - signals contains non_package_path
+//
+// Aggregation: group by exec_target, count distinct hosts and total
+// records. LFA-sorted (hosts ASC) so singletons surface first.
+func computeQ11(records []core.Record) []OrphanOutsideTmpRow {
+	tmpPrefixes := []string{"/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"}
+	type agg struct {
+		hosts         map[string]struct{}
+		records       int
+		module        string
+		siteClass     string
+		sampleLocus   string
+		sampleSnippet string
+	}
+	m := map[string]*agg{}
+	for _, r := range records {
+		if r.ExecTarget == "" {
+			continue
+		}
+		inTmp := false
+		for _, p := range tmpPrefixes {
+			if strings.HasPrefix(r.ExecTarget, p) {
+				inTmp = true
+				break
+			}
+		}
+		if inTmp {
+			continue
+		}
+		if _, ok := sigSet(r.Signals)[core.SignalNonPackagePath]; !ok {
+			continue
+		}
+		a := m[r.ExecTarget]
+		if a == nil {
+			a = &agg{
+				hosts:         map[string]struct{}{},
+				module:        r.Module,
+				siteClass:     r.SiteClass,
+				sampleLocus:   r.Locus,
+				sampleSnippet: r.ContentSnippet,
+			}
+			m[r.ExecTarget] = a
+		}
+		a.hosts[hostKey(r)] = struct{}{}
+		a.records++
+	}
+	out := make([]OrphanOutsideTmpRow, 0, len(m))
+	for target, a := range m {
+		// Deterministic sample_host: lexicographically first host
+		// from the aggregated set. For 1-host singletons the value
+		// equals the only host that carries the record, which is
+		// what the analyst actually wants to look at.
+		hosts := make([]string, 0, len(a.hosts))
+		for h := range a.hosts {
+			hosts = append(hosts, h)
+		}
+		sort.Strings(hosts)
+		sampleHost := ""
+		if len(hosts) > 0 {
+			sampleHost = hosts[0]
+		}
+		out = append(out, OrphanOutsideTmpRow{
+			ExecTarget:    target,
+			Hosts:         len(a.hosts),
+			Records:       a.records,
+			Module:        a.module,
+			SiteClass:     a.siteClass,
+			SampleHost:    sampleHost,
+			SampleLocus:   a.sampleLocus,
+			SampleSnippet: snippetTrim(a.sampleSnippet, 100),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Hosts != out[j].Hosts {
+			return out[i].Hosts < out[j].Hosts
+		}
+		if out[i].Records != out[j].Records {
+			return out[i].Records > out[j].Records
+		}
+		return out[i].ExecTarget < out[j].ExecTarget
+	})
+	if len(out) > 200 {
+		out = out[:200]
+	}
 	return out
 }

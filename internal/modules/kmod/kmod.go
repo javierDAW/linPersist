@@ -68,6 +68,14 @@ type Options struct {
 	Root        string
 	Now         func() time.Time
 	MaxFileSize int64
+	// Provenance annotates exec_target paths (install/options/blacklist
+	// directives that name a binary) with their owning package. Nil
+	// defaults to core.NoopProvenance.
+	Provenance core.Provenance
+	// LiveProcessSet membership check for the live_process_attached
+	// signal. An install directive whose argv[0] is currently running
+	// indicates the modprobe-time payload is active right now.
+	LiveProcessSet core.LiveProcessSet
 }
 
 const DefaultMaxFileSize = 1 << 20
@@ -84,6 +92,12 @@ func New(opts Options) *Module {
 	}
 	if opts.MaxFileSize <= 0 {
 		opts.MaxFileSize = DefaultMaxFileSize
+	}
+	if opts.Provenance == nil {
+		opts.Provenance = core.NoopProvenance{}
+	}
+	if opts.LiveProcessSet == nil {
+		opts.LiveProcessSet = core.NoopLiveProcessSet{}
 	}
 	return &Module{opts: opts}
 }
@@ -237,13 +251,24 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, raw string, kind 
 	case kindModprobe:
 		switch verb {
 		case "install":
-			rec.Signals = appendUnique(rec.Signals, core.SignalKmodInstallDirective)
-			// rest = "<module-name> <command...>". exec_target is
-			// argv[0] of the command, i.e. the second token of rest.
+			// rest = "<module-name> <command...>". argv[0] of the
+			// command is the second token of rest.
 			_, cmd := splitFirstToken(rest)
 			if cmd != "" {
 				et, _ := splitFirstToken(cmd)
-				if et != "" {
+				if et != "" && !isModprobeSelfCall(et) {
+					// The kmod_install_directive signal and the
+					// exec_target enrichments only fire when argv[0]
+					// is NOT modprobe itself. The recursive form
+					// (`install snd-trident /sbin/modprobe
+					// --ignore-install ...`) is a baseline pattern
+					// shipped by every distro's alsa / dm-mod /
+					// nvidia kernel config and is not a persistence
+					// vector. The implant pattern is argv[0] being a
+					// shell, an interpreter, or any other binary;
+					// those still surface.
+					rec.Signals = appendUnique(rec.Signals,
+						core.SignalKmodInstallDirective)
 					rec.ExecTarget = et
 					rec.Signals = m.execTargetSignals(rec.Signals, et)
 				}
@@ -257,6 +282,8 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, raw string, kind 
 		// directive-class signals.
 	}
 
+	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
+	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	return rec
 }
 
@@ -388,6 +415,19 @@ func splitFirstToken(s string) (first, rest string) {
 		return s, ""
 	}
 	return s[:idx], strings.TrimLeft(s[idx:], " \t")
+}
+
+// isModprobeSelfCall returns true if argv[0] of a modprobe `install`
+// directive's replacement command is the modprobe binary itself.
+// Distros ship recursive-modprobe install lines for hardware aliases
+// (e.g. /lib/modprobe.d/dist-alsa.conf carries
+// `install snd-trident /sbin/modprobe --ignore-install snd-pcm ...`).
+// These are baseline configuration, not persistence vectors, and
+// firing kmod_install_directive on them generates Q7 / Q11 noise
+// proportional to host count. Both the historical /sbin/modprobe
+// and the usr-merged /usr/sbin/modprobe forms are recognised.
+func isModprobeSelfCall(argv0 string) bool {
+	return argv0 == "/sbin/modprobe" || argv0 == "/usr/sbin/modprobe"
 }
 
 func skipName(name string) bool {

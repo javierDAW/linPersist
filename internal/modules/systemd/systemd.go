@@ -73,6 +73,13 @@ type Options struct {
 	Root        string
 	Now         func() time.Time
 	MaxFileSize int64
+	// Provenance annotates exec_target paths (first ExecStart=) with
+	// their owning package. Nil defaults to core.NoopProvenance.
+	Provenance core.Provenance
+	// LiveProcessSet membership check for the live_process_attached
+	// signal. Service units whose ExecStart binary has a live PID
+	// are by definition active services right now.
+	LiveProcessSet core.LiveProcessSet
 }
 
 // DefaultMaxFileSize is the per-file byte cap. Unit files in the wild
@@ -98,6 +105,12 @@ func New(opts Options) *Module {
 	}
 	if opts.MaxFileSize <= 0 {
 		opts.MaxFileSize = DefaultMaxFileSize
+	}
+	if opts.Provenance == nil {
+		opts.Provenance = core.NoopProvenance{}
+	}
+	if opts.LiveProcessSet == nil {
+		opts.LiveProcessSet = core.NoopLiveProcessSet{}
 	}
 	m := &Module{opts: opts}
 	// Fixed walked-loci prefixes. The /home/<user>/.config/systemd/user
@@ -529,6 +542,8 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, siteClass string,
 	}
 
 	rec.Signals = dedupSignals(rec.Signals)
+	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
+	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	return rec
 }
 

@@ -1,0 +1,8 @@
+#!/bin/sh
+# Mount NFS filesystems on interface up.
+set -e
+
+[ "$IFACE" != "lo" ] || exit 0
+[ -x /usr/bin/mount ] || exit 0
+
+mount -a -t nfs,nfs4,smbfs,cifs 2>/dev/null || true

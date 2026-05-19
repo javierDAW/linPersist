@@ -19,6 +19,15 @@ import (
 
 var updateGolden = flag.Bool("update", false, "rewrite expected.ndjson files instead of comparing")
 
+// shouldUpdateGolden accepts both the -update flag and the
+// LINPERSIST_UPDATE_GOLDEN=1 env var.
+func shouldUpdateGolden() bool {
+	if updateGolden != nil && *updateGolden {
+		return true
+	}
+	return os.Getenv("LINPERSIST_UPDATE_GOLDEN") == "1"
+}
+
 // fixedMtime is the reference timestamp; ~42 days before fixedNow so
 // recent_mtime_7d, recent_mtime_30d and recent_target_mtime_7d do
 // NOT fire on stamped fixtures by default.
@@ -100,7 +109,7 @@ func runGolden(t *testing.T, caseDir string) {
 	}
 
 	expectedPath := filepath.Join(caseDir, "expected.ndjson")
-	if *updateGolden {
+	if shouldUpdateGolden() {
 		if err := os.WriteFile(expectedPath, got.Bytes(), 0o644); err != nil {
 			t.Fatalf("write expected: %v", err)
 		}

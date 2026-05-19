@@ -43,12 +43,16 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/jarmidaw/linpersist/internal/core"
+	"github.com/jarmidaw/linpersist/internal/modules/atjobs"
 	"github.com/jarmidaw/linpersist/internal/modules/cron"
+	"github.com/jarmidaw/linpersist/internal/modules/grub"
 	"github.com/jarmidaw/linpersist/internal/modules/kmod"
 	"github.com/jarmidaw/linpersist/internal/modules/ldso"
 	"github.com/jarmidaw/linpersist/internal/modules/motd"
+	"github.com/jarmidaw/linpersist/internal/modules/netdispatch"
 	"github.com/jarmidaw/linpersist/internal/modules/pam"
 	"github.com/jarmidaw/linpersist/internal/modules/passwd"
+	"github.com/jarmidaw/linpersist/internal/modules/polkit"
 	"github.com/jarmidaw/linpersist/internal/modules/profile"
 	"github.com/jarmidaw/linpersist/internal/modules/ssh"
 	"github.com/jarmidaw/linpersist/internal/modules/sshd"
@@ -56,6 +60,7 @@ import (
 	"github.com/jarmidaw/linpersist/internal/modules/systemd"
 	"github.com/jarmidaw/linpersist/internal/modules/sysv"
 	"github.com/jarmidaw/linpersist/internal/modules/udev"
+	"github.com/jarmidaw/linpersist/internal/modules/xdg"
 )
 
 // matrixEntry is the subset of a matrix.yaml site_class row this tool
@@ -129,6 +134,7 @@ func main() {
 // two lists must be edited together when a new module is added.
 func registeredModules() []core.Module {
 	return []core.Module{
+		atjobs.New(atjobs.Options{}),
 		cron.New(cron.Options{}),
 		ldso.New(ldso.Options{}),
 		ssh.New(ssh.Options{}),
@@ -142,6 +148,10 @@ func registeredModules() []core.Module {
 		motd.New(motd.Options{}),
 		kmod.New(kmod.Options{}),
 		udev.New(udev.Options{}),
+		polkit.New(polkit.Options{}),
+		netdispatch.New(netdispatch.Options{}),
+		grub.New(grub.Options{}),
+		xdg.New(xdg.Options{}),
 	}
 }
 

@@ -88,6 +88,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		{"Q4 implant hits", maybeRed(a, strconv.Itoa(len(report.Q4ImplantFingerprint)), len(report.Q4ImplantFingerprint) > 0)},
 		{"Q7 roll-call", maybeRed(a, strconv.Itoa(len(report.Q7ImplantRollCall)), len(report.Q7ImplantRollCall) > 0)},
 		{"Q8 mtime spikes", strconv.Itoa(len(report.Q8MtimeConcentration))},
+		{"Q11 orphan outside tmp", maybeRed(a, strconv.Itoa(len(report.Q11OrphanOutsideTmp)), len(report.Q11OrphanOutsideTmp) > 0)},
 	}
 	for _, s := range summary {
 		fmt.Fprintf(out, "  %-18s %s\n", s.k+":", s.v)
@@ -160,7 +161,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		for _, r := range report.Q1Singletons {
 			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
 				r.Module, r.SiteClass, r.ContentNorm, r.SampleHost,
-				trimLen(r.SampleLocus, 40), trimLen(r.SampleSnippet, 40))
+				r.SampleLocus, r.SampleSnippet)
 		}
 		tw.Flush()
 	}
@@ -177,8 +178,8 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		fmt.Fprintln(tw, "  module\tsite_class\tlocus\tcontent_norm\tsample_host\tsnippet")
 		for _, r := range report.Q2LocusSingletons {
 			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
-				r.Module, r.SiteClass, trimLen(r.Locus, 40), r.ContentNorm,
-				r.SampleHost, trimLen(r.SampleSnippet, 40))
+				r.Module, r.SiteClass, r.Locus, r.ContentNorm,
+				r.SampleHost, r.SampleSnippet)
 		}
 		tw.Flush()
 	}
@@ -196,7 +197,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		for _, r := range report.Q3PeerGroupSingletons {
 			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%d\t%s\t%s\n",
 				r.OSID, r.Module, r.SiteClass, r.ContentNorm, r.PeerSize,
-				r.SampleHost, trimLen(r.SampleLocus, 40))
+				r.SampleHost, r.SampleLocus)
 		}
 		tw.Flush()
 	}
@@ -217,8 +218,8 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		for _, r := range report.Q4ImplantFingerprint {
 			sigs := strings.Join(r.Signals, ",")
 			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
-				r.Host, r.Module, r.SiteClass, trimLen(r.Locus, 40),
-				trimLen(r.ExecTarget, 30), trimLen(sigs, 60))
+				r.Host, r.Module, r.SiteClass, r.Locus,
+				r.ExecTarget, sigs)
 		}
 		tw.Flush()
 	}
@@ -256,7 +257,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 			spread := strings.Join(r.SpreadModules, ",")
 			fmt.Fprintf(tw, "  %s\t%d\t%s\t%d\t%s\t%s\n",
 				r.ExecTargetSHA256, r.Hosts, commaInt(r.Records),
-				r.Modules, trimLen(r.SampleTarget, 40), trimLen(spread, 40))
+				r.Modules, r.SampleTarget, spread)
 		}
 		tw.Flush()
 	}
@@ -278,8 +279,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 			sigs := strings.Join(r.TriageSignals, ",")
 			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
 				r.Host, r.Module, r.SiteClass,
-				trimLen(r.Locus, 40), trimLen(r.ExecTarget, 30),
-				trimLen(sigs, 60))
+				r.Locus, r.ExecTarget, sigs)
 		}
 		tw.Flush()
 	}
@@ -320,7 +320,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 			}
 			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
 				r.Host, r.Module, r.SiteClass,
-				trimLen(r.Locus, 40), trimLen(r.ExecTarget, 30), orph)
+				r.Locus, r.ExecTarget, orph)
 		}
 		tw.Flush()
 	}
@@ -340,6 +340,26 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 			fmt.Fprintf(tw, "  %s\t%s\t%s\t%d\t%d\t%d\n",
 				r.Host, r.OSID, commaInt(r.Records),
 				r.Modules, r.SiteClasses, r.RecentRecords)
+		}
+		tw.Flush()
+	}
+	fmt.Fprintln(out)
+
+	// --- Q11: orphan exec targets outside tmp-class dirs -------------
+	textSection(out, a, fmt.Sprintf("Q11 · Orphan exec_target OUTSIDE tmp-class dirs (%d)",
+		len(report.Q11OrphanOutsideTmp)))
+	fmt.Fprintln(out, "Unmanaged payloads under /opt, /var/lib, /srv, /usr/local. LFA-sorted.")
+	fmt.Fprintln(out)
+	if len(report.Q11OrphanOutsideTmp) == 0 {
+		fmt.Fprintln(out, "  no rows")
+	} else {
+		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "  exec_target\thosts\trecords\tmodule\tsite_class\tsample_host\tsample_locus")
+		for _, r := range report.Q11OrphanOutsideTmp {
+			fmt.Fprintf(tw, "  %s\t%d\t%d\t%s\t%s\t%s\t%s\n",
+				r.ExecTarget, r.Hosts, r.Records,
+				r.Module, r.SiteClass, r.SampleHost,
+				r.SampleLocus)
 		}
 		tw.Flush()
 	}
@@ -391,19 +411,6 @@ func barWidth(count, max, scale int) int {
 		w = 1
 	}
 	return w
-}
-
-// trimLen caps s at max runes and appends a single-character ellipsis.
-// Operates on bytes; for ASCII paths and snippets that's identical to
-// runes. Multi-byte content is rare in the records the report sees.
-func trimLen(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	if max < 1 {
-		return ""
-	}
-	return s[:max-1] + "…"
 }
 
 func maybeRed(a *ansi, s string, condition bool) string {

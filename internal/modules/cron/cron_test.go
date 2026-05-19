@@ -21,9 +21,22 @@ import (
 //
 //	go test ./internal/modules/cron -run TestGolden -update
 //
-// In normal CI runs the flag is false and every case must match its
-// frozen expected.ndjson byte-for-byte.
+// Equivalently: LINPERSIST_UPDATE_GOLDEN=1 go test ./internal/modules/cron/...
+//
+// In normal CI runs both the flag and the env var are false and every
+// case must match its frozen expected.ndjson byte-for-byte.
 var updateGolden = flag.Bool("update", false, "rewrite expected.ndjson files instead of comparing")
+
+// shouldUpdateGolden returns true when the test binary should regenerate
+// expected.ndjson files. The -update flag is the primary trigger;
+// LINPERSIST_UPDATE_GOLDEN=1 is a fallback for shells that pass env
+// vars more naturally than test flags.
+func shouldUpdateGolden() bool {
+	if updateGolden != nil && *updateGolden {
+		return true
+	}
+	return os.Getenv("LINPERSIST_UPDATE_GOLDEN") == "1"
+}
 
 // fixedMtime is the deterministic mtime applied to every fixture file
 // by the test runner. Chosen ~6 weeks before fixedNow so that
@@ -112,7 +125,7 @@ func runGolden(t *testing.T, caseDir string) {
 	}
 
 	expectedPath := filepath.Join(caseDir, "expected.ndjson")
-	if *updateGolden {
+	if shouldUpdateGolden() {
 		if err := os.WriteFile(expectedPath, got.Bytes(), 0o644); err != nil {
 			t.Fatalf("write expected: %v", err)
 		}

@@ -448,3 +448,152 @@ site_classes:
       udev_run_directive; PROGRAM= fires udev_program_directive.
       MITRE T1546 (parent: Event Triggered Execution) -- ATT&CK has
       no Linux-udev sub-technique as of May 2026.
+
+  - site_class: at.jobs
+    module: atjobs
+    mitre: [T1053.001]
+    loci:
+      - /var/spool/at/
+      - /var/spool/cron/atjobs/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      atd spool files: shell scripts that atd executes when their
+      queued time arrives. Per-file granularity. exec_target is set
+      to the spool file itself (same pattern as cron.periodic). The
+      atd-prepended header (umask, HOME=, PATH=, LOGNAME=, USER=,
+      SHELL=, TERM=, cd <home>) is stripped from
+      content_norm_sha256 -- it is volatile per user and would
+      defeat stacking. The heredoc body (between
+      `${SHELL:-/bin/sh} << 'MARKER'` and the closing MARKER on its
+      own line) is the canonical content; comments and blank lines
+      are then stripped (same rules as profile/sysv/motd-shell).
+      Hand-edited spool files that do not follow the atd layout
+      fall back to hashing the whole input with the same comment +
+      blank-line strip -- deterministic but lower stacking yield.
+      No module-specific signals.
+
+  - site_class: polkit.rules
+    module: polkit
+    mitre: [T1548]
+    loci:
+      - /etc/polkit-1/rules.d/
+      - /usr/share/polkit-1/rules.d/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      Polkit JS rules files evaluated by the polkit daemon to decide
+      whether an action is allowed. Per-file granularity. Canonical
+      form strips `//` line comments, `/* ... */` block comments,
+      blank lines, and trailing whitespace, while respecting string
+      literal boundaries (so a `//` inside `"http://x"` stays as
+      content, not a comment). exec_target is intentionally NOT
+      populated -- polkit rules evaluate policy, they do not run
+      binaries. Two module-specific signals fire on token presence
+      in the canonical form: `polkit_admin_rule` when the file
+      contains `addAdminRule(`, and `polkit_yes_constant` when it
+      contains `polkit.Result.YES`. MITRE T1548 (Abuse Elevation
+      Control Mechanism, parent technique) -- ATT&CK has no
+      Linux-polkit sub-technique as of May 2026.
+
+  - site_class: network.dispatchers
+    module: netdispatch
+    mitre: [T1546]
+    loci:
+      - /etc/NetworkManager/dispatcher.d/
+      - /etc/NetworkManager/dispatcher.d/pre-up.d/
+      - /etc/NetworkManager/dispatcher.d/pre-down.d/
+      - /etc/NetworkManager/dispatcher.d/no-wait.d/
+      - /etc/dhcp/dhclient-enter-hooks.d/
+      - /etc/dhcp/dhclient-exit-hooks.d/
+      - /etc/dhcpcd.enter.hook
+      - /etc/dhcpcd.exit.hook
+      - /etc/network/if-pre-up.d/
+      - /etc/network/if-up.d/
+      - /etc/network/if-down.d/
+      - /etc/network/if-post-down.d/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      Executable scripts invoked by network daemons on state
+      transitions. Four daemon families covered: NetworkManager,
+      dhclient, dhcpcd (single-file hooks rather than a directory),
+      and ifupdown. Per-file granularity. exec_target is the script
+      file path itself (same model as cron.periodic). Canonical
+      form strips '#' comments (including the shebang since it is
+      cosmetic for stacking), blank lines, and trailing whitespace
+      per line -- same rules as profile/sysv/motd-shell/atjobs.
+      Non-executable files emit a record with errors[] code
+      NOT_EXECUTABLE since the dispatcher daemon would skip them at
+      runtime. MITRE T1546 (Event Triggered Execution, parent
+      technique) -- ATT&CK has no Linux-network-dispatcher
+      sub-technique as of May 2026. PANIX, Mandiant, and The DFIR
+      Report have flagged this family in real campaigns.
+
+  - site_class: kernel.grub.config
+    module: grub
+    mitre: [T1542.003]
+    loci:
+      - /etc/default/grub
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      Per-line records from /etc/default/grub. Each non-comment,
+      non-blank KEY=VALUE line emits a record. The high-precision
+      signal is grub_cmdline_init: a GRUB_CMDLINE_LINUX* value
+      containing `init=<path>` overrides the kernel's pid-1 binary
+      at next boot -- the textbook bootloader-cmdline injection
+      pattern. When the signal fires, exec_target is populated with
+      the override path and the standard interpreter_in_tmp /
+      exec_target_orphan / non_package_path enrichments apply.
+      Canonical form strips the optional `export ` prefix and
+      trailing whitespace; quotes around values are preserved
+      verbatim (they affect grub-mkconfig parsing). MITRE T1542.003
+      (Pre-OS Boot: Bootkit) -- closest match in ATT&CK for
+      cmdline-injection without a real bootloader implant.
+
+  - site_class: kernel.grub.dropin
+    module: grub
+    mitre: [T1542.003]
+    loci:
+      - /etc/grub.d/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      Per-file records from /etc/grub.d/*. Each script is invoked
+      by grub-mkconfig at grub.cfg regeneration time as the user
+      running grub-mkconfig (typically root). Dropping a hostile
+      script here yields both write-time code execution AND a
+      custom boot entry that runs at the next boot. exec_target is
+      set to the script file path itself (same model as
+      cron.periodic). Canonical form strips '#' comments (including
+      the shebang since it is cosmetic for stacking), blank lines,
+      and trailing whitespace per line -- same rules as
+      profile/sysv/motd-shell/atjobs/netdispatch. MITRE T1542.003.
+
+  - site_class: xdg.autostart
+    module: xdg
+    mitre: [T1547.013]
+    loci:
+      - /etc/xdg/autostart/
+      - /root/.config/autostart/
+      - /home/*/.config/autostart/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      FreeDesktop .desktop INI files that the desktop session
+      executes at login. Per-file granularity. Canonical form drops
+      comments, blank lines, locale-suffixed keys
+      (Name[en], Comment[de], ...), and sorts keys within each
+      section alphabetically. Two semantically-equivalent .desktop
+      files produce the same content_norm_sha256 regardless of key
+      order, comment presence, or which locales are populated.
+      exec_target is argv[0] of the Exec= line in [Desktop Entry],
+      with FreeDesktop field codes (%U, %f, %i, ...) stripped and
+      surrounding double quotes removed. Standard core signals
+      apply (interpreter_in_tmp, exec_target_orphan,
+      non_package_path via provenance, live_process_attached via
+      /proc snapshot). No module-specific signals in v0.2.0; the
+      locus prefix tells the backend whether the record is
+      system-wide (/etc/xdg/autostart/) or per-user
+      (/root/.config/autostart/, /home/*/.config/autostart/).
