@@ -7,6 +7,192 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (declarative detections — ADR-0013)
+- **Q7 clauses externalised to `detections.yaml`**. The
+  cross-cutting "implant roll-call" was duplicated between
+  `cmd/linpersist-report/stats.go` `rollCallMatches` (Go) and
+  `tools/stack_demo.sql` Q7 (DuckDB). `[Unreleased] D1` already
+  documented one round of hand-syncing the two copies. The fix:
+  promote the clauses to declarative data in
+  `internal/detections/detections.yaml`, with two consumers reading
+  the same file. The Go-native matcher is now ~1 line that calls
+  the predicate engine; the SQL `WHERE` block is regenerated from
+  the same YAML by `cmd/detgen`. See ADR-0013 for the schema and
+  generator decisions.
+- **Schema (v1) covers the 7 current clauses with 4 predicates**:
+  `signals_all`, `signals_any`, `module_in`, `content_contains_any`.
+  All AND-joined within a detection; OR across detections. Nothing
+  more clever than what is needed today; new predicates added
+  field-by-field when a clause demands. Each detection carries
+  `id` (snake_case unique), `description`, `severity`
+  (info|low|medium|high|critical), `mitre` (T#### or T####.###).
+- **Loader rejects ill-formed input at parse time**. Unknown
+  signal names (validated against `core.KnownSignalSet` from
+  ADR-0011), duplicate ids, empty `when:` blocks, bad MITRE id
+  shapes, unknown severities, SQL-unsafe characters in content
+  substrings — all caught before the matcher or SQL generator
+  sees them. 15 golden test cases cover the happy path and every
+  failure mode.
+- **`internal/detections/` package** (~750 LOC) — loader, matcher,
+  SQL generator, embedded copy, tests. Stdlib + `gopkg.in/yaml.v3`
+  (already in `go.sum`). No new dependencies.
+- **`cmd/detgen` binary** (~150 LOC) — regenerates Q7 `WHERE`
+  block in `tools/stack_demo.sql` from the YAML. Substitutes only
+  between `-- BEGIN GENERATED Q7 detections` / `-- END GENERATED`
+  markers; rest of the SQL untouched. Three modes: rewrite,
+  `--dry-run` to stdout, `--verify` for the CI release gate.
+- **`make detgen-verify`** release gate. Byte-compares the
+  regenerated SQL against the committed file. Added to the
+  `all` chain in the Makefile next to `audit` (matrix-audit, the
+  precedent from ADR-0001). Catches the realistic failure mode of
+  editing `detections.yaml` and forgetting to regenerate the SQL.
+
+### Changed (Q7 row output gains `matched_detections` column)
+- **Report Q7 now shows which rule fired, not just which signals**.
+  `RollCallRow` carries a new `MatchedDetections []string` field
+  alongside the existing `TriageSignals`. Text and HTML
+  renderers emit a new `matched_detections` column. The analyst
+  no longer has to map the signal set back to a clause in their
+  head — the row says `sudoers_nopasswd_all_backdoor` or
+  `payload_under_tmp_via_persistence` directly. `triage_signals`
+  is preserved unchanged for operator scripts that parse Q7 text
+  output.
+
+### Verified (paridad y release gate)
+- **Lab-realistic 75-host fleet round-trip**: Q7 still produces
+  exactly 22 rows; Q1=22, Q4=6, Q8=42, Q11=6 byte-identical to the
+  v0.2.0-polish snapshot. The migration changes the implementation,
+  not the analytical output.
+- **`go test ./... -count=1`** green across the 22 packages
+  (15 existing modules + core + matrix-audit + new
+  internal/detections).
+- **`go vet ./...`** clean. **`gofmt -l .`** clean. **`make
+  detgen-verify`** clean against the committed SQL.
+
+### Added (per-host dossier mode — ADR-0012)
+- **`linpersist-report --host <id>` produces a single-host
+  dossier**. The fleet report (Q1..Q11) answers "what is going on
+  across the fleet" but every operator hits the same follow-up
+  question once they have a candidate host: "tell me everything
+  about *this* host". Filtering the fleet view by hostname does not
+  answer that — Q3/Q5/Q6/Q10 are aggregates that collapse or
+  become meaningless restricted to one host, and the fleet view
+  cannot surface *missing* modules (silent collection failures).
+  The new mode forks the pipeline at `main()`: with `--host` set,
+  `buildDossier()` runs instead of the fleet `build()`, and the
+  output goes through dedicated renderers (`renderHost` for HTML,
+  `renderHostText` for text). Same `--format` / `--color` / `-o`
+  flags carry across both modes. See ADR-0012 for the layout
+  decisions, the rationale for omitting Q3/Q5/Q6/Q10, and the
+  scalability argument (per-host artefact scales with records-of-
+  that-host, not fleet size).
+- **Dossier layout, top to bottom**: host header (hostname,
+  host_id, os+version, kernel, arch, boot_id, collected_at, tags);
+  summary card (host vs fleet record counts, modules covered,
+  per-Q counts, module-gap count); **signal panel** sorted by
+  fleet rarity ascending so the host's rarest fleet-wide signal
+  bubbles to the top (with descriptions sourced from the ADR-0011
+  signals catalog, unknown signals surfaced as `(unknown)`); per-Q
+  sub-tables for Q4, Q7, Q1 (records on this host whose
+  content_norm appears on no other fleet host), Q2 (per-locus
+  variant of Q1), Q9, Q11 (host-scoped, alphabetical sort), Q8
+  (host-scoped, >=5-record threshold preserved); module coverage
+  / gap detector flagging modules with `Records == 0 AND
+  FleetMedian > 0`.
+- **`--host` accepts exactly one value**. Multi-host runs use a
+  shell loop. Match is against `host_meta.hostname` OR `host_id`.
+  No match exits 1 with a friendly "known hosts in this dataset:
+  ..." listing (top 20 + "... and N more" tail so stderr stays
+  manageable on multi-thousand-host fleets).
+- **HTML dossier shares `assets/style.css` with the fleet report
+  but loads NO JavaScript**. Single view, no tabs, no sort/filter:
+  Ctrl-F replaces the fleet report's interactive controls. Result
+  is a ~20 KB self-contained HTML that renders in any browser,
+  email preview pane, or sandboxed ticketing viewer.
+- **Text dossier reuses `ansi`, `textSection`, `maybeRed`,
+  `commaInt`, `snippetTrim` from `render_text.go`** so the ANSI
+  policy in ADR-0008 (TTY gate; bold headings, red Q4-positive
+  counts, orange tail bucket) carries over unchanged.
+- **Validation against `lab-realistic` 75-host fleet**: fleet
+  report unchanged byte-for-byte (Q1=22, Q4=6, Q7=22, Q8=42,
+  Q11=6); dossiers for the three Q4 hosts surface their implant +
+  orphan-outside-tmp records + module gaps; signal panel renders
+  rarity ranking and pulls catalog descriptions correctly.
+
+### Added (signals catalog — ADR-0011)
+- **Iterable signals catalog backed by buildtime audit tests**.
+  `internal/core/signals.go` carried 40 documented `Signal*`
+  constants but nothing iterated them. Three concrete failure
+  modes followed: string-literal drift inside a module (the
+  preceding sshd polish surfaced one), cross-binary drift between
+  `tools/stack_demo.sql` Q7 and `cmd/linpersist-report/stats.go`
+  `rollCallSignals` (already flagged in `[Unreleased] D1`), and no
+  way for the future `detections.yaml` loader to validate
+  user-supplied rule names. New `internal/core/signals_catalog.go`
+  (~360 LOC) exposes the catalog as an ordered `[]SignalDef` with
+  per-entry `Name`, one-line `Description`, and a declared
+  `EmittedBy []string` listing the modules / core helpers that emit
+  it. Lookup helpers: `SignalByName`, `KnownSignal`,
+  `KnownSignalSet`. See ADR-0011 for the shape decisions (slice not
+  map; declared not inferred; regex audit not AST).
+- **Five internal-consistency tests** in
+  `internal/core/signals_test.go`: no duplicate names; description
+  non-empty, 20–200 chars, no trailing period; non-empty
+  `EmittedBy`; `EmittedBy` token shape (bare lowercase module name
+  or `core/<file>`); lookup helpers agree on the universe.
+- **Two cross-source audit tests** in
+  `internal/core/signals_emission_test.go`: every `EmittedBy`
+  entry is observed in the corresponding source file (catalog
+  -> code); every Signal* identifier referenced by a module or
+  core helper is in the catalog and listed under that emitter
+  (code -> catalog). Regex-based scan; ~50 LOC of audit per
+  direction, stdlib-only, no new dependencies.
+
+### Changed (signals constants adopted across the report binary)
+- **`cmd/linpersist-report/stats.go` rolls signal references
+  through `core.Signal*` constants**. `rollCallSignals` (the Q7
+  triage-pill list) used to be 12 string literals; it now
+  references the constants. The clauses in `rollCallMatches` no
+  longer use literal map keys (`sigs["exec_target_orphan"]`) and
+  instead read `sigs[core.SignalExecTargetOrphan]`. Q4's
+  `containsAll(...)` and Q9's `sigSet[...]` migrated likewise.
+  Build now fails on a typo or rename rather than silently
+  emitting an empty `triage_signals` column. Behavioural parity
+  validated against the lab-realistic 75-host NDJSON: Q1=22,
+  Q4=6, Q7=22, Q8=42, Q11=6 unchanged.
+
+### Changed (sshd signal-emission consistency)
+- **sshd module emits signals via the core catalog constants
+  instead of string literals**. `internal/modules/sshd/normalize.go`
+  `directiveSignals()` was emitting `"sshd_permit_root_login_yes"`
+  and `"sshd_authorized_keys_command"` as raw string literals
+  (and the test file compared against the same literals). The
+  values matched `core.SignalSSHDPermitRootLoginYes` /
+  `core.SignalSSHDAuthorizedKeysCommand` by convention but nothing
+  enforced the link: renaming the constants would have left the
+  module silently emitting the old strings, and renaming the
+  emitted strings would have left every cross-cutting consumer
+  (`cmd/linpersist-report` Q7 `rollCallSignals`, the planned
+  signals catalog, future `detections.yaml`) broken. Both call
+  sites now reference the constants. No behavioural change for
+  downstream consumers; the catalog audit work that triggered
+  this change is what surfaced the inconsistency.
+- **Documented the `PermitRootLogin` signal policy inline**.
+  `directiveSignals()` previously had no comment justifying why
+  only the literal value `yes` fires the signal while
+  `without-password` / `prohibit-password` / `forced-commands-only`
+  do not. `prohibit-password` is the OpenSSH default since 7.0;
+  flagging it would dirty LFA across every host in the fleet and
+  obscure the rare actual `yes`. The reasoning is now a paragraph
+  on the function so the next person who looks at it sees the
+  trade-off and the future-extension hook (a separate
+  `sshd_permit_root_login_keys` signal) without re-deriving it.
+- **Test coverage extended with a `prohibit-password` negative
+  case**. `TestDirectiveSignals` now asserts that
+  `directiveSignals("PermitRootLogin", "prohibit-password")`
+  returns no signal, pinning the documented policy against
+  accidental broadening.
+
 ### Changed (v0.2.0 polish — D8 no-ellipsis report)
 - **D8. Report text and HTML modes no longer truncate column
   content with "…"**. Operator feedback: an analyst running triage

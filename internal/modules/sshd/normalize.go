@@ -12,6 +12,8 @@ package sshd
 
 import (
 	"strings"
+
+	"github.com/jarmidaw/linpersist/internal/core"
 )
 
 // lineKind classifies a parsed sshd_config line.
@@ -175,16 +177,27 @@ func directiveExecTarget(keyword, value string) string {
 }
 
 // directiveSignals returns the static signals derivable from
-// keyword+value alone.
+// keyword+value alone. Signal names go through the core catalog so
+// renames stay tip-to-tail consistent; the previous string-literal
+// form let normalize.go drift silently from internal/core/signals.go.
+//
+// PermitRootLogin policy: only the literal "yes" fires the signal.
+// The other allow-some-form-of-login values (without-password,
+// prohibit-password, forced-commands-only) are NOT flagged here.
+// prohibit-password is the OpenSSH default since 7.0, so flagging
+// it would dirty LFA across every host in the fleet and obscure the
+// rare "yes" -- the actual anti-pattern. Re-evaluate if a separate
+// sshd_permit_root_login_keys signal is added for the
+// without-password / prohibit-password family.
 func directiveSignals(keyword, value string) []string {
 	var out []string
 	kw := strings.ToLower(keyword)
 	val := strings.ToLower(normalizeValue(value))
 	if kw == "permitrootlogin" && val == "yes" {
-		out = append(out, "sshd_permit_root_login_yes")
+		out = append(out, core.SignalSSHDPermitRootLoginYes)
 	}
 	if kw == "authorizedkeyscommand" {
-		out = append(out, "sshd_authorized_keys_command")
+		out = append(out, core.SignalSSHDAuthorizedKeysCommand)
 	}
 	return out
 }

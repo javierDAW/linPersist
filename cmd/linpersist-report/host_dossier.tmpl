@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ .Title }}</title>
+<style>{{ .CSS }}</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-left">
+    <span class="brand">{{ .Title }}</span>
+    <span class="meta">host dossier · generated {{ .Dossier.Generated.Format "2006-01-02 15:04 UTC" }}
+      {{- if .Dossier.AgentVersion }} · agent {{ .Dossier.AgentVersion }}{{ end }}</span>
+  </div>
+  <div class="counts">
+    <span class="count">records: {{ commaInt .Dossier.HostRecords }} / {{ commaInt .Dossier.FleetRecords }}</span>
+    <span class="count">modules: {{ .Dossier.HostModules }}</span>
+    <span class="count">signals: {{ len .Dossier.SignalPanel }}</span>
+    {{- if gt (len .Dossier.Implants) 0 }}
+    <span class="count warn">Q4: {{ len .Dossier.Implants }}</span>
+    {{- end }}
+    {{- if gt (len .Dossier.RollCall) 0 }}
+    <span class="count warn">Q7: {{ len .Dossier.RollCall }}</span>
+    {{- end }}
+    {{- if gt (countGaps .Dossier.ModuleCoverage) 0 }}
+    <span class="count warn">gaps: {{ countGaps .Dossier.ModuleCoverage }}</span>
+    {{- end }}
+  </div>
+</header>
+
+<main class="dossier">
+
+<section class="pane active">
+  <h2>Host</h2>
+  <dl class="host-meta">
+    {{- with .Dossier.Host.Hostname }}<dt>hostname</dt><dd>{{ . }}</dd>{{ end }}
+    {{- with .Dossier.Host.HostID }}<dt>host_id</dt><dd><code>{{ . }}</code></dd>{{ end }}
+    {{- if .Dossier.Host.OSID }}<dt>os</dt><dd>{{ .Dossier.Host.OSID }}{{ with .Dossier.Host.OSVersion }} {{ . }}{{ end }}</dd>{{ end }}
+    {{- with .Dossier.Host.Kernel }}<dt>kernel</dt><dd><code>{{ . }}</code></dd>{{ end }}
+    {{- with .Dossier.Host.Arch }}<dt>arch</dt><dd>{{ . }}</dd>{{ end }}
+    {{- with .Dossier.Host.BootID }}<dt>boot_id</dt><dd><code>{{ . }}</code></dd>{{ end }}
+    {{- if .Dossier.Host.HasCollected }}<dt>collected_at</dt><dd>{{ .Dossier.Host.CollectedAt.UTC.Format "2006-01-02 15:04 UTC" }}</dd>{{ end }}
+    {{- if .Dossier.Host.Tags }}<dt>tags</dt><dd>{{ range $i, $t := .Dossier.Host.Tags }}{{ if $i }}, {{ end }}{{ $t }}{{ end }}</dd>{{ end }}
+  </dl>
+</section>
+
+<section class="pane active">
+  <h2>Signals on this host ({{ len .Dossier.SignalPanel }}) — rarest first</h2>
+  {{- if eq (len .Dossier.SignalPanel) 0 }}
+  <p class="empty">no rows</p>
+  {{- else }}
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>signal</th><th class="num">host records</th><th class="num">fleet hosts</th><th class="num">fleet %</th><th>description</th></tr></thead>
+    <tbody>
+      {{- range .Dossier.SignalPanel }}
+      <tr>
+        <td class="signal-cell">
+          <span class="pill {{ if .IsWarn }}warn{{ else }}accent{{ end }}">{{ .Signal }}</span>
+          {{- if .IsUnknown }}<span class="pill warn">unknown</span>{{ end }}
+        </td>
+        <td class="num">{{ .HostRecords }}</td>
+        <td class="num">{{ .FleetHosts }} / {{ .FleetTotal }}</td>
+        <td class="num">{{ if gt .FleetTotal 0 }}{{ pct .FleetHosts .FleetTotal }}%{{ else }}n/a{{ end }}</td>
+        <td>{{ .Description }}</td>
+      </tr>
+      {{- end }}
+    </tbody>
+  </table>
+  </div>
+  {{- end }}
+</section>
+
+<section class="pane active">
+  <h2>Implants — orphan + interpreter_in_tmp ({{ len .Dossier.Implants }})</h2>
+  {{- if eq (len .Dossier.Implants) 0 }}
+  <p class="empty">no rows</p>
+  {{- else }}
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>module</th><th>site_class</th><th>locus</th><th>exec_target</th><th>signals</th></tr></thead>
+    <tbody>
+      {{- range .Dossier.Implants }}
+      <tr>
+        <td>{{ .Module }}</td>
+        <td>{{ .SiteClass }}</td>
+        <td><code>{{ .Locus }}</code></td>
+        <td><code>{{ .ExecTarget }}</code></td>
+        <td>{{ range .Signals }}<span class="pill {{ if signalIsWarn . }}warn{{ else }}accent{{ end }}">{{ . }}</span> {{ end }}</td>
+      </tr>
+      {{- end }}
+    </tbody>
+  </table>
+  </div>
+  {{- end }}
+</section>
+
+<section class="pane active">
+  <h2>Implant roll-call ({{ len .Dossier.RollCall }})</h2>
+  {{- if eq (len .Dossier.RollCall) 0 }}
+  <p class="empty">no rows</p>
+  {{- else }}
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>module</th><th>site_class</th><th>locus</th><th>exec_target</th><th>triage_signals</th></tr></thead>
+    <tbody>
+      {{- range .Dossier.RollCall }}
+      <tr>
+        <td>{{ .Module }}</td>
+        <td>{{ .SiteClass }}</td>
+        <td><code>{{ .Locus }}</code></td>
+        <td><code>{{ .ExecTarget }}</code></td>
+        <td>{{ range .TriageSignals }}<span class="pill {{ if signalIsWarn . }}warn{{ else }}accent{{ end }}">{{ . }}</span> {{ end }}</td>
+      </tr>
+      {{- end }}
+    </tbody>
+  </table>
+  </div>
+  {{- end }}
+</section>
+
+<section class="pane active">
+  <h2>Fleet-unique records on this host ({{ len .Dossier.Singletons }})</h2>
+  <p class="caption">content_norm appears on no other fleet host</p>
+  {{- if eq (len .Dossier.Singletons) 0 }}
+  <p class="empty">no rows</p>
+  {{- else }}
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>module</th><th>site_class</th><th>locus</th><th>content_norm</th><th>snippet</th></tr></thead>
+    <tbody>
+      {{- range .Dossier.Singletons }}
+      <tr>
+        <td>{{ .Module }}</td>
+        <td>{{ .SiteClass }}</td>
+        <td><code>{{ .Locus }}</code></td>
+        <td><code>{{ .ContentNorm }}</code></td>
+        <td>{{ .Snippet }}</td>
+      </tr>
+      {{- end }}
+    </tbody>
+  </table>
+  </div>
+  {{- end }}
+</section>
+
+<section class="pane active">
+  <h2>Per-locus fleet-unique records ({{ len .Dossier.LocusSingletons }})</h2>
+  {{- if eq (len .Dossier.LocusSingletons) 0 }}
+  <p class="empty">no rows</p>
+  {{- else }}
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>module</th><th>site_class</th><th>locus</th><th>content_norm</th><th>snippet</th></tr></thead>
+    <tbody>
+      {{- range .Dossier.LocusSingletons }}
+      <tr>
+        <td>{{ .Module }}</td>
+        <td>{{ .SiteClass }}</td>
+        <td><code>{{ .Locus }}</code></td>
+        <td><code>{{ .ContentNorm }}</code></td>
+        <td>{{ .Snippet }}</td>
+      </tr>
+      {{- end }}
+    </tbody>
+  </table>
+  </div>
+  {{- end }}
+</section>
+
+<section class="pane active">
+  <h2>Exec targets in /tmp, /var/tmp, /dev/shm, /run/shm ({{ len .Dossier.ExecInTmp }})</h2>
+  {{- if eq (len .Dossier.ExecInTmp) 0 }}
+  <p class="empty">no rows</p>
+  {{- else }}
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>module</th><th>site_class</th><th>locus</th><th>exec_target</th><th>armed?</th></tr></thead>
+    <tbody>
+      {{- range .Dossier.ExecInTmp }}
+      <tr>
+        <td>{{ .Module }}</td>
+        <td>{{ .SiteClass }}</td>
+        <td><code>{{ .Locus }}</code></td>
+        <td><code>{{ .ExecTarget }}</code></td>
+        <td>{{ if .IsOrphan }}<span class="pill warn">no (orphan)</span>{{ else }}<span class="pill accent">yes</span>{{ end }}</td>
+      </tr>
+      {{- end }}
+    </tbody>
+  </table>
+  </div>
+  {{- end }}
+</section>
+
+<section class="pane active">
+  <h2>Orphan exec_target outside tmp-class dirs ({{ len .Dossier.OrphanOutsideTmp }})</h2>
+  <p class="caption">non_package_path AND exec_target not under /tmp class</p>
+  {{- if eq (len .Dossier.OrphanOutsideTmp) 0 }}
+  <p class="empty">no rows</p>
+  {{- else }}
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>exec_target</th><th class="num">records</th><th>module</th><th>site_class</th><th>sample_locus</th><th>snippet</th></tr></thead>
+    <tbody>
+      {{- range .Dossier.OrphanOutsideTmp }}
+      <tr>
+        <td><code>{{ .ExecTarget }}</code></td>
+        <td class="num">{{ .Records }}</td>
+        <td>{{ .Module }}</td>
+        <td>{{ .SiteClass }}</td>
+        <td><code>{{ .SampleLocus }}</code></td>
+        <td>{{ .SampleSnippet }}</td>
+      </tr>
+      {{- end }}
+    </tbody>
+  </table>
+  </div>
+  {{- end }}
+</section>
+
+<section class="pane active">
+  <h2>Recent-mtime concentration per module ({{ len .Dossier.MtimeSpikes }})</h2>
+  <p class="caption">modules with &gt;=5 records carrying recent_mtime_7d</p>
+  {{- if eq (len .Dossier.MtimeSpikes) 0 }}
+  <p class="empty">no rows</p>
+  {{- else }}
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>module</th><th class="num">recent_records</th><th class="num">recent_loci</th></tr></thead>
+    <tbody>
+      {{- range .Dossier.MtimeSpikes }}
+      <tr>
+        <td>{{ .Module }}</td>
+        <td class="num">{{ .RecentRecords }}</td>
+        <td class="num">{{ .RecentLoci }}</td>
+      </tr>
+      {{- end }}
+    </tbody>
+  </table>
+  </div>
+  {{- end }}
+</section>
+
+<section class="pane active">
+  <h2>Module coverage on this host ({{ len .Dossier.ModuleCoverage }} modules{{ if gt (countGaps .Dossier.ModuleCoverage) 0 }}, <span class="warn-inline">{{ countGaps .Dossier.ModuleCoverage }} gap{{ if gt (countGaps .Dossier.ModuleCoverage) 1 }}s{{ end }}</span>{{ end }})</h2>
+  <p class="caption">records on this host vs fleet median for the module; gaps surface first</p>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>module</th><th class="num">records</th><th class="num">site_classes</th><th class="num">fleet median</th><th>note</th></tr></thead>
+    <tbody>
+      {{- range .Dossier.ModuleCoverage }}
+      <tr{{ if .IsGap }} class="gap-row"{{ end }}>
+        <td>{{ .Module }}</td>
+        <td class="num">{{ .Records }}</td>
+        <td class="num">{{ .SiteClasses }}</td>
+        <td class="num">{{ .FleetMedian }}</td>
+        <td>{{ if .IsGap }}<span class="pill warn">GAP — module expected, this host emitted nothing</span>{{ end }}</td>
+      </tr>
+      {{- end }}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+</main>
+</body>
+</html>

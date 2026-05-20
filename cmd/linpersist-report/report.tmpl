@@ -318,7 +318,7 @@
       <table class="sortable" id="t-q7">
         <thead><tr>
           <th>host</th><th>module</th><th>site_class</th>
-          <th>locus</th><th>exec_target</th><th>triage_signals</th><th>snippet</th>
+          <th>locus</th><th>exec_target</th><th>matched_detections</th><th>triage_signals</th><th>snippet</th>
         </tr></thead>
         <tbody>
         {{range .Report.Q7ImplantRollCall}}
@@ -326,11 +326,12 @@
             <td>{{.Host}}</td><td>{{.Module}}</td><td>{{.SiteClass}}</td>
             <td class="path">{{.Locus}}</td>
             <td class="target">{{.ExecTarget}}</td>
+            <td class="sig-list">{{range .MatchedDetections}}<span class="sig warn">{{.}}</span>{{end}}</td>
             <td class="sig-list">{{range .TriageSignals}}<span class="sig{{if signalIsWarn .}} warn{{end}}">{{.}}</span>{{end}}</td>
             <td class="snippet">{{.Snippet}}</td>
           </tr>
         {{else}}
-          <tr><td colspan="7" style="text-align:center;color:var(--fg-mute)">no implant patterns detected — clean fleet</td></tr>
+          <tr><td colspan="8" style="text-align:center;color:var(--fg-mute)">no implant patterns detected — clean fleet</td></tr>
         {{end}}
         </tbody>
       </table>

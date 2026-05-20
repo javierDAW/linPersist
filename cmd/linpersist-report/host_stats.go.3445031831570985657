@@ -1,0 +1,611 @@
+// Per-host dossier — single-host triage view.
+//
+// Produced by `linpersist-report -i <fleet> --host <id>`. Distinct
+// from the fleet report (Q1..Q11) because the consumer is different:
+// the fleet report is "what is going on across the fleet"; the dossier
+// is "tell me about host X". The two outputs share the same input
+// pipeline (load -> []core.Record) and the same Go-native compute
+// helpers wherever applicable, but the layout is different and the
+// fleet-aggregate queries (Q3 peer-group, Q5 signal distribution
+// table, Q6 worm pattern, Q10 host-coverage table) are intentionally
+// omitted from the dossier — they are aggregates, not per-host views.
+//
+// Scalability angle: rendering a dossier per host inside the fleet
+// report does not scale (1000 hosts == 1000 tabs / sections). The
+// dossier is on-demand instead — the analyst invokes the tool with
+// `--host` for the host they're investigating, gets one HTML or text
+// artefact, and moves on. The fleet report stays compact regardless
+// of fleet size.
+
+package main
+
+import (
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/jarmidaw/linpersist/internal/core"
+)
+
+// HostDossier is the top-level data passed to the per-host renderers.
+// Mirrors `*Report` in shape (Generated, AgentVersion, Sources, ...)
+// so the renderers can share helpers without ad-hoc plumbing.
+type HostDossier struct {
+	Generated    time.Time
+	AgentVersion string
+	Sources      []string
+	SkippedLines int
+
+	Host HostHeader
+
+	// Aggregate counts shown in the dossier header strip.
+	HostRecords     int
+	HostModules     int
+	HostSiteClasses int
+	FleetHosts      int
+	FleetRecords    int
+
+	// Rare-signal-first panel. Sorted by ascending FleetHosts then
+	// alphabetical name; ties broken deterministically so the dossier
+	// is diffable between runs.
+	SignalPanel []HostSignalRow
+
+	// Per-Q sub-tables, all filtered to the dossier host.
+	Implants         []ImplantRow            // Q4
+	RollCall         []RollCallRow           // Q7
+	Singletons       []HostSingletonRow      // Q1 (fleet-singletons that this host carries)
+	LocusSingletons  []HostLocusSingletonRow // Q2 (per-locus singletons that this host carries)
+	ExecInTmp        []ExecInTmpRow          // Q9
+	OrphanOutsideTmp []OrphanOutsideTmpRow   // Q11
+	MtimeSpikes      []MtimeConcRow          // Q8
+
+	// Module coverage / gap detector. One row per module observed in
+	// the fleet; gaps (Records == 0) bubble to the top via the
+	// IsGap-first sort.
+	ModuleCoverage []HostModuleRow
+}
+
+// HostHeader carries the metadata block shown at the top of the
+// dossier. Pulled from any of the host's records (all records on the
+// same host should agree on these fields; the first non-empty value
+// wins).
+type HostHeader struct {
+	Hostname     string
+	HostID       string
+	OSID         string
+	OSVersion    string
+	Kernel       string
+	Arch         string
+	BootID       string
+	Tags         []string
+	CollectedAt  time.Time
+	HasCollected bool // false if no record had a collected_at timestamp
+}
+
+// HostSignalRow is one row of the signal panel: a signal this host
+// fires, with its fleet-wide rarity context.
+type HostSignalRow struct {
+	Signal       string
+	HostRecords  int    // records on this host that carry the signal
+	FleetHosts   int    // distinct hosts in the fleet that fire the signal
+	FleetTotal   int    // total fleet hosts
+	Description  string // catalog Description, empty if signal is unknown
+	IsWarn       bool   // pill highlight in HTML / red count in text
+	IsUnknown    bool   // signal not in core.KnownSignalSet — surfaces drift
+}
+
+// HostSingletonRow is one record on this host whose (module,
+// site_class, content_norm_sha256) appears on exactly one host in the
+// fleet — i.e. the canonical "this host has something no one else
+// does" view. Distinct from the fleet Q1 row shape because the
+// dossier shows the locus directly (the row IS for this host, no
+// "sample_host" indirection needed).
+type HostSingletonRow struct {
+	Module      string
+	SiteClass   string
+	Locus       string
+	ContentNorm string
+	Snippet     string
+}
+
+// HostLocusSingletonRow mirrors HostSingletonRow but for the Q2
+// (per-locus) variant. Identical shape; the type exists separately
+// to keep the renderers honest about which Q each table comes from.
+type HostLocusSingletonRow struct {
+	Module      string
+	SiteClass   string
+	Locus       string
+	ContentNorm string
+	Snippet     string
+}
+
+// HostModuleRow is one row of the module-coverage table. Gaps
+// (Records == 0 but other hosts emit this module) surface fleets
+// where the agent failed silently on a host, or container images
+// missing entire site_classes.
+type HostModuleRow struct {
+	Module      string
+	Records     int
+	SiteClasses int
+	FleetMedian int  // median records per host (across hosts that emit any record for this module)
+	IsGap       bool // Records == 0 AND FleetMedian > 0
+}
+
+// --- entry point ------------------------------------------------------
+
+// buildDossier filters records to a single host and produces the
+// dossier. host may match either a host_meta.hostname or a host_id.
+// Returns nil + the list of available host identifiers (sorted,
+// lexicographic) if the host has no records — the caller uses that
+// to render a friendly error.
+func buildDossier(records []core.Record, host string, sources []string, skipped int, agentVersion string) (*HostDossier, []string) {
+	hostRecords, _ := filterHostRecords(records, host)
+	if len(hostRecords) == 0 {
+		return nil, listAvailableHosts(records)
+	}
+
+	d := &HostDossier{
+		Generated:    time.Now().UTC(),
+		AgentVersion: agentVersion,
+		Sources:      sources,
+		SkippedLines: skipped,
+	}
+	d.Host = computeHostHeader(hostRecords)
+	d.HostRecords = len(hostRecords)
+	d.HostModules = countDistinct(hostRecords, func(r core.Record) string { return r.Module })
+	d.HostSiteClasses = countDistinct(hostRecords, func(r core.Record) string { return r.SiteClass })
+	d.FleetRecords = len(records)
+	d.FleetHosts = countDistinct(records, hostKey)
+
+	d.SignalPanel = computeHostSignalPanel(records, hostRecords)
+
+	// Q4 / Q7 / Q9 already key on host; filtering the dataset first
+	// gives the right answer with no special-casing.
+	d.Implants = computeQ4(hostRecords)
+	d.RollCall = computeQ7(hostRecords)
+	d.ExecInTmp = computeQ9(hostRecords)
+
+	d.Singletons = computeHostSingletons(records, hostRecords)
+	d.LocusSingletons = computeHostLocusSingletons(records, hostRecords)
+	d.OrphanOutsideTmp = computeHostOrphanOutsideTmp(hostRecords)
+	d.MtimeSpikes = computeHostMtimeSpikes(hostRecords)
+	d.ModuleCoverage = computeHostModuleCoverage(records, hostRecords)
+
+	return d, nil
+}
+
+// --- host selection / lookup ------------------------------------------
+
+// filterHostRecords returns the subset of records whose hostKey
+// matches the requested host name (matching either host_meta.hostname
+// or host_id). The second return is the canonical host key used,
+// useful for error messages.
+func filterHostRecords(records []core.Record, host string) ([]core.Record, string) {
+	out := make([]core.Record, 0, 256)
+	canonical := ""
+	for _, r := range records {
+		if r.HostMeta.Hostname == host || r.HostID == host {
+			out = append(out, r)
+			if canonical == "" {
+				canonical = hostKey(r)
+			}
+		}
+	}
+	return out, canonical
+}
+
+// listAvailableHosts returns the sorted list of unique host
+// identifiers in the dataset. Used for the "did you mean?" error
+// path when --host does not match.
+func listAvailableHosts(records []core.Record) []string {
+	seen := map[string]struct{}{}
+	for _, r := range records {
+		seen[hostKey(r)] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for h := range seen {
+		out = append(out, h)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// --- header -----------------------------------------------------------
+
+func computeHostHeader(hostRecords []core.Record) HostHeader {
+	var h HostHeader
+	for _, r := range hostRecords {
+		if h.Hostname == "" {
+			h.Hostname = r.HostMeta.Hostname
+		}
+		if h.HostID == "" {
+			h.HostID = r.HostID
+		}
+		if h.OSID == "" {
+			h.OSID = r.HostMeta.OSID
+		}
+		if h.OSVersion == "" {
+			h.OSVersion = r.HostMeta.OSVersion
+		}
+		if h.Kernel == "" {
+			h.Kernel = r.HostMeta.Kernel
+		}
+		if h.Arch == "" {
+			h.Arch = r.HostMeta.Arch
+		}
+		if h.BootID == "" {
+			h.BootID = r.HostMeta.BootID
+		}
+		if len(h.Tags) == 0 && len(r.HostMeta.Tags) > 0 {
+			h.Tags = append(h.Tags, r.HostMeta.Tags...)
+		}
+		if !h.HasCollected && !r.CollectedAt.IsZero() {
+			h.CollectedAt = r.CollectedAt
+			h.HasCollected = true
+		}
+	}
+	return h
+}
+
+// --- signal panel -----------------------------------------------------
+
+func computeHostSignalPanel(allRecords, hostRecords []core.Record) []HostSignalRow {
+	// Fleet-wide host count per signal. Used as the rarity baseline.
+	fleetHostsPerSignal := map[string]map[string]struct{}{}
+	totalHosts := map[string]struct{}{}
+	for _, r := range allRecords {
+		hk := hostKey(r)
+		totalHosts[hk] = struct{}{}
+		for _, s := range r.Signals {
+			set := fleetHostsPerSignal[s]
+			if set == nil {
+				set = map[string]struct{}{}
+				fleetHostsPerSignal[s] = set
+			}
+			set[hk] = struct{}{}
+		}
+	}
+
+	// Host-local record count per signal.
+	hostRecordsPerSignal := map[string]int{}
+	for _, r := range hostRecords {
+		for _, s := range r.Signals {
+			hostRecordsPerSignal[s]++
+		}
+	}
+
+	out := make([]HostSignalRow, 0, len(hostRecordsPerSignal))
+	for sig, n := range hostRecordsPerSignal {
+		fleet := len(fleetHostsPerSignal[sig])
+		def, known := core.SignalByName(sig)
+		row := HostSignalRow{
+			Signal:      sig,
+			HostRecords: n,
+			FleetHosts:  fleet,
+			FleetTotal:  len(totalHosts),
+			IsUnknown:   !known,
+			IsWarn:      signalIsWarn(sig),
+		}
+		if known {
+			row.Description = def.Description
+		}
+		out = append(out, row)
+	}
+	// Rarity first: fewer fleet hosts == more interesting on top.
+	// Ties broken alphabetically so renders are diff-stable.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].FleetHosts != out[j].FleetHosts {
+			return out[i].FleetHosts < out[j].FleetHosts
+		}
+		return out[i].Signal < out[j].Signal
+	})
+	return out
+}
+
+// --- Q1 / Q2 single-host singletons -----------------------------------
+
+func computeHostSingletons(allRecords, hostRecords []core.Record) []HostSingletonRow {
+	// Fleet host count per (module, site_class, content_norm_sha256).
+	type key struct{ module, siteClass, contentNorm string }
+	fleetHosts := map[key]map[string]struct{}{}
+	for _, r := range allRecords {
+		if r.ContentNormSHA256 == "" {
+			continue
+		}
+		k := key{r.Module, r.SiteClass, r.ContentNormSHA256}
+		set := fleetHosts[k]
+		if set == nil {
+			set = map[string]struct{}{}
+			fleetHosts[k] = set
+		}
+		set[hostKey(r)] = struct{}{}
+	}
+	// Records on this host whose key is a fleet singleton.
+	var out []HostSingletonRow
+	seen := map[key]struct{}{}
+	for _, r := range hostRecords {
+		if r.ContentNormSHA256 == "" {
+			continue
+		}
+		k := key{r.Module, r.SiteClass, r.ContentNormSHA256}
+		if len(fleetHosts[k]) != 1 {
+			continue
+		}
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, HostSingletonRow{
+			Module:      r.Module,
+			SiteClass:   r.SiteClass,
+			Locus:       r.Locus,
+			ContentNorm: shortHash(r.ContentNormSHA256),
+			Snippet:     snippetTrim(r.ContentSnippet, 100),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Module != out[j].Module {
+			return out[i].Module < out[j].Module
+		}
+		if out[i].SiteClass != out[j].SiteClass {
+			return out[i].SiteClass < out[j].SiteClass
+		}
+		return out[i].Locus < out[j].Locus
+	})
+	return out
+}
+
+func computeHostLocusSingletons(allRecords, hostRecords []core.Record) []HostLocusSingletonRow {
+	type key struct{ module, siteClass, locus, contentNorm string }
+	fleetHosts := map[key]map[string]struct{}{}
+	for _, r := range allRecords {
+		if r.ContentNormSHA256 == "" {
+			continue
+		}
+		k := key{r.Module, r.SiteClass, r.Locus, r.ContentNormSHA256}
+		set := fleetHosts[k]
+		if set == nil {
+			set = map[string]struct{}{}
+			fleetHosts[k] = set
+		}
+		set[hostKey(r)] = struct{}{}
+	}
+	var out []HostLocusSingletonRow
+	seen := map[key]struct{}{}
+	for _, r := range hostRecords {
+		if r.ContentNormSHA256 == "" {
+			continue
+		}
+		k := key{r.Module, r.SiteClass, r.Locus, r.ContentNormSHA256}
+		if len(fleetHosts[k]) != 1 {
+			continue
+		}
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, HostLocusSingletonRow{
+			Module:      r.Module,
+			SiteClass:   r.SiteClass,
+			Locus:       r.Locus,
+			ContentNorm: shortHash(r.ContentNormSHA256),
+			Snippet:     snippetTrim(r.ContentSnippet, 100),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Module != out[j].Module {
+			return out[i].Module < out[j].Module
+		}
+		if out[i].SiteClass != out[j].SiteClass {
+			return out[i].SiteClass < out[j].SiteClass
+		}
+		return out[i].Locus < out[j].Locus
+	})
+	return out
+}
+
+// --- Q11 single-host variant -----------------------------------------
+
+// computeHostOrphanOutsideTmp returns the host's own exec_targets that
+// carry non_package_path AND are NOT under tmp-class prefixes. Unlike
+// the fleet Q11 this version is not LFA-sorted (singletons-first is
+// meaningless for a single host); it sorts alphabetically by target
+// for diff stability.
+func computeHostOrphanOutsideTmp(hostRecords []core.Record) []OrphanOutsideTmpRow {
+	tmpPrefixes := []string{"/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"}
+	type agg struct {
+		records       int
+		module        string
+		siteClass     string
+		sampleLocus   string
+		sampleSnippet string
+		host          string
+	}
+	m := map[string]*agg{}
+	for _, r := range hostRecords {
+		if r.ExecTarget == "" {
+			continue
+		}
+		inTmp := false
+		for _, p := range tmpPrefixes {
+			if strings.HasPrefix(r.ExecTarget, p) {
+				inTmp = true
+				break
+			}
+		}
+		if inTmp {
+			continue
+		}
+		hasFlag := false
+		for _, s := range r.Signals {
+			if s == core.SignalNonPackagePath {
+				hasFlag = true
+				break
+			}
+		}
+		if !hasFlag {
+			continue
+		}
+		a := m[r.ExecTarget]
+		if a == nil {
+			a = &agg{
+				module:        r.Module,
+				siteClass:     r.SiteClass,
+				sampleLocus:   r.Locus,
+				sampleSnippet: r.ContentSnippet,
+				host:          hostKey(r),
+			}
+			m[r.ExecTarget] = a
+		}
+		a.records++
+	}
+	out := make([]OrphanOutsideTmpRow, 0, len(m))
+	for target, a := range m {
+		out = append(out, OrphanOutsideTmpRow{
+			ExecTarget:    target,
+			Hosts:         1, // dossier scope: this host
+			Records:       a.records,
+			Module:        a.module,
+			SiteClass:     a.siteClass,
+			SampleHost:    a.host,
+			SampleLocus:   a.sampleLocus,
+			SampleSnippet: snippetTrim(a.sampleSnippet, 100),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ExecTarget < out[j].ExecTarget })
+	return out
+}
+
+// --- Q8 single-host variant ------------------------------------------
+
+// computeHostMtimeSpikes returns the host's per-module recent-mtime
+// counts. Threshold matches the fleet Q8: >= 5 records carrying
+// recent_mtime_7d on a (host, module) pair. Rows below the threshold
+// are omitted.
+func computeHostMtimeSpikes(hostRecords []core.Record) []MtimeConcRow {
+	perModule := map[string]struct {
+		records int
+		loci    map[string]struct{}
+	}{}
+	for _, r := range hostRecords {
+		hasRecent := false
+		for _, s := range r.Signals {
+			if s == core.SignalRecentMtime7d {
+				hasRecent = true
+				break
+			}
+		}
+		if !hasRecent {
+			continue
+		}
+		agg := perModule[r.Module]
+		if agg.loci == nil {
+			agg.loci = map[string]struct{}{}
+		}
+		agg.records++
+		agg.loci[r.Locus] = struct{}{}
+		perModule[r.Module] = agg
+	}
+	var out []MtimeConcRow
+	const threshold = 5
+	for mod, agg := range perModule {
+		if agg.records < threshold {
+			continue
+		}
+		out = append(out, MtimeConcRow{
+			Host:          "", // omitted in dossier — entire table is for one host
+			Module:        mod,
+			RecentRecords: agg.records,
+			RecentLoci:    len(agg.loci),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].RecentRecords != out[j].RecentRecords {
+			return out[i].RecentRecords > out[j].RecentRecords
+		}
+		return out[i].Module < out[j].Module
+	})
+	return out
+}
+
+// --- module coverage / gap detector -----------------------------------
+
+func computeHostModuleCoverage(allRecords, hostRecords []core.Record) []HostModuleRow {
+	// Fleet view: per (module, host) record count. Used to compute
+	// the per-module median across hosts that emit anything for that
+	// module — this avoids gaming the median with the many zeros from
+	// hosts that lack the module entirely.
+	type modHost struct{ mod, host string }
+	fleetCount := map[modHost]int{}
+	modulesSeen := map[string]struct{}{}
+	for _, r := range allRecords {
+		fleetCount[modHost{r.Module, hostKey(r)}]++
+		modulesSeen[r.Module] = struct{}{}
+	}
+
+	// Bucket per module across hosts that emit it.
+	perModule := map[string][]int{}
+	for k, n := range fleetCount {
+		perModule[k.mod] = append(perModule[k.mod], n)
+	}
+	median := func(mod string) int {
+		v := perModule[mod]
+		if len(v) == 0 {
+			return 0
+		}
+		sort.Ints(v)
+		return v[len(v)/2]
+	}
+
+	// Host view: per-module record + site_class count.
+	hostCount := map[string]int{}
+	hostSiteClasses := map[string]map[string]struct{}{}
+	for _, r := range hostRecords {
+		hostCount[r.Module]++
+		set := hostSiteClasses[r.Module]
+		if set == nil {
+			set = map[string]struct{}{}
+			hostSiteClasses[r.Module] = set
+		}
+		set[r.SiteClass] = struct{}{}
+	}
+
+	out := make([]HostModuleRow, 0, len(modulesSeen))
+	for mod := range modulesSeen {
+		recs := hostCount[mod]
+		m := median(mod)
+		out = append(out, HostModuleRow{
+			Module:      mod,
+			Records:     recs,
+			SiteClasses: len(hostSiteClasses[mod]),
+			FleetMedian: m,
+			IsGap:       recs == 0 && m > 0,
+		})
+	}
+	// Gaps first, then alphabetical. Inside the gap-class the most
+	// "expected" modules (highest fleet median) bubble to the top.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].IsGap != out[j].IsGap {
+			return out[i].IsGap
+		}
+		if out[i].IsGap && out[j].IsGap {
+			if out[i].FleetMedian != out[j].FleetMedian {
+				return out[i].FleetMedian > out[j].FleetMedian
+			}
+		}
+		return out[i].Module < out[j].Module
+	})
+	return out
+}
+
+// --- misc helpers -----------------------------------------------------
+
+// countDistinct returns the number of distinct keys produced by f
+// across records.
+func countDistinct(records []core.Record, f func(core.Record) string) int {
+	seen := map[string]struct{}{}
+	for _, r := range records {
+		seen[f(r)] = struct{}{}
+	}
+	return len(seen)
+}

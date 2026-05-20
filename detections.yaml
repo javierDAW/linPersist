@@ -1,0 +1,80 @@
+# linpersist detections — source of truth for cross-cutting implant clauses.
+#
+# Consumers:
+#   - cmd/linpersist-report   — Go-native matcher loaded via go:embed.
+#                                Drives Q7 "Implant roll-call" rows.
+#   - cmd/detgen              — regenerates the Q7 WHERE block in
+#                                tools/stack_demo.sql. Verify mode is
+#                                wired as a release gate (see Makefile).
+#
+# Both consumers MUST stay in sync. The release gate diffs the
+# regenerated SQL against what is committed and fails the build on
+# drift. See ADR-0013 for the schema rationale.
+#
+# Predicates (all AND-joined within a single `when:`):
+#
+#   signals_all:          [a, b, ...]   every signal in the list must be present
+#   signals_any:          [a, b, ...]   at least one signal in the list must be present
+#   module_in:            [a, b, ...]   record.module must be one of these
+#   content_contains_any: ["a", "b"]    record.content_snippet must contain at least one substring
+#
+# Adding a detection: pick a snake_case id, list the predicates, and
+# include `description`, `severity` (info|low|medium|high|critical),
+# and `mitre` for the report's triage UI. `make detgen-verify` (or
+# `go run ./cmd/detgen --verify`) catches drift before commit.
+
+schema_version: 1
+
+detections:
+
+  - id: payload_under_tmp_via_persistence
+    description: Persistence record points at a tmp-class payload that does not exist on disk
+    severity: high
+    mitre: [T1053.003, T1574.006, T1556.003, T1543.002, T1546]
+    when:
+      signals_all: [exec_target_orphan, interpreter_in_tmp]
+
+  - id: sudoers_nopasswd_all_backdoor
+    description: Sudoers entry grants NOPASSWD on the ALL command list
+    severity: critical
+    mitre: [T1548.003]
+    when:
+      signals_all: [sudoers_nopasswd, sudoers_all_commands]
+
+  - id: second_uid_zero_account
+    description: passwd.user entry has uid 0 with username != root
+    severity: critical
+    mitre: [T1136.001]
+    when:
+      signals_any: [passwd_uid_zero]
+
+  - id: kmod_install_directive_implant
+    description: modprobe install directive replaces module load with arbitrary command
+    severity: high
+    mitre: [T1547.006]
+    when:
+      signals_any: [kmod_install_directive]
+
+  - id: shell_init_remote_fetch
+    description: System or user shell-init contains a curl or wget invocation
+    severity: high
+    mitre: [T1546.004]
+    when:
+      module_in: [profile]
+      content_contains_any: [curl, wget]
+
+  - id: sysv_init_tmp_reference
+    description: sysv.init script body references /tmp/
+    severity: high
+    mitre: [T1037.004]
+    when:
+      module_in: [sysv]
+      content_contains_any: ["/tmp/"]
+
+  - id: motd_remote_fetch
+    description: motd or update-motd.d script contains a curl or wget invocation
+    severity: high
+    mitre: [T1037]
+    when:
+      module_in: [motd]
+      content_contains_any: [curl, wget]

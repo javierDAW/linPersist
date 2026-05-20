@@ -261,15 +261,21 @@ func TestDirectiveExecTarget(t *testing.T) {
 
 func TestDirectiveSignals(t *testing.T) {
 	sigs := directiveSignals("PermitRootLogin", "yes")
-	if len(sigs) != 1 || sigs[0] != "sshd_permit_root_login_yes" {
+	if len(sigs) != 1 || sigs[0] != core.SignalSSHDPermitRootLoginYes {
 		t.Fatalf("got %v", sigs)
 	}
 	sigs = directiveSignals("PermitRootLogin", "no")
 	if len(sigs) != 0 {
 		t.Fatalf("PermitRootLogin no should not fire: %v", sigs)
 	}
+	// prohibit-password is the OpenSSH default since 7.0; the signal
+	// must NOT fire on it (would dirty LFA across the entire fleet).
+	sigs = directiveSignals("PermitRootLogin", "prohibit-password")
+	if len(sigs) != 0 {
+		t.Fatalf("PermitRootLogin prohibit-password should not fire: %v", sigs)
+	}
 	sigs = directiveSignals("AuthorizedKeysCommand", "/usr/bin/x")
-	if len(sigs) != 1 || sigs[0] != "sshd_authorized_keys_command" {
+	if len(sigs) != 1 || sigs[0] != core.SignalSSHDAuthorizedKeysCommand {
 		t.Fatalf("AKC: %v", sigs)
 	}
 }

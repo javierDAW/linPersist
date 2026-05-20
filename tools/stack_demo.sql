@@ -304,17 +304,17 @@ SELECT
   content_snippet
 FROM r
 WHERE
-  (list_contains(signals, 'exec_target_orphan')
-   AND list_contains(signals, 'interpreter_in_tmp'))
-  OR (list_contains(signals, 'sudoers_nopasswd')
-      AND list_contains(signals, 'sudoers_all_commands'))
-  OR list_contains(signals, 'passwd_uid_zero')
-  OR list_contains(signals, 'kmod_install_directive')
-  OR (module = 'profile'
-      AND (content_snippet LIKE '%curl%' OR content_snippet LIKE '%wget%'))
-  OR (module = 'sysv' AND content_snippet LIKE '%/tmp/%')
-  OR (module = 'motd'
-      AND (content_snippet LIKE '%curl%' OR content_snippet LIKE '%wget%'))
+  -- BEGIN GENERATED Q7 detections (from detections.yaml — DO NOT EDIT BY HAND)
+  -- Regenerate with: go run ./cmd/detgen
+  -- Release gate:    go run ./cmd/detgen --verify  (or: make detgen-verify)
+  /* payload_under_tmp_via_persistence */ (list_contains(signals, 'exec_target_orphan') AND list_contains(signals, 'interpreter_in_tmp'))
+  OR /* sudoers_nopasswd_all_backdoor */ (list_contains(signals, 'sudoers_nopasswd') AND list_contains(signals, 'sudoers_all_commands'))
+  OR /* second_uid_zero_account */ list_contains(signals, 'passwd_uid_zero')
+  OR /* kmod_install_directive_implant */ list_contains(signals, 'kmod_install_directive')
+  OR /* shell_init_remote_fetch */ (module = 'profile' AND (content_snippet LIKE '%curl%' OR content_snippet LIKE '%wget%'))
+  OR /* sysv_init_tmp_reference */ (module = 'sysv' AND content_snippet LIKE '%/tmp/%')
+  OR /* motd_remote_fetch */ (module = 'motd' AND (content_snippet LIKE '%curl%' OR content_snippet LIKE '%wget%'))
+  -- END GENERATED
 ORDER BY host, module, locus;
 
 --- query separator ---
@@ -478,10 +478,4 @@ SELECT
 FROM r
 WHERE list_contains(signals, 'non_package_path')
   AND exec_target IS NOT NULL
-  AND exec_target NOT LIKE '/tmp/%'
-  AND exec_target NOT LIKE '/var/tmp/%'
-  AND exec_target NOT LIKE '/dev/shm/%'
-  AND exec_target NOT LIKE '/run/shm/%'
-GROUP BY exec_target
-ORDER BY hosts ASC, records DESC, exec_target
-LIMIT 200;
+  AND exec_tar

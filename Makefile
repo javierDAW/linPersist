@@ -15,14 +15,14 @@ GOFLAGS := -trimpath -buildvcs=false -tags=osusergo,netgo
 # linux/<arch>[/<goarm>]
 TARGETS := linux/amd64 linux/arm64 linux/386 linux/arm/7
 
-.PHONY: all build build-all verify test test-race lint fmt audit clean help
+.PHONY: all build build-all verify test test-race lint fmt audit detgen detgen-verify clean help
 
 # The set of cmd/<NAME> binaries the build system knows about. Adding a
 # new top-level binary is a one-line edit here plus the cmd/<name>/
 # package.
 BINARIES := linpersist linpersist-report
 
-all: lint test audit build
+all: lint test audit detgen-verify build
 
 build:
 	@for b in $(BINARIES); do \
@@ -76,6 +76,19 @@ fmt:
 audit:
 	go run ./cmd/matrix-audit
 
+# detgen rewrites tools/stack_demo.sql Q7 block from detections.yaml.
+# Run after editing internal/detections/detections.yaml; commit both
+# files together. See ADR-0013.
+detgen:
+	go run ./cmd/detgen
+
+# detgen-verify is the release gate from ADR-0013: it fails if the
+# committed Q7 block in tools/stack_demo.sql does not match what
+# would be regenerated from detections.yaml. Catches the situation
+# where someone edits the YAML but forgets to regenerate the SQL.
+detgen-verify:
+	go run ./cmd/detgen --verify
+
 clean:
 	rm -rf dist/
 
@@ -89,4 +102,6 @@ help:
 	@echo "  lint       run go vet and gofmt check"
 	@echo "  fmt        run gofmt -w"
 	@echo "  audit      matrix.yaml <-> code drift gate (ADR-0001)"
+	@echo "  detgen     regenerate Q7 SQL block from detections.yaml"
+	@echo "  detgen-verify  drift gate for detections.yaml <-> stack_demo.sql (ADR-0013)"
 	@echo "  clean      remove dist/"

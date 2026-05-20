@@ -274,12 +274,13 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		fmt.Fprintln(out, "  no rows")
 	} else {
 		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "  host\tmodule\tsite_class\tlocus\texec_target\ttriage_signals")
+		fmt.Fprintln(tw, "  host\tmodule\tsite_class\tlocus\texec_target\tmatched_detections\ttriage_signals")
 		for _, r := range report.Q7ImplantRollCall {
 			sigs := strings.Join(r.TriageSignals, ",")
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
+			det := strings.Join(r.MatchedDetections, ",")
+			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				r.Host, r.Module, r.SiteClass,
-				r.Locus, r.ExecTarget, sigs)
+				r.Locus, r.ExecTarget, det, sigs)
 		}
 		tw.Flush()
 	}

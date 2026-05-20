@@ -6,7 +6,15 @@ import (
 	"time"
 
 	"github.com/jarmidaw/linpersist/internal/core"
+	"github.com/jarmidaw/linpersist/internal/detections"
 )
+
+// detectionRules is the parsed rule set, loaded once at init() so a
+// malformed detections.yaml fails the binary at startup rather than
+// at first Q7 row. The YAML itself is embedded in the detections
+// package; see ADR-0013 for the schema and the release-gate
+// mechanics that keep this file in sync with tools/stack_demo.sql.
+var detectionRules = detections.MustLoadEmbedded()
 
 // Report is the top-level data passed to the HTML template.
 type Report struct {
@@ -110,16 +118,19 @@ type ExecTargetRow struct {
 	SpreadModules    []string
 }
 
-// RollCallRow is one row of Q7: implant roll-call. Matches the SQL
-// clauses one-for-one (see tools/stack_demo.sql Q7).
+// RollCallRow is one row of Q7: implant roll-call. The detection
+// clauses are loaded from detections.yaml; MatchedDetections lists
+// every detection id that fired on this record so the analyst can
+// map the row to the rule without re-deriving it from triage_signals.
 type RollCallRow struct {
-	Host          string
-	Module        string
-	SiteClass     string
-	Locus         string
-	ExecTarget    string
-	TriageSignals []string
-	Snippet       string
+	Host              string
+	Module            string
+	SiteClass         string
+	Locus             string
+	ExecTarget        string
+	TriageSignals     []string
+	MatchedDetections []string
+	Snippet           string
 }
 
 // MtimeConcRow is one row of Q8: recent-mtime concentration per
@@ -517,7 +528,7 @@ func computeQ3(records []core.Record) []PeerGroupRow {
 func computeQ4(records []core.Record) []ImplantRow {
 	var out []ImplantRow
 	for _, r := range records {
-		if !containsAll(r.Signals, "exec_target_orphan", "interpreter_in_tmp") {
+		if !containsAll(r.Signals, core.SignalExecTargetOrphan, core.SignalInterpreterInTmp) {
 			continue
 		}
 		out = append(out, ImplantRow{
@@ -747,89 +758,57 @@ func computeHistogram(records []core.Record) []HistogramBucket {
 // rollCallSignals are the signals surfaced as "triage" pills in the
 // Q7 row. They are a curated subset of all signals: the ones that
 // historically correlate with offensive patterns (matches the SQL
-// list in tools/stack_demo.sql Q7).
+// list in tools/stack_demo.sql Q7). Names go through the core
+// catalog so a typo or rename here breaks compilation rather than
+// silently emitting an empty triage_signals column.
 var rollCallSignals = []string{
-	"exec_target_orphan",
-	"interpreter_in_tmp",
-	"ssh_forced_command",
-	"sudoers_nopasswd",
-	"sudoers_all_commands",
-	"passwd_uid_zero",
-	"sshd_authorized_keys_command",
-	"sshd_permit_root_login_yes",
-	"kmod_install_directive",
-	"udev_run_directive",
-	"systemd_external_unit_symlink",
-	"sysv_external_init_symlink",
+	core.SignalExecTargetOrphan,
+	core.SignalInterpreterInTmp,
+	core.SignalSSHForcedCommand,
+	core.SignalSudoersNoPasswd,
+	core.SignalSudoersAllCommands,
+	core.SignalPasswdUIDZero,
+	core.SignalSSHDAuthorizedKeysCommand,
+	core.SignalSSHDPermitRootLoginYes,
+	core.SignalKmodInstallDirective,
+	core.SignalUdevRunDirective,
+	core.SignalSystemdExternalUnitSymlink,
+	core.SignalSysvExternalInitSymlink,
 }
 
-// rollCallMatches encodes the clauses of Q7. Each clause captures a
-// class of implants the others miss; they are deliberately disjoint.
+// rollCallMatches reports whether r matches any detection in the
+// loaded rule set. The clauses themselves live in detections.yaml at
+// the repo root; see ADR-0013 for the schema and the release-gate
+// mechanics that keep this consumer and tools/stack_demo.sql in sync.
 func rollCallMatches(r core.Record) bool {
-	sigs := sigSet(r.Signals)
-	// Clause 1: orphan + tmp -- textbook implant fingerprint.
-	if _, ok := sigs["exec_target_orphan"]; ok {
-		if _, ok2 := sigs["interpreter_in_tmp"]; ok2 {
-			return true
-		}
-	}
-	// Clause 2: sudoers backdoor -- NOPASSWD AND ALL commands. Either
-	// signal alone is too noisy: every host's stock /etc/sudoers
-	// carries `root ALL=(ALL) ALL` (fires sudoers_all_commands on 75
-	// hosts × 178 records baseline); many distros ship sudoers.d/
-	// drop-ins with NOPASSWD: for specific package operations (e.g.
-	// `gitlab-runner ALL=(ALL) NOPASSWD: /usr/bin/docker`). The
-	// conjunction -- a principal granted NOPASSWD on the ALL command
-	// list -- is the textbook backdoor pattern and rare in legitimate
-	// configuration.
-	if _, ok := sigs["sudoers_nopasswd"]; ok {
-		if _, ok2 := sigs["sudoers_all_commands"]; ok2 {
-			return true
-		}
-	}
-	// Clause 3-4: signal-only matches that don't need correlation.
-	for _, s := range []string{
-		"passwd_uid_zero",
-		"kmod_install_directive",
-	} {
-		if _, ok := sigs[s]; ok {
-			return true
-		}
-	}
-	// Clauses 5-7: module + content-pattern matches.
-	switch r.Module {
-	case "profile":
-		if strings.Contains(r.ContentSnippet, "curl") ||
-			strings.Contains(r.ContentSnippet, "wget") {
-			return true
-		}
-	case "sysv":
-		if strings.Contains(r.ContentSnippet, "/tmp/") {
-			return true
-		}
-	case "motd":
-		if strings.Contains(r.ContentSnippet, "curl") ||
-			strings.Contains(r.ContentSnippet, "wget") {
-			return true
-		}
-	}
-	return false
+	return detectionRules.MatchAny(r)
+}
+
+// rollCallDetectionIDs returns the IDs of every detection that
+// matched r. Used to populate the report's new "matched_detections"
+// column, which gives the analyst direct triage context ("matched:
+// sudoers_nopasswd_all_backdoor") instead of forcing them to infer
+// the rule from the triage_signals pill set.
+func rollCallDetectionIDs(r core.Record) []string {
+	return detectionRules.Match(r)
 }
 
 func computeQ7(records []core.Record) []RollCallRow {
 	var out []RollCallRow
 	for _, r := range records {
-		if !rollCallMatches(r) {
+		matched := rollCallDetectionIDs(r)
+		if len(matched) == 0 {
 			continue
 		}
 		out = append(out, RollCallRow{
-			Host:          hostKey(r),
-			Module:        r.Module,
-			SiteClass:     r.SiteClass,
-			Locus:         r.Locus,
-			ExecTarget:    r.ExecTarget,
-			TriageSignals: filterSignals(r.Signals, rollCallSignals),
-			Snippet:       snippetTrim(r.ContentSnippet, 120),
+			Host:              hostKey(r),
+			Module:            r.Module,
+			SiteClass:         r.SiteClass,
+			Locus:             r.Locus,
+			ExecTarget:        r.ExecTarget,
+			TriageSignals:     filterSignals(r.Signals, rollCallSignals),
+			MatchedDetections: matched,
+			Snippet:           snippetTrim(r.ContentSnippet, 120),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -934,7 +913,7 @@ func computeQ9(records []core.Record) []ExecInTmpRow {
 			continue
 		}
 		sigs := sigSet(r.Signals)
-		_, isOrphan := sigs["exec_target_orphan"]
+		_, isOrphan := sigs[core.SignalExecTargetOrphan]
 		out = append(out, ExecInTmpRow{
 			Host:       hostKey(r),
 			Module:     r.Module,
