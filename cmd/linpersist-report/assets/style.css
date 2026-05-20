@@ -161,6 +161,26 @@ input.search {
 .sig.warn { background: var(--tail-soft); color: var(--tail); }
 .sig-list { white-space: normal; }
 
+/* Severity pills (Q7 row + Overview counts). Critical/high get the
+   tail-class palette so they read alongside the LFA-tail histogram
+   colouring; medium/low/info are progressively softer. */
+.sev {
+  display: inline-block; padding: 1px 8px; border-radius: 999px;
+  font-family: ui-monospace, monospace; font-size: 11px;
+  font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.sev.critical { background: var(--tail-soft); color: var(--tail); }
+.sev.high     { background: var(--tail-soft); color: var(--tail); opacity: 0.85; }
+.sev.medium   { background: var(--accent-soft); color: var(--warn); }
+.sev.low      { background: var(--bg-alt); color: var(--fg-mute); }
+.sev.info     { background: var(--bg-alt); color: var(--fg-mute); }
+.sev.unspec   { background: var(--bg-alt); color: var(--fg-mute); }
+
+/* Severity-summary list in the Overview card. */
+.sev-summary { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px 0; }
+.sev-summary .item { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.sev-summary .item .count { font-weight: 600; }
+
 /* Histogram (LFA stacking) */
 .hist {
   display: flex; align-items: flex-end; gap: 14px;

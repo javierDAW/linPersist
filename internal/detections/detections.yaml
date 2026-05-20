@@ -11,21 +11,26 @@
 # regenerated SQL against what is committed and fails the build on
 # drift. See ADR-0013 for the schema rationale.
 #
-# Predicates (all AND-joined within a single `when:`):
+# Predicates (positive predicates AND-joined within a single `when:`;
+# signals_none short-circuits the whole `when:`):
 #
 #   signals_all:          [a, b, ...]   every signal in the list must be present
 #   signals_any:          [a, b, ...]   at least one signal in the list must be present
+#   signals_none:         [a, b, ...]   no signal in the list may be present (FP suppression)
 #   module_in:            [a, b, ...]   record.module must be one of these
 #   content_contains_any: ["a", "b"]    record.content_snippet must contain at least one substring
 #
-# Adding a detection: pick a snake_case id, list the predicates, and
-# include `description`, `severity` (info|low|medium|high|critical),
-# and `mitre` for the report's triage UI. `make detgen-verify` (or
-# `go run ./cmd/detgen --verify`) catches drift before commit.
+# Calibration note (v0.2.x-tune): the curl/wget and /tmp content
+# patterns below are the v0.2.x-tune refinements. The older form (raw
+# "curl", "wget", "/tmp/") flooded fleets with dotfile installers and
+# lock-file mktemp(1) FPs. The current patterns require piped-to-shell
+# forms or implant-style dot-prefixed tmp paths.
 
 schema_version: 1
 
 detections:
+
+  # ---------- High-precision exec_target patterns -------------------
 
   - id: payload_under_tmp_via_persistence
     description: Persistence record points at a tmp-class payload that does not exist on disk
@@ -34,12 +39,15 @@ detections:
     when:
       signals_all: [exec_target_orphan, interpreter_in_tmp]
 
-  - id: sudoers_nopasswd_all_backdoor
-    description: Sudoers entry grants NOPASSWD on the ALL command list
+  - id: pam_module_in_tmp
+    description: PAM stack loads a module from a tmp-class directory (Volexity/DFIR Report pattern)
     severity: critical
-    mitre: [T1548.003]
+    mitre: [T1556.003]
     when:
-      signals_all: [sudoers_nopasswd, sudoers_all_commands]
+      module_in: [pam]
+      signals_all: [interpreter_in_tmp]
+
+  # ---------- Identity / privilege backdoors -----------------------
 
   - id: second_uid_zero_account
     description: passwd.user entry has uid 0 with username != root
@@ -48,33 +56,185 @@ detections:
     when:
       signals_any: [passwd_uid_zero]
 
+  - id: sudoers_nopasswd_all_backdoor
+    description: Sudoers entry grants NOPASSWD on the ALL command list (expect CI service-account FPs until role tags ship)
+    severity: critical
+    mitre: [T1548.003]
+    when:
+      signals_all: [sudoers_nopasswd, sudoers_all_commands]
+
+  # ---------- Kernel / bootloader vectors --------------------------
+
   - id: kmod_install_directive_implant
-    description: modprobe install directive replaces module load with arbitrary command
+    description: modprobe install directive replaces module load with a payload outside the package universe
     severity: high
     mitre: [T1547.006]
     when:
-      signals_any: [kmod_install_directive]
+      signals_all: [kmod_install_directive]
+      signals_any: [interpreter_in_tmp, exec_target_orphan, non_package_path, shell_indirect]
+
+  - id: grub_init_override
+    description: GRUB cmdline carries an init= override that replaces pid-1 at next boot
+    severity: critical
+    mitre: [T1542.003]
+    when:
+      signals_any: [grub_cmdline_init]
+
+  # ---------- Systemd structural anomalies -------------------------
+
+  - id: systemd_external_unit_symlink_implant
+    description: systemd .wants/.requires symlink points outside the walked unit loci
+    severity: high
+    mitre: [T1543.002]
+    when:
+      signals_any: [systemd_external_unit_symlink]
+
+  # ---------- Shell-init / motd remote-fetch (calibrated patterns) -
 
   - id: shell_init_remote_fetch
-    description: System or user shell-init contains a curl or wget invocation
+    description: System or user shell-init pipes a curl/wget download into a shell interpreter (curl|sh implant pattern)
     severity: high
     mitre: [T1546.004]
     when:
       module_in: [profile]
-      content_contains_any: [curl, wget]
-
-  - id: sysv_init_tmp_reference
-    description: sysv.init script body references /tmp/
-    severity: high
-    mitre: [T1037.004]
-    when:
-      module_in: [sysv]
-      content_contains_any: ["/tmp/"]
+      content_contains_any:
+        - "| sh"
+        - "| bash"
+        - "|sh "
+        - "|bash "
+        - "curl | "
+        - "wget | "
 
   - id: motd_remote_fetch
-    description: motd or update-motd.d script contains a curl or wget invocation
+    description: motd or update-motd.d script pipes a curl/wget download into a shell interpreter
     severity: high
     mitre: [T1037]
     when:
       module_in: [motd]
-      content_contains_any: [curl, wget]
+      content_contains_any:
+        - "| sh"
+        - "| bash"
+        - "|sh "
+        - "|bash "
+        - "curl | "
+        - "wget | "
+
+  # ---------- Sysv with implant-style /tmp body usage --------------
+
+  - id: sysv_init_tmp_reference
+    description: sysv.init script body launches a binary from a tmp-class path (implant-style dot-dir or exec /tmp pattern)
+    severity: high
+    mitre: [T1037.004]
+    when:
+      module_in: [sysv]
+      content_contains_any:
+        - ". /tmp/"
+        - "exec /tmp/"
+        - "bash /tmp/"
+        - "sh /tmp/"
+        - "/tmp/."
+
+  # ---------- v0.3.0-coverage: detections for orphan-but-emitted signals
+  #
+  # The agent already emits these signals via existing modules; the
+  # rules below promote them from "visible in Q5" to "actionable in
+  # Q7 with severity and detection id". No new code required; only
+  # detection-time correlation with FP-suppression negatives.
+
+  - id: ld_preload_set_with_non_package
+    description: /etc/ld.so.preload references a library outside the package universe (textbook LD_PRELOAD injection)
+    severity: critical
+    mitre: [T1574.006]
+    when:
+      signals_all: [ld_preload_set, non_package_path]
+
+  - id: polkit_admin_rule_implant
+    description: polkit rule contains addAdminRule( and was recently modified outside the package universe
+    severity: high
+    mitre: [T1548]
+    when:
+      signals_all: [polkit_admin_rule]
+      signals_any: [recent_mtime_7d, non_root_owner]
+
+  - id: polkit_yes_constant_implant
+    description: polkit rule grants polkit.Result.YES unconditionally and was recently modified
+    severity: high
+    mitre: [T1548]
+    when:
+      signals_all: [polkit_yes_constant]
+      signals_any: [recent_mtime_7d, non_root_owner]
+
+  - id: sshd_root_login_enabled
+    description: sshd_config explicitly enables PermitRootLogin yes (rare on hardened fleets; high on a hosts-where-most-have-no flag)
+    severity: high
+    mitre: [T1098.004, T1556]
+    when:
+      signals_any: [sshd_permit_root_login_yes]
+
+  - id: sshd_authorized_keys_command_external
+    description: sshd_config AuthorizedKeysCommand points at an external binary not provided by any installed package
+    severity: critical
+    mitre: [T1098.004]
+    when:
+      signals_all: [sshd_authorized_keys_command]
+      signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
+  - id: udev_run_with_non_package
+    description: udev rule RUN+= directive launches a binary outside the package universe
+    severity: high
+    mitre: [T1546]
+    when:
+      signals_all: [udev_run_directive]
+      signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
+  - id: sysv_external_init_symlink_implant
+    description: rcN.d/ symlink resolves outside the init.d/ tree (offensive enable-without-touching-init.d pattern)
+    severity: high
+    mitre: [T1037.004]
+    when:
+      signals_any: [sysv_external_init_symlink]
+
+  - id: systemd_install_alias_external_implant
+    description: systemd unit [Install] Alias= path resolves outside the walked unit loci
+    severity: high
+    mitre: [T1543.002]
+    when:
+      signals_any: [systemd_install_alias_external]
+
+  - id: xdg_autostart_unmanaged
+    description: XDG autostart entry launches a binary outside the package universe
+    severity: high
+    mitre: [T1547.013]
+    when:
+      module_in: [xdg]
+      signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
+  - id: passwd_empty_password_account
+    description: /etc/shadow lists an account with an empty password field (logs in without authentication)
+    severity: critical
+    mitre: [T1136.001]
+    when:
+      signals_any: [passwd_no_password]
+
+  # ---------- v0.3.0-coverage: systemd structural family ------------
+
+  - id: tmpfiles_creates_payload_at_boot
+    description: systemd-tmpfiles directive creates an executable under /tmp at boot (payload restoration across reboots)
+    severity: critical
+    mitre: [T1543.002]
+    when:
+      signals_any: [tmpfiles_creates_under_tmp]
+
+  - id: sysusers_second_uid_zero
+    description: systemd-sysusers declares a uid-0 user with a non-root name (declarative second-root-account implant)
+    severity: critical
+    mitre: [T1136.001]
+    when:
+      signals_any: [sysusers_uid_zero]
+
+  - id: systemd_linger_non_root_account
+    description: A non-root account has systemd linger enabled (user-mode units survive logout — documented persistence vector)
+    severity: high
+    mitre: [T1546]
+    when:
+      signals_any: [systemd_linger_non_root]

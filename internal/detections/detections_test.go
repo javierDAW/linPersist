@@ -80,12 +80,34 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			want: []string{"second_uid_zero_account"},
 		},
 		{
-			name: "kmod install directive",
+			name: "kmod install directive pointing at orphan binary",
+			rec: core.Record{
+				Module: "kmod",
+				Signals: []string{
+					core.SignalKmodInstallDirective,
+					core.SignalExecTargetOrphan,
+				},
+			},
+			want: []string{"kmod_install_directive_implant"},
+		},
+		{
+			name: "kmod install directive pointing at non-package binary",
+			rec: core.Record{
+				Module: "kmod",
+				Signals: []string{
+					core.SignalKmodInstallDirective,
+					core.SignalNonPackagePath,
+				},
+			},
+			want: []string{"kmod_install_directive_implant"},
+		},
+		{
+			name: "kmod install directive alone (package-managed) -- v0.2.x-tune suppression",
 			rec: core.Record{
 				Module:  "kmod",
 				Signals: []string{core.SignalKmodInstallDirective},
 			},
-			want: []string{"kmod_install_directive_implant"},
+			want: nil,
 		},
 		{
 			name: "profile curl remote fetch",
@@ -153,6 +175,64 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 				Signals: []string{core.SignalExecTargetOrphan},
 			},
 			want: nil,
+		},
+		// --- v0.2.x-tune: refined patterns drop these FPs ---------
+		{
+			name: "v0.2.x-tune FP: profile mentions 'curl' without piping to shell",
+			rec: core.Record{
+				Module:         "profile",
+				ContentSnippet: "alias get='curl -fSL'  # convenience alias",
+			},
+			want: nil,
+		},
+		{
+			name: "v0.2.x-tune FP: rustup-style dotfile installer (curl ... -o)",
+			rec: core.Record{
+				Module:         "profile",
+				ContentSnippet: "# Run: curl https://sh.rustup.rs -o rustup-init.sh",
+			},
+			want: nil,
+		},
+		{
+			name: "v0.2.x-tune FP: sysv legacy init using /tmp/svc.lock",
+			rec: core.Record{
+				Module:         "sysv",
+				ContentSnippet: "PIDFILE=/tmp/svc.lock; daemon /usr/sbin/svc",
+			},
+			want: nil,
+		},
+		{
+			name: "v0.2.x-tune FP: motd plain text mentions a tutorial URL",
+			rec: core.Record{
+				Module:         "motd",
+				ContentSnippet: "See docs: curl -s https://intranet/docs > out.txt",
+			},
+			want: nil,
+		},
+		// --- v0.2.x-tune: new detections for previously-unused signals
+		{
+			name: "PAM module loaded from /tmp",
+			rec: core.Record{
+				Module:  "pam",
+				Signals: []string{core.SignalInterpreterInTmp},
+			},
+			want: []string{"pam_module_in_tmp"},
+		},
+		{
+			name: "systemd external wants symlink",
+			rec: core.Record{
+				Module:  "systemd",
+				Signals: []string{core.SignalSystemdExternalUnitSymlink},
+			},
+			want: []string{"systemd_external_unit_symlink_implant"},
+		},
+		{
+			name: "GRUB cmdline init override",
+			rec: core.Record{
+				Module:  "grub",
+				Signals: []string{core.SignalGrubCmdlineInit},
+			},
+			want: []string{"grub_init_override"},
 		},
 	}
 	for _, tc := range cases {
@@ -261,4 +341,130 @@ func equalStrSlice(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// --- signals_none predicate (schema v1 additive extension) -----------
+
+// TestSignalsNoneMatcher exercises the negative predicate.
+func TestSignalsNoneMatcher(t *testing.T) {
+	yamlText := `schema_version: 1
+detections:
+  - id: kmod_install_unmanaged
+    when:
+      signals_all: [kmod_install_directive]
+      signals_none: [live_process_attached]
+  - id: orphan_tmp_excluding_world_writable
+    when:
+      signals_all: [exec_target_orphan, interpreter_in_tmp]
+      signals_none: [world_writable]
+`
+	rs, err := Load([]byte(yamlText), nil, nil)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	cases := []struct {
+		name string
+		rec  core.Record
+		want []string
+	}{
+		{
+			name: "kmod install without negative signal -> matches",
+			rec:  core.Record{Signals: []string{core.SignalKmodInstallDirective}},
+			want: []string{"kmod_install_unmanaged"},
+		},
+		{
+			name: "kmod install with negative signal -> suppressed",
+			rec: core.Record{Signals: []string{
+				core.SignalKmodInstallDirective,
+				core.SignalLiveProcessAttached,
+			}},
+			want: nil,
+		},
+		{
+			name: "orphan+tmp with world_writable -> suppressed",
+			rec: core.Record{Signals: []string{
+				core.SignalExecTargetOrphan,
+				core.SignalInterpreterInTmp,
+				core.SignalWorldWritable,
+			}},
+			want: nil,
+		},
+		{
+			name: "orphan+tmp without world_writable -> matches",
+			rec: core.Record{Signals: []string{
+				core.SignalExecTargetOrphan,
+				core.SignalInterpreterInTmp,
+			}},
+			want: []string{"orphan_tmp_excluding_world_writable"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := rs.Match(tc.rec)
+			if !equalStrSlice(got, tc.want) {
+				t.Errorf("Match: got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSignalsNoneSQL verifies the SQL generator emits the negative clauses.
+func TestSignalsNoneSQL(t *testing.T) {
+	yamlText := `schema_version: 1
+detections:
+  - id: r
+    when:
+      signals_all: [exec_target_orphan]
+      signals_none: [world_writable, live_process_attached]
+`
+	rs, err := Load([]byte(yamlText), nil, nil)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	got := rs.RenderSQL(DefaultSQLOptions)
+	want := "/* r */ (NOT list_contains(signals, 'world_writable') AND NOT list_contains(signals, 'live_process_attached') AND list_contains(signals, 'exec_target_orphan'))"
+	if got != want {
+		t.Errorf("RenderSQL:\n got:  %s\nwant: %s", got, want)
+	}
+}
+
+// TestSignalsNoneLoaderRejects covers loader-side validation.
+func TestSignalsNoneLoaderRejects(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "unknown signal in signals_none",
+			yaml: "schema_version: 1\ndetections: [{id: x, when: {signals_all: [exec_target_orphan], signals_none: [definitely_not_a_signal]}}]\n",
+			want: "signals_none references unknown signal",
+		},
+		{
+			name: "signals_none only -- no positive predicate",
+			yaml: "schema_version: 1\ndetections: [{id: x, when: {signals_none: [exec_target_orphan]}}]\n",
+			want: "no predicates",
+		},
+		{
+			name: "same signal in both signals_all and signals_none",
+			yaml: "schema_version: 1\ndetections: [{id: x, when: {signals_all: [exec_target_orphan], signals_none: [exec_target_orphan]}}]\n",
+			want: "can never fire",
+		},
+		{
+			name: "same signal in both signals_any and signals_none",
+			yaml: "schema_version: 1\ndetections: [{id: x, when: {signals_any: [exec_target_orphan, interpreter_in_tmp], signals_none: [exec_target_orphan]}}]\n",
+			want: "can never fire",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load([]byte(tc.yaml), nil, nil)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not contain %q", err.Error(), tc.want)
+			}
+		})
+	}
 }

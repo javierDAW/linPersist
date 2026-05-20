@@ -48,7 +48,7 @@ func main() {
 		verify   bool
 		dryRun   bool
 	)
-	flag.StringVar(&yamlPath, "yaml", "detections.yaml", "path to detections.yaml")
+	flag.StringVar(&yamlPath, "yaml", "internal/detections/detections.yaml", "path to detections.yaml (canonical lives in internal/detections/ per ADR-0013)")
 	flag.StringVar(&sqlPath, "sql", "tools/stack_demo.sql", "path to stack_demo.sql")
 	flag.BoolVar(&verify, "verify", false, "exit 1 if the file would change (release gate)")
 	flag.BoolVar(&dryRun, "dry-run", false, "print regenerated SQL to stdout without writing")

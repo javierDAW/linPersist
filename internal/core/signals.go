@@ -276,4 +276,28 @@ const (
 	// to RUN: it runs a program during rule matching to use the
 	// output as a variable. Same execution surface as RUN.
 	SignalUdevProgramDirective = "udev_program_directive"
+	// SignalSystemdLingerNonRoot set on systemd.linger records whose
+	// username is anything other than "root". The presence of any
+	// /var/lib/systemd/linger/<user> file enables user-mode systemd
+	// units for that account to survive logout; root is the baseline
+	// (no-op), non-root is the documented persistence vector
+	// (PANIX, Mandiant Linux IR reports).
+	SignalSystemdLingerNonRoot = "systemd_linger_non_root"
+
+	// SignalTmpfilesCreatesUnderTmp set on systemd.tmpfiles records
+	// whose directive creates / modifies a file or directory under a
+	// tmp-class path (/tmp, /var/tmp, /dev/shm, /run/shm). systemd-
+	// tmpfiles runs at boot and on demand, so a "create executable
+	// under /tmp" directive effectively restores a payload across
+	// reboots without touching any other persistence site -- a
+	// documented vector.
+	SignalTmpfilesCreatesUnderTmp = "tmpfiles_creates_under_tmp"
+
+	// SignalSysusersUIDZero set on systemd.sysusers records whose
+	// directive declares a uid-0 user with a name other than "root".
+	// systemd-sysusers creates declared users at boot if absent; a
+	// uid-0 non-root entry in a sysusers.d drop-in is the "second
+	// root account" implant routed through the declarative path
+	// (T1136.001) rather than through direct edits to /etc/passwd.
+	SignalSysusersUIDZero = "sysusers_uid_zero"
 )

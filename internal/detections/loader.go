@@ -82,11 +82,18 @@ type Detection struct {
 	When        When     `yaml:"when"`
 }
 
-// When is the predicate block. Every populated field is AND-joined;
-// at least one field must be populated (the loader enforces this).
+// When is the predicate block. Every populated POSITIVE field is
+// AND-joined. SignalsNone is the negative predicate: if any signal
+// in that list is present on the record, the detection does NOT
+// fire. The loader requires at least one positive predicate to be
+// populated; SignalsNone alone is ambiguous and rejected.
+//
+// Added in schema v1 additive extension (no version bump because the
+// field is optional and defaults to nil). See ADR-0013.
 type When struct {
 	SignalsAll         []string `yaml:"signals_all"`
 	SignalsAny         []string `yaml:"signals_any"`
+	SignalsNone        []string `yaml:"signals_none"`
 	ModuleIn           []string `yaml:"module_in"`
 	ContentContainsAny []string `yaml:"content_contains_any"`
 }
@@ -160,12 +167,28 @@ func (rs *RuleSet) validate(signals, modules map[string]struct{}) error {
 				errs = append(errs, fmt.Sprintf("detection %q: signals_any references unknown signal %q", d.ID, s))
 			}
 		}
-		// Module names: validated only when caller provided a set.
-		if modules != nil {
-			for _, m := range d.When.ModuleIn {
-				if _, ok := modules[m]; !ok {
-					errs = append(errs, fmt.Sprintf("detection %q: module_in references unknown module %q", d.ID, m))
-				}
+		for _, s := range d.When.SignalsNone {
+			if _, ok := signals[s]; !ok {
+				errs = append(errs, fmt.Sprintf("detection %q: signals_none references unknown signal %q", d.ID, s))
+			}
+		}
+		// A signal listed under both signals_none and one of the
+		// positive predicates is incoherent: the detection would
+		// never fire (positive requires it, negative forbids it).
+		// Catch this at load time so the contributor sees a clear
+		// error instead of a silently-dead rule.
+		negSet := make(map[string]struct{}, len(d.When.SignalsNone))
+		for _, s := range d.When.SignalsNone {
+			negSet[s] = struct{}{}
+		}
+		for _, s := range d.When.SignalsAll {
+			if _, ok := negSet[s]; ok {
+				errs = append(errs, fmt.Sprintf("detection %q: signal %q appears in both signals_all and signals_none (rule can never fire)", d.ID, s))
+			}
+		}
+		for _, s := range d.When.SignalsAny {
+			if _, ok := negSet[s]; ok {
+				errs = append(errs, fmt.Sprintf("detection %q: signal %q appears in both signals_any and signals_none (rule can never fire)", d.ID, s))
 			}
 		}
 		// Content substrings: reject SQL-unsafe characters so the
@@ -191,10 +214,12 @@ func (rs *RuleSet) validate(signals, modules map[string]struct{}) error {
 	return nil
 }
 
-// populated returns true if the When carries at least one predicate.
-// A detection with an empty `when:` would match everything (or
-// nothing, depending on conjunction semantics) and is rejected at
-// load time.
+// populated returns true if the When carries at least one POSITIVE
+// predicate. A detection with only SignalsNone would match every
+// record that does not carry those signals -- effectively a
+// blanket-positive rule disguised as a negative one. Rejected at
+// load time; contributors must combine SignalsNone with a positive
+// predicate.
 func (w *When) populated() bool {
 	return len(w.SignalsAll) > 0 ||
 		len(w.SignalsAny) > 0 ||

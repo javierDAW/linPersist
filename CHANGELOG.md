@@ -7,6 +7,151 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (v0.3.0-coverage — orphan-signal rules + systemd structural family)
+- **10 new detection rules for previously-orphaned signals**. The
+  catalog already emitted these signals from the agent side but no
+  rule in `detections.yaml` was promoting them from Q5 visibility
+  to Q7 actionability:
+  - `ld_preload_set_with_non_package` — LD_PRELOAD injection from
+    outside the package universe.
+  - `polkit_admin_rule_implant`, `polkit_yes_constant_implant` —
+    polkit policy edits recent or non-root-owned.
+  - `sshd_root_login_enabled` — `PermitRootLogin yes` explicit.
+  - `sshd_authorized_keys_command_external` — `AuthorizedKeysCommand`
+    pointing at non-package or orphan binary.
+  - `udev_run_with_non_package` — udev `RUN+=` launching unmanaged
+    binary.
+  - `sysv_external_init_symlink_implant` — `rcN.d/` symlink outside
+    `init.d/`.
+  - `systemd_install_alias_external_implant` — `[Install] Alias=`
+    resolving outside walked loci.
+  - `xdg_autostart_unmanaged` — XDG autostart pointing at
+    non-package binary.
+  - `passwd_empty_password_account` — `/etc/shadow` entry with
+    empty password field.
+- **Three new modules: systemd structural family (ADR-0014)**.
+  - **`systemd.linger`** (~190 LOC). One record per
+    `/var/lib/systemd/linger/<user>`. Signal
+    `systemd_linger_non_root` for any username other than "root".
+    MITRE T1546.
+  - **`systemd.tmpfiles`** (~385 LOC). Per-directive granularity
+    across `/etc/tmpfiles.d/`, `/usr/lib/tmpfiles.d/`,
+    `/run/tmpfiles.d/`. Parser handles the
+    `type path mode user group age argument` grammar with quoted
+    segment support. Signal `tmpfiles_creates_under_tmp` for
+    create-class type letters (f F w d D L C c b p) targeting
+    tmp-class paths. MITRE T1543.002.
+  - **`systemd.sysusers`** (~349 LOC). Per-directive granularity
+    across `/etc/sysusers.d/`, `/usr/lib/sysusers.d/`. Parser
+    handles `type name id "gecos" home shell`. Signal
+    `sysusers_uid_zero` for u-type directives with id=0 and
+    name!=root. MITRE T1136.001.
+- **Three new detection rules** for the new signals:
+  - `tmpfiles_creates_payload_at_boot` (critical)
+  - `sysusers_second_uid_zero` (critical)
+  - `systemd_linger_non_root_account` (high)
+- **`matrix.yaml` extended** to 32 site_classes total
+  (`+systemd.linger`, `+systemd.tmpfiles`, `+systemd.sysusers`);
+  `make audit` reports `32 implemented, 0 drift`.
+- **`tools/stack_demo.sql` Q7 block regenerated** to 23 disjuncts
+  (10 pre-existing + 10 orphan-signal rules + 3 structural family);
+  `make detgen-verify` clean.
+- See [ADR-0014](docs/adr/0014-systemd-structural-family.md) for
+  the design rationale of the three structural modules.
+
+### Verified (v0.3.0-coverage against lab-realistic)
+- 75-host fleet round-trip with the expanded rule set: Q1 / Q4 / Q7
+  / Q8 / Q11 counts byte-identical to v0.2.x-tune. The new rules
+  are pre-armed for real-fleet deployments; the lab containers do
+  not exercise linger / tmpfiles / sysusers nor the orphan-signal
+  scenarios.
+- 22 packages green under `-race` including the new `linger`,
+  `tmpfiles`, `sysusers` packages and the cross-source emission
+  audit against the expanded signals catalog (43 signals total,
+  up from 40).
+
+### Added (v0.2.x-tune — FP calibration + new vectors + severity output)
+- **`signals_none` predicate (schema v1 additive extension)**. The
+  main FP-suppression knob: a detection now declares signals that
+  must NOT be present for it to fire. Loader rejects signals that
+  appear in both a positive predicate and `signals_none` (rule
+  could never fire) and rejects detections populated only with
+  `signals_none` (would be a blanket positive disguised as
+  negative). Matcher short-circuits on it first; SQL generator
+  emits `NOT list_contains(signals, 'x')` clauses. Wire format
+  unchanged (`schema_version: 1`); rules that don't use the field
+  parse identically. See ADR-0013 update.
+- **Refined the four highest-FP detections** in
+  `internal/detections/detections.yaml`:
+  - `shell_init_remote_fetch` now requires *piped-to-shell* patterns
+    (`| sh`, `| bash`, `|sh `, `|bash `, `curl | `, `wget | `)
+    rather than raw `curl` or `wget` substrings. Drops the dotfile
+    installer and rustup/homebrew/nvm FPs that flood real fleets.
+  - `motd_remote_fetch` got the same patterns. Drops the
+    `update-notifier`-on-Ubuntu FP and similar legitimate HTTP
+    motds.
+  - `sysv_init_tmp_reference` now requires *implant-style* /tmp
+    references (`. /tmp/`, `exec /tmp/`, `bash /tmp/`, `sh /tmp/`,
+    `/tmp/.` dot-prefixed hidden dir) instead of any mention of
+    `/tmp/`. Drops mktemp / lock-file FPs in legacy sysv scripts.
+  - `kmod_install_directive_implant` now requires the conjunction
+    of `kmod_install_directive` with one of `interpreter_in_tmp`,
+    `exec_target_orphan`, `non_package_path`, or `shell_indirect`.
+    Drops the dist-alsa / nvidia / wireguard helpers that baseline
+    every distro. The `shell_indirect` term keeps the lab-canonical
+    implant pattern (`install foo /bin/sh -c '...'`) detected even
+    when the shell is package-managed.
+  - `sudoers_nopasswd_all_backdoor` left as-is on purpose. The real
+    FP channel is CI service accounts (jenkins, gitlab-runner,
+    ansible, terraform-runner) with legitimate `NOPASSWD: ALL`.
+    Pure-signal calibration cannot disambiguate without role tags
+    (peer-group LFA, v0.3.1) or cross-record correlation with
+    `passwd.user` (shell != nologin). The detection description now
+    documents the expected FP channel explicitly so the analyst
+    knows what to ignore until v0.3.1 lands.
+- **Three new detections** for signals that already existed in the
+  catalog but had no corresponding rule:
+  - `pam_module_in_tmp` — PAM stack loads a `.so` from a tmp-class
+    directory (Volexity / DFIR Report implant pattern).
+  - `systemd_external_unit_symlink_implant` — `.wants/.requires`
+    symlink resolves outside the walked unit loci (payload kept
+    under `/opt`, `/tmp`, `/var/tmp`, ...).
+  - `grub_init_override` — GRUB cmdline carries an `init=` override
+    that replaces pid-1 at next boot.
+- **Severity-tiered output**. The Q7 `RollCallRow` now carries
+  `MaxSeverity` (the worst severity across the detections that
+  fired on the record), driven by the existing `severity` field in
+  `detections.yaml`. The Overview gains `SeverityCounts` populated
+  after Q7 is computed. Text mode prints per-severity counts in the
+  Overview block (critical / high tinted red and orange when
+  non-zero) and emits a `severity` column at the front of the Q7
+  table. HTML mode shows a pill row in the Q7 section, a `severity`
+  column with colour-coded pills (critical / high tail-class
+  palette; medium / low / info softer), and the Q7 `colspan`
+  fallback bumped from 8 to 9.
+- **`cmd/detgen` default path moved to
+  `internal/detections/detections.yaml`**. The repo-root copy was
+  removed as part of the v0.2.x-tune cleanup; the canonical file
+  lives in the package directory (the only place `go:embed` can
+  reach).
+
+### Verified (v0.2.x-tune calibration against lab-realistic)
+- 75-host fleet round-trip with the refined rule set: Q7 = 22 hits
+  unchanged in count, distribution shifted to **13 critical + 9
+  high**. Per-detection: 10× `sudoers_nopasswd_all_backdoor`, 6×
+  `payload_under_tmp_via_persistence`, 6× `pam_module_in_tmp` (new),
+  3× `second_uid_zero_account`, 3× `kmod_install_directive_implant`.
+  Total detection-id matches = 28 over 22 unique records (records
+  matching more than one rule, e.g. PAM-in-/tmp triggering both
+  `payload_under_tmp_via_persistence` and `pam_module_in_tmp`).
+- Fleet Q1 / Q4 / Q8 / Q11 counts byte-identical to v0.2.0-polish.
+- `go test ./... -count=1` green across 22 packages including 4 new
+  test cases for `signals_none` (matcher, SQL generator, loader
+  rejections) and 7 new cases for the refined / new detections.
+- `make detgen-verify` clean after `make detgen` regenerates the Q7
+  block with the 10 rules and their `signals_none` / `signals_any`
+  combinations.
+
 ### Added (declarative detections — ADR-0013)
 - **Q7 clauses externalised to `detections.yaml`**. The
   cross-cutting "implant roll-call" was duplicated between

@@ -52,8 +52,19 @@ func (rs *RuleSet) MatchAny(r core.Record) bool {
 // predicate in d.When to r. An unpopulated When is impossible at
 // match time (the loader rejects it), so every detection has at
 // least one predicate to evaluate.
+//
+// Evaluation order is deliberate: SignalsNone first (cheap
+// short-circuit) then the positive predicates. A record that carries
+// any signal in SignalsNone fails the rule regardless of the rest.
 func (rs *RuleSet) detectionMatches(d *Detection, r core.Record, sigs map[string]struct{}) bool {
 	w := &d.When
+	if len(w.SignalsNone) > 0 {
+		for _, s := range w.SignalsNone {
+			if _, ok := sigs[s]; ok {
+				return false
+			}
+		}
+	}
 	if len(w.SignalsAll) > 0 {
 		for _, s := range w.SignalsAll {
 			if _, ok := sigs[s]; !ok {

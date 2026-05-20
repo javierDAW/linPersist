@@ -53,6 +53,12 @@ type Overview struct {
 	BySiteClass      []NamedCount
 	ByOSID           []NamedCount
 	BySignal         []NamedCount
+	// SeverityCounts is a Q7-scoped tally of records by worst-severity
+	// of the detections they matched. Keyed by the canonical severity
+	// strings (info / low / medium / high / critical) plus the empty
+	// string for records whose matched detections declared no
+	// severity. Populated after Q7 is computed (see build()).
+	SeverityCounts map[string]int
 }
 
 type NamedCount struct {
@@ -122,6 +128,9 @@ type ExecTargetRow struct {
 // clauses are loaded from detections.yaml; MatchedDetections lists
 // every detection id that fired on this record so the analyst can
 // map the row to the rule without re-deriving it from triage_signals.
+// MaxSeverity is the worst severity across the matched detections
+// (ordering: critical > high > medium > low > info > unspecified),
+// used to drive the row pill in HTML and the row prefix in text.
 type RollCallRow struct {
 	Host              string
 	Module            string
@@ -130,7 +139,41 @@ type RollCallRow struct {
 	ExecTarget        string
 	TriageSignals     []string
 	MatchedDetections []string
+	MaxSeverity       string
 	Snippet           string
+}
+
+// severityRank orders severity strings for "worst-wins" reductions.
+// Higher number == more severe. Unknown / unspecified severities map
+// to 0 so they never win against a declared severity.
+var severityRank = map[string]int{
+	"info":     1,
+	"low":      2,
+	"medium":   3,
+	"high":     4,
+	"critical": 5,
+}
+
+// worstSeverity returns the highest-ranked severity in ids by looking
+// each id up in the loaded rule set. Returns "" if no id has a
+// recognised severity (treated as "unspecified" by callers).
+func worstSeverity(ids []string) string {
+	best := ""
+	bestRank := 0
+	for _, id := range ids {
+		for i := range detectionRules.Detections {
+			d := &detectionRules.Detections[i]
+			if d.ID != id {
+				continue
+			}
+			if r, ok := severityRank[d.Severity]; ok && r > bestRank {
+				best = d.Severity
+				bestRank = r
+			}
+			break
+		}
+	}
+	return best
 }
 
 // MtimeConcRow is one row of Q8: recent-mtime concentration per
@@ -249,6 +292,14 @@ func build(records []core.Record, sources []string, skipped int, agentVersion st
 	r.Q10HostCoverage = computeQ10(records)
 	r.Q11OrphanOutsideTmp = computeQ11(records)
 	r.HistogramBuckets = computeHistogram(records)
+	// Severity counts derived from Q7 rows. Lives on Overview rather
+	// than Report so the HTML template and text renderer share one
+	// access path.
+	sevCounts := make(map[string]int, 6)
+	for _, row := range r.Q7ImplantRollCall {
+		sevCounts[row.MaxSeverity]++
+	}
+	r.Overview.SeverityCounts = sevCounts
 	return r
 }
 
@@ -808,6 +859,7 @@ func computeQ7(records []core.Record) []RollCallRow {
 			ExecTarget:        r.ExecTarget,
 			TriageSignals:     filterSignals(r.Signals, rollCallSignals),
 			MatchedDetections: matched,
+			MaxSeverity:       worstSeverity(matched),
 			Snippet:           snippetTrim(r.ContentSnippet, 120),
 		})
 	}
@@ -1040,10 +1092,6 @@ func computeQ11(records []core.Record) []OrphanOutsideTmpRow {
 	}
 	out := make([]OrphanOutsideTmpRow, 0, len(m))
 	for target, a := range m {
-		// Deterministic sample_host: lexicographically first host
-		// from the aggregated set. For 1-host singletons the value
-		// equals the only host that carries the record, which is
-		// what the analyst actually wants to look at.
 		hosts := make([]string, 0, len(a.hosts))
 		for h := range a.hosts {
 			hosts = append(hosts, h)

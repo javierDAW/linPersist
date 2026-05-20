@@ -48,6 +48,7 @@ import (
 	"github.com/jarmidaw/linpersist/internal/modules/grub"
 	"github.com/jarmidaw/linpersist/internal/modules/kmod"
 	"github.com/jarmidaw/linpersist/internal/modules/ldso"
+	"github.com/jarmidaw/linpersist/internal/modules/linger"
 	"github.com/jarmidaw/linpersist/internal/modules/motd"
 	"github.com/jarmidaw/linpersist/internal/modules/netdispatch"
 	"github.com/jarmidaw/linpersist/internal/modules/pam"
@@ -58,7 +59,9 @@ import (
 	"github.com/jarmidaw/linpersist/internal/modules/sshd"
 	"github.com/jarmidaw/linpersist/internal/modules/sudoers"
 	"github.com/jarmidaw/linpersist/internal/modules/systemd"
+	"github.com/jarmidaw/linpersist/internal/modules/sysusers"
 	"github.com/jarmidaw/linpersist/internal/modules/sysv"
+	"github.com/jarmidaw/linpersist/internal/modules/tmpfiles"
 	"github.com/jarmidaw/linpersist/internal/modules/udev"
 	"github.com/jarmidaw/linpersist/internal/modules/xdg"
 )
@@ -137,6 +140,9 @@ func registeredModules() []core.Module {
 		atjobs.New(atjobs.Options{}),
 		cron.New(cron.Options{}),
 		ldso.New(ldso.Options{}),
+		linger.New(linger.Options{}),
+		tmpfiles.New(tmpfiles.Options{}),
+		sysusers.New(sysusers.Options{}),
 		ssh.New(ssh.Options{}),
 		sudoers.New(sudoers.Options{}),
 		sshd.New(sshd.Options{}),

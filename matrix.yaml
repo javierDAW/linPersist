@@ -597,3 +597,66 @@ site_classes:
       locus prefix tells the backend whether the record is
       system-wide (/etc/xdg/autostart/) or per-user
       (/root/.config/autostart/, /home/*/.config/autostart/).
+
+  - site_class: systemd.linger
+    module: linger
+    mitre: [T1546]
+    loci:
+      - /var/lib/systemd/linger/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      Per-user file under /var/lib/systemd/linger/<username> enables
+      user-mode systemd units for that account to survive logout.
+      Per-file granularity; the file body is systemd-managed and
+      always empty, so content_norm_sha256 is computed over the
+      username (the only stable discriminator for stacking). Signal
+      systemd_linger_non_root fires for any username other than
+      "root" -- root is baseline, non-root is the documented
+      persistence vector (PANIX, Mandiant Linux IR reports). MITRE
+      T1546 (Event Triggered Execution, parent technique) -- ATT&CK
+      has no Linux-systemd-linger sub-technique as of May 2026.
+
+  - site_class: systemd.tmpfiles
+    module: tmpfiles
+    mitre: [T1543.002]
+    loci:
+      - /etc/tmpfiles.d/
+      - /usr/lib/tmpfiles.d/
+      - /run/tmpfiles.d/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      systemd-tmpfiles directives executed at boot (and on demand
+      via `systemd-tmpfiles --create`). Per-directive granularity;
+      each non-comment, non-blank line in a *.conf is one record.
+      Canonical form collapses whitespace outside double-quoted
+      segments; type letter and path are preserved verbatim so LFA
+      groups directives by semantic intent. ExecTarget is the path
+      tmpfiles.d operates on (fields[1]) so the standard core
+      enrichments (interpreter_in_tmp, exec_target_orphan,
+      non_package_path via the resolver) apply when a directive
+      creates a payload under /tmp. New signal
+      tmpfiles_creates_under_tmp fires for create-class type
+      letters (f F w d D L C c b p) targeting a tmp-class path --
+      the textbook "restore payload across reboots" implant.
+
+  - site_class: systemd.sysusers
+    module: sysusers
+    mitre: [T1136.001]
+    loci:
+      - /etc/sysusers.d/
+      - /usr/lib/sysusers.d/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      systemd-sysusers declarative user/group creation. Per-directive
+      granularity; each non-comment, non-blank line in a *.conf is
+      one record. Format per sysusers.d(5):
+      "type name id 'gecos' home shell". Canonical form collapses
+      whitespace outside double-quoted segments. Signal
+      sysusers_uid_zero fires when type==u AND id==0 AND name!=root:
+      the second-root-account implant routed through the declarative
+      path instead of direct /etc/passwd edit. Pair with passwd.user
+      records (cross-record correlation in the backend) to spot the
+      double-write attack pattern.

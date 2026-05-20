@@ -66,9 +66,18 @@ func (rs *RuleSet) RenderSQL(opts SQLOptions) string {
 // string is returned for a detection with no populated predicates,
 // but the loader rejects those so callers never see this in
 // practice.
+//
+// SignalsNone emits one `NOT list_contains(...)` clause per signal,
+// AND-joined with the positive predicates. The matcher checks
+// SignalsNone first as a short-circuit; the SQL backend doesn't
+// short-circuit deterministically but the result is equivalent
+// because the WHERE clause is a conjunction.
 func renderDetectionSQL(d *Detection, opts SQLOptions) string {
 	w := &d.When
 	var parts []string
+	for _, s := range w.SignalsNone {
+		parts = append(parts, fmt.Sprintf("NOT list_contains(signals, '%s')", s))
+	}
 	for _, s := range w.SignalsAll {
 		parts = append(parts, fmt.Sprintf("list_contains(signals, '%s')", s))
 	}

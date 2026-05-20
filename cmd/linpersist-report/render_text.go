@@ -76,6 +76,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 
 	// --- Overview cards ----------------------------------------------
 	textSection(out, a, "Overview")
+	sev := report.Overview.SeverityCounts
 	summary := []struct {
 		k string
 		v string
@@ -87,11 +88,16 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		{"Q1 singletons", strconv.Itoa(len(report.Q1Singletons))},
 		{"Q4 implant hits", maybeRed(a, strconv.Itoa(len(report.Q4ImplantFingerprint)), len(report.Q4ImplantFingerprint) > 0)},
 		{"Q7 roll-call", maybeRed(a, strconv.Itoa(len(report.Q7ImplantRollCall)), len(report.Q7ImplantRollCall) > 0)},
+		{"  critical", severityValue(a, sev["critical"], "critical")},
+		{"  high", severityValue(a, sev["high"], "high")},
+		{"  medium", severityValue(a, sev["medium"], "medium")},
+		{"  low", strconv.Itoa(sev["low"])},
+		{"  info", strconv.Itoa(sev["info"])},
 		{"Q8 mtime spikes", strconv.Itoa(len(report.Q8MtimeConcentration))},
 		{"Q11 orphan outside tmp", maybeRed(a, strconv.Itoa(len(report.Q11OrphanOutsideTmp)), len(report.Q11OrphanOutsideTmp) > 0)},
 	}
 	for _, s := range summary {
-		fmt.Fprintf(out, "  %-18s %s\n", s.k+":", s.v)
+		fmt.Fprintf(out, "  %-26s %s\n", s.k+":", s.v)
 	}
 	fmt.Fprintln(out)
 
@@ -274,11 +280,16 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		fmt.Fprintln(out, "  no rows")
 	} else {
 		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "  host\tmodule\tsite_class\tlocus\texec_target\tmatched_detections\ttriage_signals")
+		fmt.Fprintln(tw, "  severity\thost\tmodule\tsite_class\tlocus\texec_target\tmatched_detections\ttriage_signals")
 		for _, r := range report.Q7ImplantRollCall {
 			sigs := strings.Join(r.TriageSignals, ",")
 			det := strings.Join(r.MatchedDetections, ",")
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			sev := r.MaxSeverity
+			if sev == "" {
+				sev = "-"
+			}
+			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				colorSeverity(a, sev),
 				r.Host, r.Module, r.SiteClass,
 				r.Locus, r.ExecTarget, det, sigs)
 		}
@@ -419,4 +430,34 @@ func maybeRed(a *ansi, s string, condition bool) string {
 		return a.red(s)
 	}
 	return s
+}
+
+// severityValue formats an Overview severity count with the right
+// ANSI tint (red for critical-with-hits, orange for high-with-hits,
+// plain otherwise). Hits == 0 stays plain regardless of severity so
+// the overview reads quiet on a quiet fleet.
+func severityValue(a *ansi, count int, sev string) string {
+	s := strconv.Itoa(count)
+	if count == 0 {
+		return s
+	}
+	switch sev {
+	case "critical":
+		return a.red(s)
+	case "high":
+		return a.orange(s)
+	}
+	return s
+}
+
+// colorSeverity returns the severity label tinted to match
+// severityValue's count colouring. Used for the Q7 row severity cell.
+func colorSeverity(a *ansi, sev string) string {
+	switch sev {
+	case "critical":
+		return a.red(sev)
+	case "high":
+		return a.orange(sev)
+	}
+	return sev
 }

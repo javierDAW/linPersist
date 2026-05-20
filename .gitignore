@@ -69,3 +69,33 @@ report.txt
 /linpersist-report
 /detgen
 /matrix-audit
+
+# v0.2.x-tune / v0.3.0 cleanup patterns -- prevent leaking sandbox / merge
+# / build artefacts into the public history. Keep this section at the end.
+
+# Editor / merge-tool transient files
+*.tmp
+*.clean
+*.orig
+*.bak
+
+# Random go toolchain umask artefacts
+*-go-tmp-umask
+
+# Numeric-suffix backups some merge tools leave behind
+*.go.[0-9]*
+*.yaml.[0-9]*
+
+# Top-level lab snapshots (the lab itself is ignored via lab*/; this
+# guards against per-version rendered HTML/text leaking into the root).
+/fleet.html
+/dossier*.html
+/informe.html
+/lab-realistic-v*.html
+/lab-realistic-v*.txt
+
+# Stray binaries at the repo root (proper builds go under /dist/)
+/linpersist
+/linpersist-report
+/detgen
+/matrix-audit

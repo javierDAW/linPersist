@@ -61,7 +61,7 @@ file:
    matching the model `cmd/matrix-audit` already uses for
    `matrix.yaml`.
 
-### Schema (v1)
+### Schema (v1, with v0.2.x-tune additive extension)
 
 ```yaml
 schema_version: 1
@@ -74,13 +74,26 @@ detections:
     when:
       signals_all:          [a, b, ...]   # every signal must be present
       signals_any:          [a, b, ...]   # at least one must be present
+      signals_none:         [a, b, ...]   # no signal in the list may be present (FP suppression)
       module_in:            [a, b, ...]   # record.module ∈ list
       content_contains_any: ["a", "b"]    # snippet contains at least one
 ```
 
-Semantics: every populated predicate in `when:` is AND-joined within
-a detection; detections OR across each other in the rule set as a
-whole. An empty `when:` is rejected at load time.
+Semantics: positive predicates in `when:` are AND-joined within a
+detection; detections OR across each other in the rule set as a
+whole. `signals_none` short-circuits the entire `when:`: if any
+signal in that list is present on the record, the detection does
+not fire regardless of the rest. A detection populated only with
+`signals_none` is rejected at load time (it would behave as a
+blanket-positive rule disguised as a negative). A signal listed
+under both `signals_none` and one of the positive predicates is
+also rejected (the rule could never fire).
+
+`signals_none` was added in v0.2.x-tune as an additive extension to
+schema v1. The wire format is unchanged (`schema_version: 1`); rule
+files that don't use the field continue to parse exactly as before.
+The predicate is the main FP-suppression knob — see the
+v0.2.x-tune changelog entry for examples.
 
 ### Predicate set rationale
 

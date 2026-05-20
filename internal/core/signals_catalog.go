@@ -59,7 +59,7 @@ var Signals = []SignalDef{
 		EmittedBy: []string{
 			"atjobs", "cron", "grub", "kmod", "ldso", "motd", "netdispatch",
 			"pam", "passwd", "polkit", "profile", "ssh", "sshd", "sudoers",
-			"systemd", "sysv", "udev", "xdg",
+			"systemd", "sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
 		},
 	},
 	{
@@ -68,7 +68,7 @@ var Signals = []SignalDef{
 		EmittedBy: []string{
 			"atjobs", "cron", "grub", "kmod", "ldso", "motd", "netdispatch",
 			"pam", "passwd", "polkit", "profile", "ssh", "sshd", "sudoers",
-			"systemd", "sysv", "udev", "xdg",
+			"systemd", "sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
 		},
 	},
 	{
@@ -84,7 +84,7 @@ var Signals = []SignalDef{
 		EmittedBy: []string{
 			"atjobs", "cron", "grub", "kmod", "ldso", "motd", "netdispatch",
 			"pam", "passwd", "polkit", "profile", "ssh", "sshd", "sudoers",
-			"systemd", "sysv", "udev", "xdg",
+			"systemd", "sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
 		},
 	},
 
@@ -151,7 +151,7 @@ var Signals = []SignalDef{
 		EmittedBy: []string{
 			"cron", "grub", "kmod", "ldso", "motd", "netdispatch", "pam",
 			"passwd", "polkit", "profile", "ssh", "sshd", "sudoers", "systemd",
-			"sysv", "udev", "xdg",
+			"sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
 		},
 	},
 	{
@@ -184,7 +184,7 @@ var Signals = []SignalDef{
 		Name:        SignalEmptyFile,
 		Description: "envelope record emitted for an empty file whose existence matters at this site_class",
 		EmittedBy: []string{
-			"atjobs", "cron", "grub", "motd", "netdispatch", "polkit", "sysv", "xdg",
+			"atjobs", "cron", "grub", "motd", "netdispatch", "polkit", "sysv", "sysusers", "tmpfiles", "xdg",
 		},
 	},
 
@@ -320,6 +320,21 @@ var Signals = []SignalDef{
 		Name:        SignalUdevProgramDirective,
 		Description: "udev rule carries a PROGRAM= assignment",
 		EmittedBy:   []string{"udev"},
+	},
+	{
+		Name:        SignalTmpfilesCreatesUnderTmp,
+		Description: "systemd.tmpfiles directive creates or modifies a file under a tmp-class path at boot",
+		EmittedBy:   []string{"tmpfiles"},
+	},
+	{
+		Name:        SignalSysusersUIDZero,
+		Description: "systemd.sysusers directive declares a uid-0 user with a non-root name",
+		EmittedBy:   []string{"sysusers"},
+	},
+	{
+		Name:        SignalSystemdLingerNonRoot,
+		Description: "systemd.linger record for a non-root account (user-mode units survive logout)",
+		EmittedBy:   []string{"linger"},
 	},
 }
 

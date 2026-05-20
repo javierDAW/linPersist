@@ -23,6 +23,7 @@ import (
 	"github.com/jarmidaw/linpersist/internal/modules/grub"
 	"github.com/jarmidaw/linpersist/internal/modules/kmod"
 	"github.com/jarmidaw/linpersist/internal/modules/ldso"
+	"github.com/jarmidaw/linpersist/internal/modules/linger"
 	"github.com/jarmidaw/linpersist/internal/modules/motd"
 	"github.com/jarmidaw/linpersist/internal/modules/netdispatch"
 	"github.com/jarmidaw/linpersist/internal/modules/pam"
@@ -33,7 +34,9 @@ import (
 	"github.com/jarmidaw/linpersist/internal/modules/sshd"
 	"github.com/jarmidaw/linpersist/internal/modules/sudoers"
 	"github.com/jarmidaw/linpersist/internal/modules/systemd"
+	"github.com/jarmidaw/linpersist/internal/modules/sysusers"
 	"github.com/jarmidaw/linpersist/internal/modules/sysv"
+	"github.com/jarmidaw/linpersist/internal/modules/tmpfiles"
 	"github.com/jarmidaw/linpersist/internal/modules/udev"
 	"github.com/jarmidaw/linpersist/internal/modules/xdg"
 )
@@ -146,6 +149,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		atjobs.New(atjobs.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		cron.New(cron.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		ldso.New(ldso.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		linger.New(linger.Options{}),
+		tmpfiles.New(tmpfiles.Options{}),
+		sysusers.New(sysusers.Options{}),
 		ssh.New(ssh.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		sudoers.New(sudoers.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		sshd.New(sshd.Options{Provenance: prov, LiveProcessSet: liveProcs}),
