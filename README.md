@@ -1,278 +1,289 @@
 # linpersist
 
-> Read-only Linux persistence-artifact collector. Single static binary,
-> NDJSON output, designed to run on thousands of hosts and feed a
-> frequency-stacking backend.
+> Linux persistence-artifact collector built for fleet-scale hunting.
+> One static Go binary per host emits NDJSON; a second binary turns
+> the fleet's output into a triage report or a per-host dossier.
+> Detections live in declarative YAML, validated at build time. No
+> CGO, no daemons, no network calls.
 
-![End-to-end pipeline](docs/img/pipeline.svg)
+Find the malicious cron line, the `LD_PRELOAD` injection, the
+sneaky `/etc/sudoers.d/` backdoor across **thousands of hosts** by
+turning every Linux persistence site into a hash, stacking those
+hashes, and reading the long tail — the singletons. Everything an
+attacker plants for persistence lives there.
 
-`linpersist` walks every well-known Linux persistence site (cron,
-systemd, ssh, sudoers, pam, ld.so.preload, modprobe.d, udev rules, and
-ten more), normalizes each artifact to a canonical form, and emits one
-NDJSON record per artifact. **The agent does not classify anything as
-malicious** — it collects, the backend decides. Every record carries a
-`content_norm_sha256` digest so that semantically-identical artifacts
-across hosts collapse to the same hash and malicious singletons surface
-in the long tail of the histogram (Least Frequency Analysis).
-
----
-
-## 60-second quickstart
-
-Three commands. Zero to a triage page.
-
-```sh
-# 1. Build both binaries (static, no CGO).
-make build-all
-
-# 2. Run the agent on each host -- NDJSON to stdout.
-mkdir -p fleet/
-ssh host-1 './linpersist' > fleet/host-1.ndjson
-ssh host-2 './linpersist' > fleet/host-2.ndjson
-# ... or cron-driven; one file per host
-
-# 3. Aggregate and report.
-./dist/linpersist-report-linux-amd64 -i fleet/ -o report.html
-
-# 3b. Drill into a suspect host (Q4 / Q7 flagged it? get its dossier).
-./dist/linpersist-report-linux-amd64 -i fleet/ --host host-1 -o host-1.html
+```
+                  one per fleet host                                                analyst's box
+   +----------------------------------------+                          +----------------------------------------+
+   |                                        |                          |                                        |
+   |          linpersist (agent)            |        NDJSON, 1         |       linpersist-report (renderer)     |
+   |   walks /etc, /var/lib/systemd, ...    | ---  record per      --> |      fleet HTML / text  -or-           |
+   |   normalizes content -> stable hash    |   persistence site       |      --host <id> dossier               |
+   |   emits cheap "signals"                |                          |                                        |
+   |     ~10 MB, static, no deps            |                          |   ~5 MB, static, no deps               |
+   +----------------------------------------+                          +----------------------------------------+
+                                                                                       |
+                                                                                       |  for fleets > 10k hosts:
+                                                                                       v
+                                                                       +---------------------------------+
+                                                                       |   tools/stack_demo.sql          |
+                                                                       |   piped into a `duckdb` shell   |
+                                                                       +---------------------------------+
 ```
 
-Open `report.html` for the fleet view; open `host-1.html` for the
-single-host dossier. Done.
+## Why bother — what only this tool does well
 
----
+The persistence hunt looks like this in practice: you have 800 cron
+files spread across 200 hosts. 798 of them are `logrotate`, `man-db`,
+`apt-news`, `mlocate.cron` and friends. Two are an attacker's drop.
 
-## The binaries
+A SIEM with content rules won't catch them — the attacker named
+their file `update-poll` and the content is plausible. An EDR with
+behavioural rules might catch the *execution* tomorrow, but by then
+the implant has been on disk for weeks.
 
-| Binary                | Role                              | Where it runs                              | Default output                   |
-| --------------------- | --------------------------------- | ------------------------------------------ | -------------------------------- |
-| `linpersist`          | Agent                             | One per host across your fleet             | NDJSON to stdout (or `--output`) |
-| `linpersist-report`   | Fleet renderer + per-host dossier | One central host with the fleet's NDJSON   | Self-contained HTML (or text)    |
-| `detgen`              | Build-time SQL regenerator        | Maintainer's machine (release gate)        | Rewrites Q7 block of `stack_demo.sql` |
+What you want is the structural anomaly: the cron records whose
+*canonical content hash* appears on exactly one host across the
+fleet. That's the implant, by construction.
 
-`linpersist` and `linpersist-report` ship to operators; `detgen` is a
-maintainer tool that keeps `tools/stack_demo.sql` in sync with
-`internal/detections/detections.yaml` (see [ADR-0013](docs/adr/0013-detections-yaml.md)).
-All three are built from the same source tree by `make build-all` and
-are static single binaries (10–12 MB) with **zero runtime
-dependencies** — no Python, no DuckDB, no daemon, no shared libraries
-(`ldd` reports *not a dynamic executable*).
+linpersist does one job and one job only: makes that question
+cheap to ask, against any size of Linux fleet, with persistence
+coverage broad enough to catch the modern repertoire.
 
-Common agent invocations:
+- **Coverage**: 21 module families across 32 persistence
+  site_classes — cron, systemd units/timers/sysusers/tmpfiles/
+  linger, ssh authorized_keys, sshd_config, sudoers, PAM,
+  `/etc/passwd`, `/etc/shadow`, `ld.so.preload`, modprobe.d,
+  udev RUN+=, polkit JS rules, XDG autostart, GRUB cmdline,
+  network dispatchers, sysv init, MOTD update-motd.d, and more.
+  Maps onto MITRE ATT&CK Linux Persistence (T1037, T1053, T1098,
+  T1136, T1543, T1546, T1547, T1548, T1556, T1574, T1542) at ~80%
+  coverage.
+- **Stackable output**: NDJSON with `content_norm_sha256` per
+  record. Two semantically-equivalent inputs across hosts produce
+  the same hash. The whole hunt model collapses to "show me the
+  hashes nobody else has".
+- **Detections as data**: 23 detection rules in a single YAML file
+  that both the report binary and the SQL companion consume. A
+  release gate fails the build if the two drift.
+- **Per-host dossier on demand**: when a fleet query flags a
+  candidate, one command produces a ~20 KB HTML page with the
+  host's signal-rarity panel, per-Q breakdown, and a module-
+  coverage gap detector.
+
+What linpersist explicitly does NOT do: classify anything as
+malicious on the host, score, run YARA, load eBPF programs, make
+network calls, or write to any path other than the file you give
+it with `--output`. The agent collects; the backend decides.
+
+## 60-second tour
 
 ```sh
-linpersist                            # NDJSON to stdout
-linpersist --output /tmp/host.ndjson  # write to file (the only path written)
-linpersist --include-hostname         # opt-in plaintext hostname
-linpersist --module-timeout 60s       # per-module deadline (default 30s)
+# 1. Clone and build.
+git clone https://github.com/jarmidaw/linpersist.git
+cd linpersist
+make build-all      # cross-compiles for linux/{amd64,arm64,386,armv7}
+
+# 2. Run the agent on one host (your own laptop will do).
+./dist/linpersist-linux-amd64 > my-host.ndjson
+wc -l my-host.ndjson    # one line per persistence record found
+
+# 3. Render the report.
+./dist/linpersist-report -i my-host.ndjson -o report.html
+xdg-open report.html
+```
+
+That's the whole loop. For a real fleet, scp the per-host NDJSON
+back to a central box, point `-i` at the directory, and let
+`linpersist-report` aggregate.
+
+## How the model works in two paragraphs
+
+**Collection.** The agent walks every well-known Linux persistence
+site (per the `matrix.yaml` table) and emits one NDJSON record per
+artifact. The two load-bearing fields are `content_norm_sha256` — a
+hash over a canonical form of the content (whitespace collapsed,
+comments stripped, option lists sorted, etc.) so that semantically-
+identical artifacts across hosts collapse to one hash — and
+`signals[]` — a small list of cheap flags the agent observed (file
+mtime in the last 7 days, `exec_target` doesn't exist on disk,
+binary is not owned by any installed dpkg/rpm package, etc.). No
+verdicts. No scoring.
+
+**Analysis.** The report binary loads the NDJSON and runs eleven
+canonical queries. The load-bearing one is Q1: every
+`(module, site_class, content_norm_sha256)` group seen on exactly
+one host in the fleet. Implants live in that long tail by
+construction. The next nine queries (Q2..Q10) refine the picture
+— peer-group LFA by `os_id`, cross-cutting implant fingerprints,
+worm patterns, recent-mtime spikes, host-coverage gaps. Q7 is
+special: it matches every record against the rules declared in
+`internal/detections/detections.yaml` and outputs the rule id that
+fired plus a severity tier. Q11 catches the implant subclass
+"unmanaged binary outside `/tmp`" via package-manager provenance.
+
+```
+   Record (NDJSON line)
+        |
+        | signals[]: recent_mtime_7d, exec_target_orphan,
+        |            interpreter_in_tmp, non_package_path, ...
+        v
+   +-------------------------+        +-----------------+
+   | Matcher (build-embedded |<-------| detections.yaml |
+   |   detections.yaml)      |        |  (23 rules)     |
+   +------------+------------+        +-----------------+
+                |
+                v
+   Q7 row in the report:
+   severity  host  module  site_class  locus  exec_target
+   matched_detections=[<rule-id>]
+   triage_signals=[...]
+```
+
+## How you use it
+
+### Agent (on each host you want covered)
+
+```sh
+linpersist                              # NDJSON to stdout
+linpersist --output /tmp/host.ndjson    # NDJSON to file (the only write the agent does)
+linpersist --include-hostname           # opt-in: emit plaintext hostname
+linpersist --module-timeout 60s         # per-module deadline, default 30s
+linpersist --tag role=build             # operator-provided tag, attached to host_meta.tags
 linpersist --version
 ```
 
-The agent makes **zero network calls** and **zero state changes** to
-the host. Budget ~500 KB–2 MB of NDJSON per host depending on how many
-unit files / modprobe directives / etc. exist on it.
+The agent makes zero network calls. It does zero writes to the
+host disk except the file given by `--output` (and if not given,
+just stdout). Expect 500 KB to 2 MB of NDJSON per host depending
+on how many persistence artifacts that host carries.
 
----
+### Report (on the analyst's box, with the fleet's NDJSON)
 
-## Analyzing your NDJSON
+Two modes, same binary.
 
-Two paths. Pick by fleet size.
-
-### Path A · `linpersist-report` (recommended for fleets ≲ 10k hosts)
-
-The fastest way to triage. One binary, two modes — fleet-wide report
-or per-host dossier — both producing one self-contained HTML page or
-column-aligned text for SSH-only jump hosts.
+**Fleet mode** — the default. One HTML page with all eleven
+queries plus an overview. Scales to tens of thousands of hosts
+because the queries aggregate, not enumerate.
 
 ```sh
-# Fleet HTML (default) -- shareable, sortable, filterable, dark/light theme.
-./dist/linpersist-report-linux-amd64 -i fleet/ -o report.html
+# HTML (self-contained, openable in any browser, ~200 KB)
+linpersist-report -i fleet/ -o report.html
 
-# Fleet text with ANSI colour, paged through less.
-./dist/linpersist-report-linux-amd64 -i fleet/ -format text | less -R
+# Text mode for jump hosts (SSH-only, no browser available)
+linpersist-report -i fleet/ -format text -color=off > triage.txt
+linpersist-report -i fleet/ -format text | less -R     # paged, with ANSI colour
+```
 
-# Fleet text, plain ASCII for ticket attachments.
-./dist/linpersist-report-linux-amd64 -i fleet/ -format text -color=off > triage.txt
+**Dossier mode** — the deep drill on one host. Triggered with
+`--host <id>` (matched against `host_meta.hostname` or `host_id`).
+Used after a fleet query flags a candidate.
 
-# Per-host dossier -- drills into one host that Q4/Q7 flagged.
-./dist/linpersist-report-linux-amd64 -i fleet/ --host r-db-amzn-03 -o r-db-amzn-03.html
+```sh
+linpersist-report -i fleet/ --host r-db-amzn-03 -o r-db-amzn-03.html
 
-# Per-host text dossier on a jump box.
-./dist/linpersist-report-linux-amd64 -i fleet/ --host r-db-amzn-03 -format text | less -R
-
-# Batch dossiers for every suspect host from a shell loop.
+# Batch dossiers for a list of candidates:
 for h in $(cat suspects.txt); do
-  ./dist/linpersist-report-linux-amd64 -i fleet/ --host "$h" -o "out/$h.html"
+  linpersist-report -i fleet/ --host "$h" -o "out/$h.html"
 done
 ```
 
-**Fleet mode** runs all 11 expert queries (Q1–Q11) and adds an
-overview: per-module / per-site_class / per-`os_id` counts, LFA
-stacking histogram (singletons highlighted), signal distribution bar
-chart. The HTML is ~200 KB regardless of fleet size — Q1, Q4, Q7, Q11
-are LFA-filtered to anomalous rows, so 25 hosts and 25 000 hosts
-produce reports in the same size envelope.
+The dossier produces a ~20 KB self-contained HTML per host with:
+host metadata, summary counts, a **signal panel sorted by fleet
+rarity ascending** (the rarest signal across the fleet that this
+host fires shows first), per-Q sub-tables filtered to the host,
+and a **module-coverage gap detector** flagging modules the host
+emitted zero records for when the fleet median is non-zero
+(silent agent failure, container image gap).
 
-**Dossier mode** (`--host <id>`) produces a single-host artefact
-~20 KB scaled to records-of-that-host. Sections in order: host
-header (hostname, host_id, os, kernel, agent_version), summary
-counts, a **signal panel sorted by fleet rarity ascending** (the
-host's rarest fleet-wide signal at the top), then the per-host
-slices of Q4 / Q7 / Q1 / Q2 / Q9 / Q11 / Q8, and a **module-coverage
-gap detector** that flags modules the host emitted zero records for
-when the fleet median is non-zero (silent agent failure / container
-image gap). Q3 / Q5 / Q6 / Q10 are intentionally omitted — they are
-fleet aggregates with no per-host insight. See
-[ADR-0012](docs/adr/0012-host-dossier.md) for the layout rationale and
-[`docs/report.md`](docs/report.md) for the anatomy of every section.
-
-### Path B · DuckDB cookbook (power users · large fleets)
-
-```sh
-# Default: run the 10 cookbook queries from tools/stack_demo.sql.
-./tools/ingest.sh fleet/
-
-# Bring your own queries.
-./tools/ingest.sh -q my-hunting-queries.sql fleet/
-
-# Load-only (no SQL pass), produce a Parquet export for repeat analysis.
-./tools/ingest.sh -q '' -o fleet.parquet fleet/
-
-# Persist a DuckDB file an analyst can attach interactively.
-./tools/ingest.sh -d fleet.duckdb fleet/
-duckdb fleet.duckdb -c "SELECT module, count(*) FROM r GROUP BY 1;"
+```
+   Fleet mode (linpersist-report -i fleet/)         Dossier mode (--host <id>)
+   ------------------------------------------       --------------------------------------------
+   ~200 KB HTML, fixed size on any fleet            ~20 KB HTML per host
+   Q1   LFA singletons                              Host header (os / kernel / agent_version)
+   Q2   per-locus singletons                        Signal panel (rarest fleet-wide first)
+   Q3   peer-group LFA by os_id                     Implants for THIS host (Q4 filtered)
+   Q4   implant fingerprint                         Roll-call for THIS host (Q7 filtered)
+   Q5   signal distribution                         Fleet-unique records this host carries (Q1)
+   Q6   worm pattern                                Per-locus singletons (Q2)
+   Q7   implant roll-call (matched_detections)      Exec_target in tmp (Q9)
+   Q8   recent-mtime concentration                  Orphan exec_target outside tmp (Q11)
+   Q9   exec_target in tmp                          Recent-mtime spikes per module (Q8)
+   Q10  per-host coverage health                    Module coverage + gap detector
+   Q11  orphan exec_target outside tmp              ---
 ```
 
-Columnar processing scales past the ~10k-host envelope where the Go
-report starts taking minutes. Same 10 queries, same conclusions; DuckDB
-just chews larger fleets faster.
+### Power-user path: DuckDB
 
----
-
-## Where the queries live
-
-![Query architecture](docs/img/queries.svg)
-
-The 11 canonical threat-hunting queries are maintained in **two
-implementations kept in sync by tooling, not by hand**:
-
-| Form | Source file                                                              | Runner                                                |
-| ---- | ------------------------------------------------------------------------ | ----------------------------------------------------- |
-| SQL  | [`tools/stack_demo.sql`](tools/stack_demo.sql)                           | DuckDB · [`tools/ingest.sh`](tools/ingest.sh)         |
-| Go   | [`cmd/linpersist-report/stats.go`](cmd/linpersist-report/stats.go)       | `linpersist-report` binary                            |
-
-You pick which to run based on context; the conclusions are identical.
-The Go form requires nothing but the binary; the SQL form requires a
-local `duckdb` CLI (single static binary too) and scales further.
-
-Q7 ("Implant roll-call") is special: its clauses are externalised as
-**declarative YAML** in
-[`internal/detections/detections.yaml`](internal/detections/detections.yaml).
-`cmd/linpersist-report` embeds the YAML at build time; `cmd/detgen`
-regenerates the SQL block from the same file. `make detgen-verify` is
-a release gate that fails the build if the committed SQL has drifted
-from the YAML — adding a new detection clause is a one-place edit,
-not a two-place sync. See [ADR-0013](docs/adr/0013-detections-yaml.md).
-
-### What the 11 queries analyze
-
-| ID  | Name                              | What it surfaces                                                                                                                                              |
-| --- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Q1  | LFA singletons                    | Records whose `content_norm_sha256` appears on exactly one host. The load-bearing query — implants by definition live in the long tail.                       |
-| Q2  | Per-locus singletons              | Like Q1 but groups by `(module, site_class, locus, content_norm_sha256)`. Catches legitimate content copied into an unusual path.                             |
-| Q3  | Peer-group by `os_id`             | Singletons inside their own OS bucket. Necessary for mixed fleets where Debian-only baselines would otherwise look like singletons in an Ubuntu majority.     |
-| Q4  | Implant fingerprint               | Records carrying **both** `exec_target_orphan` and `interpreter_in_tmp`. Highest-precision tag team.                                                          |
-| Q5  | Signal distribution by module     | Per `(module, signal)`: hosts that fire it and records carrying it. Sort ASC to surface rare signals first — those earn the analyst's triage time.            |
-| Q6  | Worm pattern (`exec_target`)      | Same `exec_target_sha256` across different hosts with different persistence text. Identical payload, polymorphic persistence — the lateral-movement signal.   |
-| Q7  | Implant roll-call                 | Cross-cutting union of disjoint clauses loaded from [`detections.yaml`](internal/detections/detections.yaml). Each row carries the **detection id that fired** (`matched_detections` column) so triage maps directly to a named rule. |
-| Q8  | Recent-mtime concentration        | Per `(host, module)` with ≥ 5 records carrying `recent_mtime_7d`. Spikes mean config-management push or post-compromise sweep.                                 |
-| Q9  | Exec in tmp-class directories     | `exec_target` under `/tmp/`, `/var/tmp/`, `/dev/shm/`, `/run/shm/` regardless of orphan state. Q9 minus Q4 = "armed implants currently on disk".              |
-| Q10 | Per-host coverage health          | Per host: records, distinct modules, distinct site_classes, recent records. Run this **first** on any new dataset to catch silent agent failures.             |
-| Q11 | Orphan exec_target outside `/tmp` | Payloads dropped under `/opt/`, `/var/lib/`, `/srv/`, `/usr/local/` and similar long-lived but unmanaged paths. The implant family Q4 and Q9 miss entirely — caught by `non_package_path` from the v0.2.0 dpkg/rpm provenance resolver. |
-
-Full prose walkthrough with false-positive guidance and recommended
-triage order: [`docs/stacking-cookbook.md`](docs/stacking-cookbook.md).
-
-### Bringing your own queries
-
-The NDJSON schema is stable (v1, see
-[`docs/schema-v1.md`](docs/schema-v1.md)), so you can write any SQL
-against it. The recommended pattern:
+For fleets past ~10k hosts the Go report binary stays usable but
+columnar processing scales better. The eleven queries are mirrored
+into executable DuckDB SQL in `tools/stack_demo.sql`. The Q7 block
+is auto-generated from `internal/detections/detections.yaml`;
+everything else is hand-written.
 
 ```sh
-cat > my-pack.sql <<'SQL'
--- Q-custom-1: every passwd record with a non-root uid 0.
-SELECT host_id, locus, content_snippet
-FROM r
-WHERE site_class = 'passwd.user'
-  AND list_contains(signals, 'passwd_uid_zero');
-
---- query separator ---
-
--- Q-custom-2: NOPASSWD sudoers that aren't from %wheel / %sudo.
-SELECT host_id, locus, content_snippet
-FROM r
-WHERE module = 'sudoers'
-  AND list_contains(signals, 'sudoers_nopasswd')
-  AND content_snippet NOT LIKE '%wheel%'
-  AND content_snippet NOT LIKE '%sudo%';
-SQL
-
-./tools/ingest.sh -q my-pack.sql fleet/
+./tools/ingest.sh fleet/                           # runs the 11 queries
+./tools/ingest.sh -q my-hunt-pack.sql fleet/       # bring your own queries
+./tools/ingest.sh -d fleet.duckdb fleet/           # persist the database
+duckdb fleet.duckdb -c "SELECT module, count(*) FROM r GROUP BY 1"
 ```
 
-The runner loads the NDJSON once, then executes each `--- query separator ---`-delimited
-block and prints the rows. Use this for ad-hoc hunting between cookbook
-runs.
+Walk-through with prose and false-positive notes per query lives
+at [`docs/stacking-cookbook.md`](docs/stacking-cookbook.md).
 
-Extending the Go-native runner means adding a `computeQ*` function to
-[`stats.go`](cmd/linpersist-report/stats.go) and a section to
-[`report.tmpl`](cmd/linpersist-report/report.tmpl) — a heavier lift but
-needed only if you want the new query to ship inside the binary.
+## What you'll see in the report
 
----
+The Overview gives you the headline counts. Real numbers from a
+75-host lab fleet:
 
-## Coverage (v0.2.0)
+```
+Overview
+--------
+  hosts:                     75
+  records:                   35,349
+  modules:                   21
+  site_classes:              32
+  Q1 singletons:             26
+  Q4 implant hits:           6
+  Q7 roll-call:              22
+    critical:                13
+    high:                    9
+  Q8 mtime spikes:           40
+  Q11 orphan outside tmp:    6
+```
 
-**18 modules · 29 site_classes · MITRE-mapped end-to-end.** Every
-module emits the same record shape; what varies is the canonical-form
-rule for that site_class family.
+The query everyone clicks first is Q7. It cross-cuts every module:
+one row per record that matches a detection rule. Each row tells
+you what host, what site, the exec_target if the record has one,
+the rule that fired, and the signals behind it.
 
-| Module         | Covers                                                                                  | MITRE                       |
-| -------------- | --------------------------------------------------------------------------------------- | --------------------------- |
-| `cron`         | `cron.d`, `cron.user`, `cron.periodic`, `cron.anacron`                                  | T1053.003                   |
-| `atjobs`       | `at.jobs` (atd spool with atd-prepended header stripped from canonical form)            | T1053.001                   |
-| `systemd`      | `systemd.unit`, `systemd.timer` (incl. drop-ins, Match-block scoping, user units)       | T1543.002, T1053.006        |
-| `sysv`         | `sysv.init` (incl. RHEL `/etc/rc.d/`, `rc.local`, external `rc?.d` symlinks)            | T1037.004                   |
-| `ssh`          | `ssh.authkeys` (system + per-user; public-key blob never emitted raw)                   | T1098.004                   |
-| `sshd`         | `sshd.config` (incl. drop-ins, Match blocks)                                            | T1098.004, T1556            |
-| `sudoers`      | `sudoers` (incl. `sudoers.d/*`, NOPASSWD + ALL flags)                                   | T1548.003                   |
-| `passwd`       | `passwd.user`, `passwd.shadow`, `passwd.group`, `passwd.gshadow` (hashes never emitted) | T1136.001                   |
-| `pam`          | `pam` (`/etc/pam.d/*` + legacy `/etc/pam.conf`)                                         | T1556.003                   |
-| `polkit`       | `polkit.rules` (JS rules; `addAdminRule(` / `polkit.Result.YES` token signals)          | T1548                       |
-| `profile`      | `profile.system`, `profile.user` (Bash + Zsh init)                                      | T1546.004                   |
-| `ldso`         | `ldso.preload`, `ldso.conf`, `ldso.confd`                                               | T1574.006                   |
-| `kmod`         | `kmod` (modules-load.d + modprobe.d directives; `install` directive flagged)            | T1547.006                   |
-| `udev`         | `udev` (per-rule, with `RUN+=` exec_target extraction)                                  | T1546                       |
-| `motd`         | `motd` (`/etc/motd*`, `/etc/update-motd.d/*`)                                           | T1037                       |
-| `netdispatch`  | `network.dispatchers` (NetworkManager, dhclient, dhcpcd, ifupdown hooks)                | T1546                       |
-| `grub`         | `kernel.grub.config`, `kernel.grub.dropin` (`init=` cmdline override flagged)           | T1542.003                   |
-| `xdg`          | `xdg.autostart` (FreeDesktop `.desktop` files; system + per-user)                       | T1547.013                   |
+```
+severity  host          module   site_class    locus                                    exec_target     matched_detections                 triage_signals
+critical  r-db-amzn-03  systemd  systemd.unit  /etc/systemd/system/rsync-cache.service  /tmp/.s/cacher  payload_under_tmp_via_persistence  exec_target_orphan,interpreter_in_tmp
+critical  r-db-amzn-01  passwd   passwd.user   /etc/passwd                              /bin/bash       second_uid_zero_account            passwd_uid_zero
+high      r-k8s-node-01 kmod     kmod          /etc/modprobe.d/zz_helper.conf           /bin/sh         kmod_install_directive_implant     kmod_install_directive,shell_indirect
+```
 
-See [`matrix.yaml`](matrix.yaml) for the authoritative per-site_class
-status, loci, and notes. `make audit` (the
-[ADR-0001](docs/adr/0001-module-interface.md) release gate) fails if
-the matrix and the registered modules drift apart.
+What the analyst reads, in order: severity first (red for
+critical, orange for high), `matched_detections` second (this
+tells them which rule fired by name), then the locus + exec_target
+to know what to investigate.
 
-Every signal the agent is allowed to emit is declared in a
-[canonical catalog](internal/core/signals_catalog.go) cross-checked
-by buildtime tests against the actual emission sites — see
-[ADR-0011](docs/adr/0011-signals-catalog.md).
+When that row points at a host worth a closer look, the dossier:
 
----
+```sh
+linpersist-report -i fleet/ --host r-db-amzn-03 -o /tmp/dossier.html
+```
+
+opens with the host's signal panel sorted by rarity. If
+`polkit_yes_constant` fires on this host and 14/75 of the fleet,
+it's mid-table. If `ld_preload_set` fires on this host and only
+1/75 of the fleet, it bubbles to the top regardless of severity.
+That's where the implant lives.
 
 ## A sample record
+
+The wire format the agent emits, NDJSON, one record per line:
 
 ```json
 {
@@ -284,8 +295,8 @@ by buildtime tests against the actual emission sites — see
     "kernel": "5.15.0-91-generic", "arch": "x86_64",
     "boot_id": "f0a8...", "tags": []
   },
-  "collected_at": "2026-05-17T10:00:00Z",
-  "agent_version": "linpersist-0.1.0-alpha",
+  "collected_at": "2026-05-20T10:00:00Z",
+  "agent_version": "linpersist-0.3.0",
   "module": "cron",
   "site_class": "cron.d",
   "mitre": ["T1053.003"],
@@ -297,187 +308,193 @@ by buildtime tests against the actual emission sites — see
   "content_norm_sha256": "cd34...",
   "content_snippet": "*/5 * * * * root /tmp/.h/agent",
   "exec_target": "/tmp/.h/agent",
-  "signals": ["exec_target_orphan", "interpreter_in_tmp"]
+  "exec_target_pkg": null,
+  "exec_target_pkg_status": "orphan",
+  "signals": ["exec_target_orphan", "interpreter_in_tmp", "non_package_path"]
 }
 ```
 
-One record per persistence artifact, NDJSON-streamed, ready for any
-columnar backend (DuckDB, ClickHouse, Athena, BigQuery). The two
-load-bearing fields for stacking are `content_norm_sha256` (semantic
-content hash; the LFA grouping key) and `signals[]` (cheap heuristics
-the agent observed without making a verdict).
+Full field reference at
+[`docs/schema-v1.md`](docs/schema-v1.md).
 
----
+## Coverage
 
-## Design tenets
+| Family | Module | Sites | MITRE |
+|---|---|---|---|
+| Schedulers | `cron` | `/etc/crontab`, `/etc/cron.d/`, `/var/spool/cron/`, `/etc/cron.{hourly,daily,weekly,monthly}/`, `/etc/anacrontab` | T1053.003 |
+| Schedulers | `atjobs` | `/var/spool/at/`, `/var/spool/cron/atjobs/` | T1053.001 |
+| Service init | `systemd` | `.service` + `.timer` files under system + user loci, drop-ins, Match-block scoping | T1543.002, T1053.006 |
+| Service init | `sysv` | `/etc/init.d/`, `/etc/rc.d/`, `rc[0-6].d/` symlinks, `rc.local` | T1037.004 |
+| Service init | `systemd.tmpfiles` | `/etc/tmpfiles.d/`, `/usr/lib/tmpfiles.d/`, `/run/tmpfiles.d/` | T1543.002 |
+| Service init | `systemd.sysusers` | `/etc/sysusers.d/`, `/usr/lib/sysusers.d/` | T1136.001 |
+| Service init | `systemd.linger` | `/var/lib/systemd/linger/<user>` | T1546 |
+| Identity | `passwd` | `/etc/passwd`, `/etc/shadow`, `/etc/group`, `/etc/gshadow` (hashes never emitted) | T1136.001 |
+| SSH | `ssh` | `/root/.ssh/authorized_keys`, `/home/*/.ssh/authorized_keys`, system-wide variants | T1098.004 |
+| SSH | `sshd` | `/etc/ssh/sshd_config`, drop-ins, Match blocks | T1098.004, T1556 |
+| AuthN/Z | `pam` | `/etc/pam.d/*`, `/etc/pam.conf` | T1556.003 |
+| AuthN/Z | `sudoers` | `/etc/sudoers`, `/etc/sudoers.d/` | T1548.003 |
+| AuthN/Z | `polkit` | `/etc/polkit-1/rules.d/`, `/usr/share/polkit-1/rules.d/` | T1548 |
+| Shell init | `profile` | `/etc/profile`, `/etc/bash.bashrc`, zsh equivalents, `/home/*/.bashrc` etc. | T1546.004 |
+| Loader hijack | `ldso` | `/etc/ld.so.preload`, `/etc/ld.so.conf`, `/etc/ld.so.conf.d/` | T1574.006 |
+| Kernel modules | `kmod` | `/etc/modules`, `modules-load.d/`, `modprobe.d/` directives across 4 prefixes | T1547.006 |
+| Event triggered | `udev` | `/etc/udev/rules.d/`, `/lib/udev/rules.d/` (RUN+=, PROGRAM=) | T1546 |
+| Event triggered | `netdispatch` | NetworkManager dispatcher, dhclient hooks, dhcpcd hooks, ifupdown if-*.d/ | T1546 |
+| Login banner | `motd` | `/etc/motd`, `/etc/motd.d/`, `/etc/update-motd.d/` | T1037 |
+| Boot | `grub` | `/etc/default/grub`, `/etc/grub.d/` | T1542.003 |
+| Login | `xdg` | `/etc/xdg/autostart/`, `/root/.config/autostart/`, `/home/*/.config/autostart/` | T1547.013 |
 
-- **Single static binary per architecture.** `CGO_ENABLED=0`, build tags
-  `osusergo netgo`. Verified by `ldd` and `file` in CI.
-- **Read-only on the host.** The agent's only writable path is the file
-  given by `--output`; absent that flag, output goes to stdout.
-- **Modular by site_class.** One module per family. Adding coverage =
-  adding a module, never touching `internal/core`.
-- **Deterministic normalization.** Each module's `content_norm_sha256`
-  is computed over a canonical form so that semantically-equivalent
-  inputs collapse to the same hash for stacking.
-- **MITRE ATT&CK explicit.** Every record carries the precise
-  sub-technique IDs (e.g. `T1053.003`, not just `T1053`).
-- **Schema versioned.** `schema_v: 1` is frozen for the v0.1.x line.
-- **The agent collects; the backend decides.** No allowlists, no
-  signatures, no scoring inside the binary.
+For the authoritative per-site_class status, loci list, and notes,
+see [`matrix.yaml`](matrix.yaml). The build fails if that file
+drifts from the modules the code registers (`make audit`).
 
----
+## Why not osquery / Velociraptor / UAC
+
+| | linpersist | osquery | Velociraptor | UAC |
+|---|---|---|---|---|
+| Shape | persistence-only collector + report binary | general telemetry agent | DFIR agent + server | live-response collector |
+| Output | NDJSON, one record per persistence artifact, schema-versioned | SQL tables per query | VQL artifacts | tar.gz of raw files |
+| Optimized for | fleet-scale LFA across thousands of hosts + on-demand per-host drill-down | host-level real-time queries | active incident response | single-host triage |
+| Footprint | one static 10 MB binary, no daemon | 50+ MB, daemon | server + client agents | thousands of shell helpers |
+| Decisions on host | none (zero classification) | thresholds + scheduled packs | rule-based | none |
+| Detection rules | declarative YAML, generator-synced with SQL companion | SQL packs | VQL | n/a |
+| Persistence coverage | 32 site_classes, ~80% of MITRE Linux Persistence | broad but shallow on persistence | broad on persistence via VQL artifact library | persistence is one collection among many |
+
+linpersist is intentionally a small, sharp tool. It does the
+persistence stage of the hunt and stops there. Pair it with what
+you already have: ship NDJSON into your SIEM / data lake, run the
+queries from a workstation, surface candidates to your existing
+EDR. No replacement, just a really good input.
+
+## Architecture
+
+```
+   linpersist-report      linpersist                detgen
+   (fleet + dossier)      (collects on each host)   (regenerates SQL from YAML)
+        |                       |                        |
+        +-----------+-----------+                        |
+                    |                                    |
+                    v                                    v
+              internal/core/                  tools/stack_demo.sql
+              - Record schema (v1)            (Q7 block: BEGIN GENERATED .. END GENERATED)
+              - Signals catalog (43 entries)
+              - Module interface
+                    |
+                    v
+              internal/modules/  (21 module families)
+              - cron, systemd, ssh, sshd, sudoers, pam,
+                passwd, ldso, kmod, udev, profile, motd,
+                grub, polkit, xdg, atjobs, netdispatch,
+                sysv, linger, tmpfiles, sysusers
+
+              internal/detections/  (the matcher engine)
+              - detections.yaml (23 rules, schema v1)
+              - loader / matcher / sql.go
+```
+
+Two release gates are wired into `make all`:
+
+- **`make audit`** — `matrix.yaml` ↔ registered modules drift check
+  (ADR-0001). Fails if a module emits a `site_class` not declared
+  in the matrix, or vice versa.
+- **`make detgen-verify`** — `detections.yaml` ↔ the Q7 block in
+  `tools/stack_demo.sql` (ADR-0013). Fails if the SQL is stale
+  relative to the YAML.
+
+Together they make the build fail loudly on the two classes of
+silent drift that bite multi-source projects.
+
+## Documentation map
+
+| Doc | What it covers |
+|---|---|
+| [`docs/SPRINT-HANDOFF.md`](docs/SPRINT-HANDOFF.md) | Read first if you're picking up the project across sessions. Architectural canon, gotchas, the next sprint plan, iterate-fast cookbook. |
+| [`docs/schema-v1.md`](docs/schema-v1.md) | NDJSON record shape: every field, every guarantee. |
+| [`docs/normalization-rules.md`](docs/normalization-rules.md) | Invariants every module's `Normalize` honors. |
+| [`docs/stacking-cookbook.md`](docs/stacking-cookbook.md) | The eleven queries as prose, with false-positive notes per query. |
+| [`docs/report.md`](docs/report.md) | Anatomy of the HTML and text report, fleet + dossier. |
+| [`docs/adr/`](docs/adr) | Fourteen Architecture Decision Records. Start at ADR-0001 if you want the whole story; or jump to the latest if you're picking up. |
+| [`matrix.yaml`](matrix.yaml) | Source of truth for MITRE × site_class coverage. |
+| [`internal/detections/detections.yaml`](internal/detections/detections.yaml) | The 23 Q7 detection rules in declarative YAML. |
+| [`internal/core/signals_catalog.go`](internal/core/signals_catalog.go) | Canonical signals catalog with per-signal `EmittedBy`. |
+| [`tools/stack_demo.sql`](tools/stack_demo.sql) | The eleven queries in executable DuckDB form. |
 
 ## Build, lint, test
 
 ```sh
-make build-all       # cross-compile linux/{amd64,arm64,386,arm-v7}
+make build-all       # cross-compile linux/{amd64,arm64,386,armv7}
+make build           # native binary into dist/
 make verify          # ldd + file confirm static; runs against amd64
 make test            # go test ./...
 make test-race       # go test -race ./...
-make lint            # go vet + gofmt
-make audit           # matrix.yaml ↔ registered modules consistency check (ADR-0001)
+make lint            # go vet + gofmt check
+make audit           # matrix.yaml ↔ modules drift check (ADR-0001)
 make detgen          # regenerate Q7 SQL block from detections.yaml
-make detgen-verify   # release gate: detections.yaml ↔ stack_demo.sql drift check (ADR-0013)
+make detgen-verify   # release gate: detections.yaml ↔ stack_demo.sql (ADR-0013)
 make all             # lint + test + audit + detgen-verify + build
 ```
 
-Two release gates fail the build on drift:
-
-- **`make audit`** — `matrix.yaml` vs the modules the code actually
-  registers ([ADR-0001](docs/adr/0001-module-interface.md)).
-- **`make detgen-verify`** — `detections.yaml` vs the Q7 block in
-  `tools/stack_demo.sql` ([ADR-0013](docs/adr/0013-detections-yaml.md)).
-
-Adding a module without listing it in `matrix.yaml`, or editing
-`detections.yaml` without regenerating the SQL, breaks `make all`.
-
----
+The build matrix is pinned (`-trimpath`, `-buildvcs=false`,
+`-tags=osusergo,netgo`, `CGO_ENABLED=0`). Any pull request that
+breaks the static-link contract or drags in CGO will fail
+`verify`.
 
 ## Privacy
 
 Two fields are deliberately conservative by default:
 
-- **`host_meta.hostname`** is omitted from output. `--include-hostname`
-  opts in to plaintext; without it only `host_meta.hostname_hash`
-  ships. See [ADR-0006](docs/adr/0006-hostname-policy.md).
-- **SSH public-key blobs** (`/root/.ssh/authorized_keys` and friends)
-  and **`/etc/shadow` / `/etc/gshadow` password hashes** are never
-  emitted raw. Only digests and a `password_status` enum (`set` /
-  `locked` / `disabled` / `empty` / `unknown`). See
-  [ADR-0003](docs/adr/0003-ssh-key-blob-handling.md) and
-  [ADR-0005](docs/adr/0005-password-hash-never-emitted.md).
+- **`host_meta.hostname`** is omitted from output by default.
+  `--include-hostname` opts in to plaintext; without it only
+  `host_meta.hostname_hash` ships. See ADR-0006.
+- **SSH public-key blobs** (`/root/.ssh/authorized_keys` and
+  per-user equivalents) and **`/etc/shadow` / `/etc/gshadow`
+  password hashes** are never emitted raw. Only digests and a
+  `password_status` enum. See ADR-0003 and ADR-0005.
 
----
+## Adding a detection rule
 
-## Validation
+The fastest contribution you can make:
 
-Every module ships with golden fixture tests under
-`internal/testdata/golden/<module>/` exercised by
-`go test ./internal/modules/...` — happy paths, edge cases, malformed
-inputs, robustness contracts. The `internal/core` package adds buildtime
-audits cross-checking the signals catalog against every emission site
-(see [ADR-0011](docs/adr/0011-signals-catalog.md)). The
-`internal/detections` package golden-tests every clause in
-`detections.yaml` plus 10 loader rejection paths.
+1. Open [`internal/detections/detections.yaml`](internal/detections/detections.yaml).
+2. Add an entry. Schema is documented at the top of the file —
+   `signals_all`, `signals_any`, `signals_none`, `module_in`,
+   `content_contains_any`.
+3. `make detgen` (regenerates the SQL companion).
+4. `make all`.
 
-Two release gates fail the build on drift: `make audit`
-(`matrix.yaml` ↔ modules, [ADR-0001](docs/adr/0001-module-interface.md))
-and `make detgen-verify` (`detections.yaml` ↔ SQL,
-[ADR-0013](docs/adr/0013-detections-yaml.md)).
+If you need a signal that doesn't exist yet, you have to teach the
+agent to emit it (see ADR-0011 for the catalog rules).
 
-End-to-end validation runs against `lab-realistic`: a synthetic fleet
-of **75 Docker containers** across five distros (Debian 11, RHEL 8,
-Ubuntu 22.04, Amazon Linux 2 & 2023, Alpine 3.19), with documented
-textbook implants seeded across the "compromised" hosts. Current
-numbers: **31 433 records, 22 Q1 singletons, 6 Q4 implant hits,
-22 Q7 roll-call rows, 42 Q8 mtime spikes, 6 Q11 orphan-outside-tmp
-hits** — every Q7 row maps to a named detection in `detections.yaml`
-via the `matched_detections` column.
+## Adding a new module
 
-The fleet-scale validation setup is local development infrastructure
-and is not shipped with the project. Running `linpersist-report`
-against your own NDJSON collection is the reproducible validation any
-operator can run.
-
----
-
-## Why this and not osquery / Velociraptor / UAC
-
-|                              | `linpersist`                                          | osquery                          | Velociraptor                | UAC                          |
-| ---------------------------- | ----------------------------------------------------- | -------------------------------- | --------------------------- | ---------------------------- |
-| Shape                        | persistence-only collector + report binary            | general telemetry agent          | DFIR agent + server         | live-response collector      |
-| Output                       | NDJSON, one record per artifact                       | SQL tables, per-query            | VQL artifacts               | tar.gz of raw files          |
-| Optimized for                | fleet-scale LFA + per-host drill-down on demand       | host-level real-time queries     | incident response           | single-host triage           |
-| Footprint                    | one static 10 MB binary, no daemon                    | 50+ MB, daemon                   | server + clients            | thousands of shell helpers   |
-| Decisions on the host        | none (zero classification)                            | thresholds + scheduled packs     | rule-based                  | none                         |
-| Detection rules              | declarative YAML, generator-synced with SQL backend   | SQL packs                        | VQL                         | n/a                          |
-
-`linpersist` is intentionally a small piece of the pipeline. It
-produces the highest-quality input for stacking that the agent stage
-can produce — deterministic canonical hashes, explicit MITRE IDs, no
-runtime state — and stops there.
-
----
-
-## Documentation map
-
-| Doc                                                                                                | What it covers                                                       |
-| -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| [`docs/schema-v1.md`](docs/schema-v1.md)                                                           | Canonical NDJSON record shape: every field, every guarantee          |
-| [`docs/normalization-rules.md`](docs/normalization-rules.md)                                       | Invariants every `Normalize` honors                                  |
-| [`docs/stacking-cookbook.md`](docs/stacking-cookbook.md)                                           | The cookbook queries as prose, with false-positive notes             |
-| [`docs/report.md`](docs/report.md)                                                                 | Anatomy of the HTML / text fleet report and `--host` dossier         |
-| [`docs/modules/`](docs/modules)                                                                    | Per-module reference (paid down as gaps surface)                     |
-| [`docs/adr/`](docs/adr)                                                                            | Thirteen Architecture Decision Records (ADR-0001..0013)              |
-| [`matrix.yaml`](matrix.yaml)                                                                       | MITRE × site_class taxonomy; release-gated by `make audit`           |
-| [`internal/detections/detections.yaml`](internal/detections/detections.yaml)                       | Q7 detection clauses; release-gated by `make detgen-verify`          |
-| [`internal/core/signals_catalog.go`](internal/core/signals_catalog.go)                             | Canonical signals catalog with `EmittedBy` per module                |
-| [`tools/stack_demo.sql`](tools/stack_demo.sql)                                                     | The 11 queries in executable DuckDB form (Q7 generated from YAML)    |
-| [`tools/ingest.sh`](tools/ingest.sh)                                                               | NDJSON → DuckDB loader · optional Parquet · custom SQL               |
-
-Highlighted ADRs added in this iteration:
-
-- [ADR-0011](docs/adr/0011-signals-catalog.md) — iterable signals
-  catalog as a buildtime invariant.
-- [ADR-0012](docs/adr/0012-host-dossier.md) — `linpersist-report --host`
-  as a separate single-host mode.
-- [ADR-0013](docs/adr/0013-detections-yaml.md) — `detections.yaml` as
-  single source of truth for Q7 clauses (Go + SQL).
-
----
+The contract is small: implement `core.Module` (Name, SiteClasses,
+Collect), emit records, register in `cmd/linpersist/main.go` and
+`cmd/matrix-audit/main.go`, add an entry to `matrix.yaml`, ship
+golden fixtures under `internal/testdata/golden/<module>/`.
+ADR-0001 + ADR-0002 cover the interface and the per-site_class
+record-granularity rules.
 
 ## Roadmap
 
-- ✅ **v0.2.0** (released) — dpkg + rpm provenance wired into
-  `exec_target_pkg_status` / `non_package_path`. `/proc` live-process
-  correlation. Five new modules (atjobs, polkit, netdispatch, grub,
-  xdg). Validation against the 75-host lab-realistic fleet.
-- ✅ **v0.2.x polish** (in `[Unreleased]`) — per-host dossier mode
-  (`--host`, [ADR-0012](docs/adr/0012-host-dossier.md)), iterable
-  signals catalog ([ADR-0011](docs/adr/0011-signals-catalog.md)),
-  declarative Q7 via `detections.yaml`
-  ([ADR-0013](docs/adr/0013-detections-yaml.md)),
-  `matched_detections` column in Q7 output.
-- **v0.3.0** — eBPF state inspection (read-only). Container-aware
-  site_classes (`docker.daemon`, `k8s.static-pods`, `cloud-init`).
-  Per-module reference docs for the remaining modules. Integration
-  tests in CI across the lab distros.
-- **v0.4.0** — Supply-chain site_classes (`npm.global`, `pip.user`,
-  `ai-cli.configs`). Optional Markdown emitter for the report
-  ([ADR-0008](docs/adr/0008-report-dual-rendering.md) extension hook).
-- **v0.5.0** — Optional YARA plugin as a separate binary (does not
+Things on the immediate horizon:
+
+- **Host tags + peer-group LFA by `(os_id, tag)`** — operator
+  marks hosts with `--tag role=build` etc.; Q3 groups by tag,
+  collapsing CI / Jenkins / Ansible service-account
+  false-positives.
+- **`linpersist-report --diff prev.ndjson curr.ndjson`** — time-
+  series mode. Records that appeared / disappeared / changed
+  since the last snapshot.
+- **MITRE coverage panel** in the fleet report.
+- **More coverage**: dbus.services, cloud-init, container
+  persistence (docker daemon, k8s static pods), initramfs hooks,
+  nsswitch.conf, incron/fcron.
+- **Optional YARA plugin** in a separate binary (does not
   contaminate the read-only no-CGO core).
 
-`matrix.yaml` tracks the canonical status; PRs that move a planned
-site_class to `wip` / `implemented` are welcome. New Q7 detection
-rules are now a one-file edit in
-[`internal/detections/detections.yaml`](internal/detections/detections.yaml)
-plus `make detgen` to regenerate the SQL.
+The full backlog with ROI ordering is in
+[`docs/SPRINT-HANDOFF.md`](docs/SPRINT-HANDOFF.md).
 
----
-
-## License
+## License & author
 
 Apache-2.0. See [LICENSE](LICENSE).
 
