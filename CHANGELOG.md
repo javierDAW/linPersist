@@ -7,6 +7,108 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-21
+
+### Added (v0.3.1-fleet — host tags, Q3 peer-group, --diff mode)
+- **`--tag key=value` flag in the agent** (`cmd/linpersist`,
+  ADR-0015). Repeatable; values land in `host_meta.tags` as the
+  sorted, deduplicated, canonical-form slice. Validation is
+  K8s-style strict: `key=[a-z][a-z0-9_-]{0,62}`,
+  `value=[a-z0-9]([a-z0-9_.-]{0,61}[a-z0-9])?` or empty. Reserved
+  keys (`hostname`, `hostname_hash`, `os_id`, `os_version`,
+  `kernel`, `arch`, `boot_id`, `host_id`) are rejected at parse
+  with hints pointing at the canonical HostMeta field.
+- **Multi-value tag support**: the same key may appear multiple
+  times (`--tag role=build --tag role=ci`), producing two distinct
+  entries in `host_meta.tags`. Mirrors Kubernetes label semantics
+  for hosts that legitimately serve two roles or are mid-migration
+  between environments.
+- **`internal/core/tags.go`** with `ParseTag`, `ValidateTagKey`,
+  `ValidateTagValue`, `CanonicalizeTags`, `CanonicalTagKey`.
+  Exported so future consumers (matrix-audit, report-side filters)
+  can reuse the contract.
+- **Q3 peer-group keyed by `(os_id, tags)`** in the report
+  (`cmd/linpersist-report/stats.go::computeQ3`). Hosts with
+  byte-identical canonical tag sets form one peer-group; hosts
+  with any difference form a separate peer-group. Hosts with zero
+  tags form the "untagged" peer-group (preserves v0.2.0 behavior
+  for fleets not yet tagged). The `peer_hosts > 2` floor is kept.
+  `PeerGroupRow.TagKey` is new in the struct; downstream render
+  surfaces it on each row.
+- **`tools/stack_demo.sql` Q3 hand-edited** to mirror the new
+  Go logic. Uses a `host_tags` CTE that builds the canonical
+  tag_key via `list_aggregate(list_sort(list_distinct(...)), ',')`
+  and joins peer_size on `(os_id, tag_key)`. No automated drift
+  gate yet (unlike detgen-verify for Q7); revisit if Q3 diverges
+  further in v0.3.x.
+- **`linpersist-report --diff prev.ndjson curr.ndjson`**: a new
+  mode that compares two collections and emits annotated changes.
+  Identity is `(host_id, module, site_class, locus)`;
+  `content_norm_sha256` distinguishes Δ (changed) from = (idem).
+  Output covers Added (`+`), Removed (`-`), Changed (`Δ`),
+  UnchangedCount, plus host-level rows for hosts that entirely
+  appeared/disappeared between the two collections (per ADR-0015:
+  individual per-record + / - lines are suppressed for those
+  hosts so container churn does not saturate the report).
+- Both text and HTML rendering for diff mode
+  (`renderDiffText`, `renderDiffHTML`). HTML is self-contained
+  with inline CSS, mirrors `report.tmpl`'s single-file principle.
+
+### Tests
+- `internal/core/tags_test.go`: 8 unit tests covering valid
+  parses, malformed grammar (uppercase, whitespace, multiple `=`,
+  length boundaries), reserved-key rejection, canonicalization
+  determinism, dedup of exact duplicates, untagged peer-group key
+  invariant.
+- `cmd/linpersist-report/stats_test.go`: 7 unit tests for the new
+  Q3 peer-group logic: untagged migration safety net, same-tags
+  same-peer-group, different-tags separate-peer-groups, tag-order
+  independence, `peer_hosts > 2` floor, untagged vs tagged
+  separation, fleet-wide line not surfaced.
+- `cmd/linpersist-report/diff_test.go`: 10 tests for ComputeDiff:
+  no changes, record added/removed/changed, host disappeared,
+  host appeared, prev empty, curr empty, determinism, mixed
+  scenario combining all four classifications.
+
+### Documented
+- **ADR-0015** (`docs/adr/0015-host-tags.md`): the canonical
+  decision record for the four design choices closed in
+  conversation -- strict K8s-style validation, multi-value
+  permitted, exact-match peer-group identity, host-level row for
+  full-host disappearance / appearance.
+- **`docs/deployment.md`** (new). Operator-facing guide covering
+  binary placement, five invocation patterns (Ansible/Salt/Chef
+  /Puppet, cron, systemd timer, wrapper script reading host
+  metadata, container DaemonSet), the host-tags contract,
+  taxonomy of useful tag axes, transport options (file-based +
+  shipper, piped, object-store), post-rollout verification and
+  troubleshooting. Closes the "linpersist works for any Linux
+  fleet, not just K8s" documentation gap exposed during the
+  v0.3.1 sprint.
+
+### Verified (v0.3.1 release gate against lab-realistic)
+- 75-host fleet round-trip: Q1=26, Q2=33, Q3=158, Q4=6, Q5=53,
+  Q6=44, Q7=22, Q8=40, Q9=17, Q10=75 hosts, Q11=6 -- byte-
+  identical to v0.3.0. Q3 header rephrased to
+  "Peer-group LFA by (os_id, tags)"; row count unchanged because
+  the lab does not populate `host_meta.tags` yet, so all hosts
+  fall into the "untagged" peer-group (the migration safety net
+  ADR-0015 prescribes).
+- `--diff` against prev=curr on the lab fleet produces "No
+  changes between prev and curr." with 9,670 records matched on
+  identity and zero per-record or host-level deltas.
+- `make all` clean: lint + test + audit + detgen-verify + build.
+- 25 packages green under `-race` (with 25 new tests from this
+  release).
+
+### Deferred to v0.3.2
+- **MITRE coverage panel** in the fleet report Overview block.
+  Cross-cuts `matrix.yaml` (technique IDs declared as covered)
+  with live records (which techniques actually surfaced). The
+  v0.3.1 sprint scopes it as "bonus, deferable"; cleaner as a
+  standalone v0.3.2 because it does not depend on tags or diff
+  to land usefully.
+
 ## [0.3.0] - 2026-05-21
 
 ### Added (v0.3.0 release closure — coverage of v0.3.0-coverage modules)

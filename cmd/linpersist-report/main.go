@@ -65,13 +65,14 @@ var (
 
 func main() {
 	var (
-		input   string
-		output  string
-		format  string
-		host    string
-		colorM  string
-		title   string
-		showVer bool
+		input    string
+		output   string
+		format   string
+		host     string
+		diffPath string
+		colorM   string
+		title    string
+		showVer  bool
 	)
 	flag.StringVar(&input, "i", "", "input: directory of *.ndjson files OR a single .ndjson file")
 	flag.StringVar(&input, "input", "", "alias for -i")
@@ -79,6 +80,7 @@ func main() {
 	flag.StringVar(&output, "output", "", "alias for -o")
 	flag.StringVar(&format, "format", "html", "output format: html | text")
 	flag.StringVar(&host, "host", "", "if set, produce a per-host dossier for the named host (matched against hostname or host_id) instead of the fleet report")
+	flag.StringVar(&diffPath, "diff", "", "if set, run in diff mode: -diff <prev-ndjson> -i <curr-ndjson>. Output annotates +/-/Δ between the two collections.")
 	flag.StringVar(&colorM, "color", "auto", "ANSI color in text mode: auto | on | off")
 	flag.StringVar(&title, "title", "linpersist report", "title shown in the report header")
 	flag.BoolVar(&showVer, "version", false, "print version and exit")
@@ -117,6 +119,54 @@ func main() {
 	fmt.Fprintf(os.Stderr,
 		"linpersist-report: loaded %d records from %d file(s); %d malformed lines skipped\n",
 		len(res.Records), len(res.Files), res.Skipped)
+
+	// Diff mode: load prev as the baseline and ComputeDiff against
+	// res (curr). Renders a stand-alone diff summary; the regular
+	// Q1..Q11 report is suppressed in this mode.
+	if diffPath != "" {
+		if host != "" {
+			fmt.Fprintln(os.Stderr, "linpersist-report: -diff and -host are mutually exclusive")
+			os.Exit(2)
+		}
+		prevRes, perr := load(diffPath)
+		if perr != nil {
+			fmt.Fprintf(os.Stderr, "linpersist-report: load prev: %v\n", perr)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr,
+			"linpersist-report: prev: %d records from %d file(s); %d malformed lines skipped\n",
+			len(prevRes.Records), len(prevRes.Files), prevRes.Skipped)
+		ds := ComputeDiff(prevRes.Records, res.Records)
+		var out io.Writer = os.Stdout
+		var outFile *os.File
+		if output != "" {
+			f, ferr := os.Create(output)
+			if ferr != nil {
+				fmt.Fprintf(os.Stderr, "linpersist-report: create %s: %v\n", output, ferr)
+				os.Exit(1)
+			}
+			defer f.Close()
+			out = f
+			outFile = f
+		}
+		switch format {
+		case "html":
+			if rerr := renderDiffHTML(out, ds, title); rerr != nil {
+				fmt.Fprintf(os.Stderr, "linpersist-report: render diff html: %v\n", rerr)
+				os.Exit(1)
+			}
+		case "text":
+			useColor := resolveColor(colorM, out, outFile)
+			if rerr := renderDiffText(out, ds, title, useColor); rerr != nil {
+				fmt.Fprintf(os.Stderr, "linpersist-report: render diff text: %v\n", rerr)
+				os.Exit(1)
+			}
+		}
+		if output != "" {
+			fmt.Fprintf(os.Stderr, "linpersist-report: wrote %s\n", output)
+		}
+		return
+	}
 
 	agentVersion := pickAgentVersion(res.Records)
 

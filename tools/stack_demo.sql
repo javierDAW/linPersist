@@ -99,41 +99,78 @@ ORDER BY module, locus;
 
 --- query separator ---
 
--- Query 3: Peer-group LFA by os_id.
+-- Query 3: Peer-group LFA by (os_id, tags).
 --
--- Records that are singletons inside their own OS bucket. Fixes the
--- Query 1 fragmentation problem: a `apt-listchanges`-style line that
--- legitimately appears on every Debian/Ubuntu host but NOT on RHEL
--- is no longer flagged as a singleton (each os_id has its own
--- baseline), while an attacker's unique cron line on the single
--- compromised Ubuntu host still surfaces.
+-- Records that are singletons inside their own (os_id + tag_set)
+-- bucket. Fixes the Query 1 fragmentation problem: a
+-- `apt-listchanges`-style line that legitimately appears on every
+-- Debian/Ubuntu host but NOT on RHEL is no longer flagged as a
+-- singleton (each os_id has its own baseline), while an attacker's
+-- unique cron line on the single compromised Ubuntu host still
+-- surfaces.
 --
--- The `peer_hosts > 1` filter excludes peer groups too small to
--- learn a baseline from (e.g. a single ppc64le host in an amd64
--- fleet would otherwise show every record as a singleton).
+-- ADR-0015 extension: the peer-group key is now (os_id, tag_set),
+-- where tag_set is the canonical comma-joined form of
+-- host_meta.tags (sorted, deduplicated). Hosts with byte-identical
+-- canonical tag sets form one peer-group; hosts with any difference
+-- form a separate peer-group. The "untagged" peer-group is the set
+-- of hosts whose host_meta.tags is empty -- this preserves the
+-- v0.2.0 Q3 behavior for fleets that have not adopted tags yet.
+--
+-- The `peer_hosts > 2` filter excludes peer groups too small to
+-- learn a baseline from. With tags, peer-groups can shrink: a
+-- single host with an unusual tag set forms its own peer-group of
+-- one and is correctly excluded from the LFA verdict.
 --
 -- False positives:
---   - Minority os_id with <=2 hosts produces noisy results until the
---     filter kicks in. Tune the threshold to your fleet shape.
+--   - Minority (os_id, tag_set) tuples with <=2 hosts produce
+--     noisy results until the filter kicks in. Tune the threshold
+--     to your fleet shape, or re-tag hosts to merge peer-groups.
+--
+-- This query is hand-edited to mirror computeQ3 in
+-- cmd/linpersist-report/stats.go. There is no automated drift gate
+-- for Q3 yet (unlike detgen-verify for Q7); changes here require a
+-- matching change in stats.go.
+WITH host_tags AS (
+  -- Per-host canonical tag set (one row per host, even if host has
+  -- many records). list_sort + list_distinct enforce the canonical
+  -- ordering ParseTag would have produced.
+  SELECT
+    host_id,
+    any_value(host_meta.os_id) AS os_id,
+    coalesce(
+      list_aggregate(list_sort(list_distinct(any_value(host_meta.tags))), 'string_agg', ','),
+      ''
+    ) AS tag_key
+  FROM r
+  WHERE host_meta.os_id IS NOT NULL
+  GROUP BY host_id
+),
+peer_size AS (
+  SELECT os_id, tag_key, count(*) AS peer_hosts
+  FROM host_tags
+  GROUP BY os_id, tag_key
+)
 SELECT
-  host_meta.os_id                                AS os_id,
-  module,
-  site_class,
-  content_norm_sha256,
-  count(DISTINCT host_id)                        AS hosts_in_os,
+  ht.os_id                                       AS os_id,
+  ht.tag_key                                     AS tag_key,
+  r.module                                       AS module,
+  r.site_class                                   AS site_class,
+  r.content_norm_sha256,
+  count(DISTINCT r.host_id)                      AS hosts_in_peer,
+  ps.peer_hosts                                  AS peer_hosts,
   any_value(coalesce(r.host_meta.hostname, r.host_id)) AS sample_host,
-  any_value(locus)                               AS sample_locus,
-  any_value(content_snippet)                     AS sample_snippet
+  any_value(r.locus)                             AS sample_locus,
+  any_value(r.content_snippet)                   AS sample_snippet
 FROM r
-WHERE host_meta.os_id IS NOT NULL
-GROUP BY host_meta.os_id, module, site_class, content_norm_sha256
-HAVING count(DISTINCT host_id) = 1
-   AND (
-     SELECT count(DISTINCT r2.host_id)
-     FROM r r2
-     WHERE r2.host_meta.os_id = r.host_meta.os_id
-   ) > 2
-ORDER BY os_id, module, sample_snippet;
+JOIN host_tags ht ON ht.host_id = r.host_id
+JOIN peer_size  ps ON ps.os_id = ht.os_id AND ps.tag_key = ht.tag_key
+WHERE r.host_meta.os_id IS NOT NULL
+GROUP BY ht.os_id, ht.tag_key, r.module, r.site_class,
+         r.content_norm_sha256, ps.peer_hosts
+HAVING count(DISTINCT r.host_id) = 1
+   AND ps.peer_hosts > 2
+ORDER BY os_id, tag_key, module, sample_snippet;
 
 --- query separator ---
 

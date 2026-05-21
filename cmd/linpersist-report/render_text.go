@@ -192,7 +192,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	fmt.Fprintln(out)
 
 	// --- Q3: peer-group LFA -----------------------------------------
-	textSection(out, a, fmt.Sprintf("Q3 · Peer-group LFA by os_id (%d)", len(report.Q3PeerGroupSingletons)))
+	textSection(out, a, fmt.Sprintf("Q3 · Peer-group LFA by (os_id, tags) (%d)", len(report.Q3PeerGroupSingletons)))
 	fmt.Fprintln(out, "Singletons within their own OS bucket. Only OS groups with >2 hosts.")
 	fmt.Fprintln(out)
 	if len(report.Q3PeerGroupSingletons) == 0 {

@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -48,6 +49,31 @@ var (
 	commit  = "unknown"
 )
 
+// tagsFlag accumulates --tag key=value arguments. Each Set call
+// validates the input via core.ParseTag and appends the canonical
+// form; final canonicalization (sort + dedup) happens after Parse
+// returns so callers see deterministic output regardless of CLI
+// order. See ADR-0015 for the validation contract.
+type tagsFlag struct {
+	values []string
+}
+
+func (t *tagsFlag) String() string {
+	if t == nil || len(t.values) == 0 {
+		return ""
+	}
+	return strings.Join(t.values, ",")
+}
+
+func (t *tagsFlag) Set(raw string) error {
+	canon, err := core.ParseTag(raw)
+	if err != nil {
+		return err
+	}
+	t.values = append(t.values, canon)
+	return nil
+}
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -71,6 +97,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		logLevel           = fs.String("log-level", "warn", "Log level: debug|info|warn|error")
 		showVersion        = fs.Bool("version", false, "Print version and exit")
 	)
+	var tags tagsFlag
+	fs.Var(&tags, "tag", "Repeatable host tag (key=value). See ADR-0015 for the format.")
 
 	if err := fs.Parse(args); err != nil {
 		// flag.ContinueOnError has already printed the error.
@@ -108,6 +136,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		logger.Warn("hostmeta collection partial", "err", err)
 	}
+	hm.Tags = core.CanonicalizeTags(tags.values)
 
 	ctx, cancel := signal.NotifyContext(context.Background(),
 		syscall.SIGINT, syscall.SIGTERM)

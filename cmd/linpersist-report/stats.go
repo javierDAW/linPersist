@@ -87,10 +87,11 @@ type LocusSingletonRow struct {
 
 type PeerGroupRow struct {
 	OSID          string
+	TagKey        string // ADR-0015: canonical tag set, "" for untagged peer-group.
 	Module        string
 	SiteClass     string
 	ContentNorm   string
-	HostsInOS     int
+	HostsInOS     int // hosts in the peer-group (os_id + tagKey).
 	PeerSize      int
 	SampleHost    string
 	SampleLocus   string
@@ -508,9 +509,16 @@ func computeQ2(records []core.Record) []LocusSingletonRow {
 	return out
 }
 
-// --- Q3: peer-group LFA by os_id ---------------------------------------
+// --- Q3: peer-group LFA by (os_id, tags) -------------------------------
+//
+// ADR-0015: the peer-group key is now (os_id, canonical_tag_set). Hosts
+// with byte-identical canonical tag sets form one peer-group; hosts with
+// any difference form a separate peer-group. Hosts with zero tags form
+// the "untagged" peer-group within their os_id family. The floor
+// peer_hosts > 2 is preserved from the os_id-only era; revisit per
+// fleet shape.
 
-type q3Key struct{ osID, module, siteClass, contentNorm string }
+type q3Key struct{ osID, tagKey, module, siteClass, contentNorm string }
 type q3Agg struct {
 	hosts         map[string]struct{}
 	sampleHost    string
@@ -518,18 +526,23 @@ type q3Agg struct {
 	sampleSnippet string
 }
 
+// q3PeerKey is the (os_id, tagKey) tuple used to size peer-groups.
+type q3PeerKey struct{ osID, tagKey string }
+
 func computeQ3(records []core.Record) []PeerGroupRow {
-	// peer-group size per os_id
-	peers := map[string]map[string]struct{}{}
+	// peer-group size per (os_id, tagKey). One host appears once even if
+	// it has many records: peer-group cardinality is in hosts, not rows.
+	peers := map[q3PeerKey]map[string]struct{}{}
 	for _, r := range records {
 		osid := r.HostMeta.OSID
 		if osid == "" {
 			continue
 		}
-		if peers[osid] == nil {
-			peers[osid] = map[string]struct{}{}
+		pk := q3PeerKey{osid, core.CanonicalTagKey(r.HostMeta.Tags)}
+		if peers[pk] == nil {
+			peers[pk] = map[string]struct{}{}
 		}
-		peers[osid][hostKey(r)] = struct{}{}
+		peers[pk][hostKey(r)] = struct{}{}
 	}
 
 	agg := map[q3Key]*q3Agg{}
@@ -538,7 +551,8 @@ func computeQ3(records []core.Record) []PeerGroupRow {
 		if osid == "" || r.ContentNormSHA256 == "" {
 			continue
 		}
-		k := q3Key{osid, r.Module, r.SiteClass, r.ContentNormSHA256}
+		tagKey := core.CanonicalTagKey(r.HostMeta.Tags)
+		k := q3Key{osid, tagKey, r.Module, r.SiteClass, r.ContentNormSHA256}
 		a := agg[k]
 		if a == nil {
 			a = &q3Agg{hosts: map[string]struct{}{}, sampleLocus: r.Locus, sampleSnippet: r.ContentSnippet}
@@ -553,7 +567,7 @@ func computeQ3(records []core.Record) []PeerGroupRow {
 
 	var out []PeerGroupRow
 	for k, a := range agg {
-		peerSize := len(peers[k.osID])
+		peerSize := len(peers[q3PeerKey{k.osID, k.tagKey}])
 		if peerSize <= 2 {
 			continue
 		}
@@ -562,6 +576,7 @@ func computeQ3(records []core.Record) []PeerGroupRow {
 		}
 		out = append(out, PeerGroupRow{
 			OSID:          k.osID,
+			TagKey:        k.tagKey,
 			Module:        k.module,
 			SiteClass:     k.siteClass,
 			ContentNorm:   shortHash(k.contentNorm),
@@ -575,6 +590,9 @@ func computeQ3(records []core.Record) []PeerGroupRow {
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].OSID != out[j].OSID {
 			return out[i].OSID < out[j].OSID
+		}
+		if out[i].TagKey != out[j].TagKey {
+			return out[i].TagKey < out[j].TagKey
 		}
 		return out[i].Module < out[j].Module
 	})
