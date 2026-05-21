@@ -34,6 +34,7 @@
   <button data-tab="q9">Q9 · exec in /tmp</button>
   <button data-tab="q10">Q10 · host coverage</button>
   <button data-tab="q11">Q11 · orphan outside /tmp</button>
+  <button data-tab="q12">Q12 · campaign clusters</button>
 </nav>
 
 <main>
@@ -53,6 +54,7 @@
       <div class="card"><div class="k">Q7 roll-call</div><div class="v" style="color:var(--tail)">{{len .Report.Q7ImplantRollCall}}</div></div>
       <div class="card"><div class="k">Q8 mtime spikes</div><div class="v">{{len .Report.Q8MtimeConcentration}}</div></div>
       <div class="card"><div class="k">Q11 orphan outside /tmp</div><div class="v" style="color:var(--tail)">{{len .Report.Q11OrphanOutsideTmp}}</div></div>
+      <div class="card"><div class="k">MITRE techniques</div><div class="v">{{.Report.MITRECoverage.SurfacingTechniques}}/{{.Report.MITRECoverage.TotalTechniques}}<span style="color:var(--muted);font-size:0.7em"> surfacing</span></div></div>
     </div>
 
     <h2>LFA stacking histogram</h2>
@@ -115,6 +117,35 @@
         </tbody>
       </table>
     </div>
+
+    <h2>MITRE ATT&amp;CK coverage</h2>
+    <p class="hint">Techniques declared in <code>matrix.yaml</code> cross-referenced with live records. <b>surfacing</b> = at least one record carries the technique ID. <b>dormant</b> = declared as covered but no record observed yet (the rule is pre-armed; the dataset has not exercised the vector).</p>
+    {{if eq .Report.MITRECoverage.TotalTechniques 0}}
+    <p class="hint"><em>matrix.yaml unavailable -- panel suppressed.</em></p>
+    {{else}}
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-mitre">
+        <thead><tr>
+          <th>technique</th>
+          <th>status</th>
+          <th data-sort-type="num">records</th>
+          <th data-sort-type="num">hosts</th>
+          <th>site_classes</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.MITRECoverage.Rows}}
+          <tr>
+            <td><code>{{.TechniqueID}}</code></td>
+            <td>{{if eq .Status "dormant"}}<span style="color:var(--muted)">{{.Status}}</span>{{else}}<b>{{.Status}}</b>{{end}}</td>
+            <td class="num">{{.Records}}</td>
+            <td class="num">{{.Hosts}}</td>
+            <td>{{range $i, $s := .SiteClasses}}{{if $i}}, {{end}}<code>{{$s}}</code>{{end}}</td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{end}}
 
     <h2>Signal distribution (fleet-wide)</h2>
     <p class="hint">Signals fired least often are the most analytically interesting (rare events). Bars represent host count.</p>

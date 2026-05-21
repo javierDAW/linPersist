@@ -7,6 +7,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-05-21
+
+### Added (v0.3.2 — MITRE coverage panel + Q12 campaign clusters)
+- **MITRE ATT&CK coverage panel** in `linpersist-report`. New
+  Overview card (`{surfacing}/{total} surfacing`) plus a
+  dedicated table cross-referencing `matrix.yaml` (techniques
+  declared as covered) with live records (techniques actually
+  surfacing). Rows are sorted surfacing-first then by record
+  count descending; dormant techniques (declared but not yet
+  observed in the dataset) follow.
+- **`matrix.yaml` embedded** in the report binary via
+  `go:embed` so the panel is available in operator deployments
+  far from the repo. Source of truth stays at the repo root;
+  the embedded copy lives at
+  `cmd/linpersist-report/assets/matrix.yaml`.
+- **New release gate `matrix-sync-verify`** in the Makefile
+  `all` target. Fails the build if the canonical `matrix.yaml`
+  and the embedded copy drift apart. Re-sync with
+  `cp matrix.yaml cmd/linpersist-report/assets/matrix.yaml`.
+- **Q12 — Campaign basename clustering**. New query in Go
+  (`stats.go::computeQ12`), text (`render_text.go`), HTML
+  (`report.tmpl` tab + pane), SQL (`tools/stack_demo.sql`
+  hand-edited), and cookbook
+  (`docs/stacking-cookbook.md::Query 12`). Surfaces multi-arm
+  campaigns whose individual arms each look like Q1 singletons
+  in their own module. Validates on lab-realistic: top row is
+  `sync-agent` clustered across `cron + systemd` on 2 hosts
+  (the v0.2.0 deploy-sync case the v0.3.x backlog called out).
+
+### Fixed
+- **`tools/stack_demo.sql` Q11 query was truncated** at HEAD
+  (the SELECT body ended mid-line at `AND exec_tar`). v0.3.2
+  restores the full query body to mirror `computeQ11` in
+  `stats.go`. Discovered while editing the file to add Q12;
+  no production tag had the truncated SQL because the Go path
+  is the canonical implementation.
+
+### Changed
+- **CHANGELOG split** along the actual tag history. The
+  previous monolithic `[Unreleased]` (which evolved into a
+  monolithic `[0.3.0]` block at the v0.3.1 release) now
+  separates cleanly: `[0.2.0] - 2026-05-19` collects everything
+  that pre-dates the v0.2.0 tag plus the post-tag-v0.2.0 work
+  (ADR-0011 / 0012 / 0013, v0.2.x-tune) that never got
+  promoted formally; `[0.3.0]` keeps only the v0.3.0 closure
+  and v0.3.0-coverage subsections. Historical accuracy at the
+  cost of a small migration in the CHANGELOG line numbers.
+
+### Documented
+- New Q12 cookbook section in `docs/stacking-cookbook.md`
+  explaining the multi-arm campaign pattern, the FPs to expect
+  (vendor baselines shipping the same name across systemd.unit
+  + sysv.init), and when Q12 is most valuable.
+- `docs/SPRINT-HANDOFF.md` rewritten to reflect v0.3.0 +
+  v0.3.1 + v0.3.2 cumulative state. The original body
+  (architectural canon, lessons learned, gotchas, cookbook,
+  debug map) is preserved verbatim because it is evergreen;
+  the head of the doc now carries an "everything that landed
+  since this was written" delta block.
+
+### Verified (v0.3.2 release gate against lab-realistic)
+- `make all` clean: lint + test + audit + detgen-verify +
+  matrix-sync-verify + build.
+- 75-host fleet round-trip: Q1=26, Q2=33, Q3=158, Q4=6,
+  Q5=53, Q6=44, Q7=22, Q8=40, Q9=17, Q10=75 hosts, Q11=6,
+  **Q12=16** (new). The Q1-Q11 counts are byte-identical to
+  v0.3.1. Q12's first row is the v0.2.0 sync-agent campaign,
+  exactly as the v0.3.x backlog predicted.
+- MITRE coverage panel surfaces 18 techniques: 15 surfacing,
+  3 dormant (T1053.001 at.jobs, T1542.003 kernel.grub,
+  T1547.013 xdg.autostart). The three dormant techniques
+  correspond to vectors the lab does not seed.
+
+### Deferred to v0.3.3 ("lab quality" sprint)
+- **Lab implant fixtures** for `linger`/`tmpfiles`/`sysusers`.
+  The 13 v0.3.0-coverage detection rules still ship pre-armed;
+  `lab-realistic/` is gitignored and requires Docker to
+  rebuild, which made it a sprint of its own. v0.3.3 should:
+  add three implant templates under `lab-realistic/implants/
+  templates/`, three catalog.yaml entries, hostlist
+  assignments to 1-2 hosts per implant, re-collect, and
+  publish `docs/benchmarks/v0.3.3-realistic.md`.
+
+### Deferred to v0.3.x
+- **Q12 baseline allow-list calibration**. The current
+  implementation has no allow-list for vendor baseline
+  basenames (nginx, redis-server, prometheus, sshd_config)
+  that legitimately cross `systemd.unit` + `sysv.init`. The
+  analyst's ASC-by-hosts triage handles this in practice, but
+  a calibrated allow-list would clean up the tail.
+- **Q3 SQL drift gate**. `tools/stack_demo.sql::Query 3`
+  is hand-edited to mirror Go; an automated drift gate
+  (mirror of `detgen-verify`) is still pending.
+
 ## [0.3.1] - 2026-05-21
 
 ### Added (v0.3.1-fleet — host tags, Q3 peer-group, --diff mode)
@@ -235,6 +329,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tmpfiles`, `sysusers` packages and the cross-source emission
   audit against the expanded signals catalog (43 signals total,
   up from 40).
+
+## [0.2.0] - 2026-05-19
+
+> The v0.2.0 git tag (commit `a9ac2c4`, 2026-05-19) was
+> created without a CHANGELOG bump. Subsequent work that
+> landed before the v0.3.0 cycle officially started
+> (signals catalog ADR-0011, host dossier ADR-0012,
+> declarative detections ADR-0013, v0.2.x-tune calibration)
+> is collected under this header for historical
+> completeness. Operators consuming the CHANGELOG should
+> read this section as "the cumulative v0.2.x state at the
+> point v0.3.0 began."
 
 ### Added (v0.2.x-tune — FP calibration + new vectors + severity output)
 - **`signals_none` predicate (schema v1 additive extension)**. The

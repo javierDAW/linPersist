@@ -22,7 +22,7 @@ TARGETS := linux/amd64 linux/arm64 linux/386 linux/arm/7
 # package.
 BINARIES := linpersist linpersist-report
 
-all: lint test audit detgen-verify build
+all: lint test audit detgen-verify matrix-sync-verify build
 
 build:
 	@for b in $(BINARIES); do \
@@ -88,6 +88,19 @@ detgen:
 # where someone edits the YAML but forgets to regenerate the SQL.
 detgen-verify:
 	go run ./cmd/detgen --verify
+
+# matrix-sync-verify enforces that the matrix.yaml embedded in
+# cmd/linpersist-report (via go:embed for the MITRE coverage
+# panel) matches the canonical matrix.yaml at the repo root.
+# Re-sync with: cp matrix.yaml cmd/linpersist-report/assets/matrix.yaml
+matrix-sync-verify:
+	@if ! cmp -s matrix.yaml cmd/linpersist-report/assets/matrix.yaml; then \
+		echo "matrix-sync-verify: drift between matrix.yaml and cmd/linpersist-report/assets/matrix.yaml"; \
+		echo "Re-sync with: cp matrix.yaml cmd/linpersist-report/assets/matrix.yaml"; \
+		exit 1; \
+	fi
+	@echo "matrix-sync-verify: in sync"
+
 
 clean:
 	rm -rf dist/

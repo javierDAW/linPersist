@@ -531,4 +531,69 @@ SELECT
 FROM r
 WHERE list_contains(signals, 'non_package_path')
   AND exec_target IS NOT NULL
-  AND exec_tar
+  AND exec_target NOT LIKE '/tmp/%'
+  AND exec_target NOT LIKE '/var/tmp/%'
+  AND exec_target NOT LIKE '/dev/shm/%'
+  AND exec_target NOT LIKE '/run/shm/%'
+GROUP BY exec_target
+ORDER BY hosts ASC, exec_target ASC;
+
+--- query separator ---
+
+-- Query 12: Campaign basename clustering.
+--
+-- Same basename of exec_target (or locus when exec_target is empty)
+-- appearing in two or more modules and on two or more hosts. Catches
+-- multi-arm campaigns whose individual arms each look like a Q1
+-- singleton in a different module. The v0.2.0 deploy-sync case had
+-- three arms (cron, profile, systemd) all pointing at
+-- /usr/local/sbin/deploy-sync*; Q1 fragmented them into three
+-- independent singletons. Q12 collapses them to one row.
+--
+-- Ordering: ASCENDING on host count, so the rare cross-module
+-- pairs (the campaign signature) bubble to the top. The tail of
+-- the result list is dominated by vendor baselines.
+--
+-- False positives:
+--   - Vendor baselines that ship the same name in systemd.unit
+--     AND sysv.init (nginx, redis-server, prometheus, cron).
+--     These cluster on dozens of hosts and sink to the bottom of
+--     the ASC sort; ignore them.
+--   - Distro-shared script basenames (rc.local, 50-motd-news)
+--     across systemd + motd. Same triage.
+--   - Real cross-module operator deploys (puppet-agent in cron +
+--     systemd). Distinguishable only by hosts >= fleet-wide
+--     deploy size.
+--
+-- Hand-edited to mirror computeQ12 in cmd/linpersist-report/stats.go.
+-- No automated drift gate yet.
+WITH base AS (
+  SELECT
+    host_id,
+    module,
+    locus,
+    content_snippet,
+    exec_target,
+    -- Derive basename: prefer exec_target, fall back to locus.
+    -- Strip trailing slash, take last path component.
+    CASE
+      WHEN exec_target IS NOT NULL AND length(exec_target) > 0
+        THEN regexp_extract(rtrim(exec_target, '/'), '([^/]+)$', 1)
+      ELSE regexp_extract(rtrim(locus, '/'), '([^/]+)$', 1)
+    END AS basename
+  FROM r
+)
+SELECT
+  basename,
+  count(DISTINCT host_id)                  AS hosts,
+  count(*)                                 AS records,
+  list_distinct(list(module))              AS modules,
+  any_value(host_id)                       AS sample_host,
+  any_value(locus)                         AS sample_locus,
+  any_value(exec_target)                   AS sample_exec_target
+FROM base
+WHERE basename IS NOT NULL AND basename <> ''
+GROUP BY basename
+HAVING count(DISTINCT host_id) >= 2
+   AND count(DISTINCT module) >= 2
+ORDER BY hosts ASC, basename ASC;

@@ -36,6 +36,9 @@ type Report struct {
 	Q9ExecInTmp           []ExecInTmpRow
 	Q10HostCoverage       []HostCoverageRow
 	Q11OrphanOutsideTmp   []OrphanOutsideTmpRow
+	Q12BasenameClustering []BasenameClusterRow
+
+	MITRECoverage MITRECoverageSection
 
 	// HistogramBuckets is the per-bucket count of (module,
 	// content_norm_sha256) groups by how many hosts share them.
@@ -219,6 +222,23 @@ type HostCoverageRow struct {
 	RecentRecords int
 }
 
+// BasenameClusterRow is one row of Q12: same basename of
+// exec_target (or locus when exec_target is empty), appearing in
+// >=2 modules and on >=2 hosts. The query catches multi-arm
+// campaigns whose individual arms each surface as a separate Q1
+// singleton in a different module -- the v0.2.0 deploy-sync
+// example coordinated arms across cron, profile and systemd
+// pointing at the same basename.
+type BasenameClusterRow struct {
+	Basename         string
+	Hosts            int
+	Modules          []string
+	Records          int
+	SampleHost       string
+	SampleLocus      string
+	SampleExecTarget string
+}
+
 // OrphanOutsideTmpRow is one row of Q11: exec_target paths flagged as
 // non_package_path AND not located under any tmp-class prefix. The
 // implant pattern Q4 and Q9 miss entirely (payload dropped under
@@ -299,6 +319,7 @@ func build(records []core.Record, sources []string, skipped int, agentVersion st
 	r.Q9ExecInTmp = computeQ9(records)
 	r.Q10HostCoverage = computeQ10(records)
 	r.Q11OrphanOutsideTmp = computeQ11(records)
+	r.Q12BasenameClustering = computeQ12(records)
 	r.HistogramBuckets = computeHistogram(records)
 	// Severity counts derived from Q7 rows. Lives on Overview rather
 	// than Report so the HTML template and text renderer share one
@@ -308,6 +329,7 @@ func build(records []core.Record, sources []string, skipped int, agentVersion st
 		sevCounts[row.MaxSeverity]++
 	}
 	r.Overview.SeverityCounts = sevCounts
+	r.MITRECoverage = computeMITRECoverage(records)
 	return r
 }
 
@@ -1159,4 +1181,112 @@ func computeQ11(records []core.Record) []OrphanOutsideTmpRow {
 		out = out[:200]
 	}
 	return out
+}
+
+// --- Q12: campaign basename clustering ---------------------------------
+//
+// Same basename of exec_target (or locus when exec_target is
+// empty), found in >=2 different modules and on >=2 hosts.
+// Surfaces multi-arm campaigns whose individual arms each look
+// like a Q1 singleton in their own module. The v0.2.0 deploy-sync
+// case had three arms (cron, profile, systemd) all pointing at
+// /usr/local/sbin/deploy-sync* with subtly different exec_targets;
+// Q1 surfaced them as three independent singletons in three
+// different modules. Q12 collapses them to one row.
+//
+// FPs to expect: basenames shared across vendor baselines
+// (e.g. `sshd_config`, `bashrc`) trigger this query in
+// everyday-fleet shape. The current implementation does not
+// filter -- we rely on the analyst sorting ascending by hosts
+// and triaging from the top. A v0.3.x calibration may add a
+// basename allow-list.
+
+func computeQ12(records []core.Record) []BasenameClusterRow {
+	type agg struct {
+		hosts            map[string]struct{}
+		modules          map[string]struct{}
+		records          int
+		sampleHost       string
+		sampleLocus      string
+		sampleExecTarget string
+	}
+	groups := map[string]*agg{}
+	for _, r := range records {
+		base := basenameForQ12(r)
+		if base == "" {
+			continue
+		}
+		a := groups[base]
+		if a == nil {
+			a = &agg{
+				hosts:   map[string]struct{}{},
+				modules: map[string]struct{}{},
+			}
+			groups[base] = a
+		}
+		a.hosts[hostKey(r)] = struct{}{}
+		a.modules[r.Module] = struct{}{}
+		a.records++
+		if a.sampleHost == "" {
+			a.sampleHost = hostKey(r)
+			a.sampleLocus = r.Locus
+			a.sampleExecTarget = r.ExecTarget
+		}
+	}
+	var out []BasenameClusterRow
+	for base, a := range groups {
+		if len(a.modules) < 2 || len(a.hosts) < 2 {
+			continue
+		}
+		mods := make([]string, 0, len(a.modules))
+		for m := range a.modules {
+			mods = append(mods, m)
+		}
+		sort.Strings(mods)
+		out = append(out, BasenameClusterRow{
+			Basename:         base,
+			Hosts:            len(a.hosts),
+			Modules:          mods,
+			Records:          a.records,
+			SampleHost:       a.sampleHost,
+			SampleLocus:      a.sampleLocus,
+			SampleExecTarget: a.sampleExecTarget,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Hosts != out[j].Hosts {
+			return out[i].Hosts < out[j].Hosts
+		}
+		return out[i].Basename < out[j].Basename
+	})
+	return out
+}
+
+// basenameForQ12 returns the basename used for clustering. Prefer
+// exec_target over locus because the exec_target is the campaign
+// pivot (what is actually invoked across modules); locus is the
+// per-module configuration file path which differs by definition.
+// Skip path components that are not informative.
+func basenameForQ12(r core.Record) string {
+	s := r.ExecTarget
+	if s == "" {
+		s = r.Locus
+	}
+	if s == "" {
+		return ""
+	}
+	// Strip trailing /, take last path component.
+	for len(s) > 1 && s[len(s)-1] == '/' {
+		s = s[:len(s)-1]
+	}
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == '/' {
+			s = s[i+1:]
+			break
+		}
+	}
+	if s == "." || s == ".." {
+		return ""
+	}
+	return s
 }

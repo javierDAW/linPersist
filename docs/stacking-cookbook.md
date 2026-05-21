@@ -392,6 +392,58 @@ False positives:
   that case; check with a `WHERE exec_target_pkg_status = 'error'`
   sanity query.
 
+### Query 12 — Campaign basename clustering
+
+Q1 through Q11 each look at records in isolation: one
+`content_norm_sha256`, one `exec_target`, one record at a time.
+Multi-arm campaigns defeat that frame because the arms are
+deliberately different. The v0.2.0 lab seeded a `deploy-sync`
+campaign with three coordinated arms on three different hosts:
+
+- `r-web-alp-01` carrying `/etc/cron.d/deploy-sync` -> `/usr/local/sbin/sync-agent`
+- `r-dev-deb-02` carrying `/etc/profile.d/deploy-sync.sh` (bashrc-style)
+- `r-web-ubu-04` carrying `deploy-sync.service` -> `/usr/local/sbin/sync-agent`
+
+Each arm is a Q1 singleton in its OWN module (cron, profile,
+systemd), so Q1 reports three independent rows. The analyst
+reading Q1 sees three unrelated singletons and has no easy way to
+recognise the pattern. Q11 catches the systemd and cron arms via
+`non_package_path` (the `sync-agent` binary is in `/usr/local/sbin`),
+but still as two separate rows; the profile arm has no
+`exec_target` so Q11 misses it entirely.
+
+Q12 closes the gap by clustering on the basename of `exec_target`
+(or `locus` when `exec_target` is empty). The deploy-sync arms
+share the basename `sync-agent` and `deploy-sync*`; Q12 emits a
+single row per shared basename whenever the basename appears in
+two or more modules and on two or more hosts.
+
+The ordering is **ascending on host count**, so rare cross-module
+pairs surface at the top of the result. The tail of the result
+table is dominated by vendor baselines (the same name shipped by
+multiple init systems on the same host); the analyst learns to
+read top-down and stop at the first vendor-name they recognise.
+
+False positives:
+
+- **Vendor baselines shipping the same name in `systemd.unit` AND
+  `sysv.init`.** `nginx`, `redis-server`, `prometheus`,
+  `cron`. These cluster on dozens of hosts and sink to the bottom
+  of the ASC sort. Triage stops naturally.
+- **Distro-shared script basenames across `systemd` + `motd`**
+  (`50-motd-news`, `update-motd.d/*`). Same pattern.
+- **Real operator multi-arm deploys.** A puppet-agent or salt-minion
+  installed as both a cron entry and a systemd unit is legitimate
+  cross-module presence. Tag those hosts with `role:` and triage
+  by tag; a real operator deploy lands on a fleet, not on 2-3
+  hosts.
+
+When Q12 is most valuable: a fleet where Q1 returns dozens of
+singletons across multiple modules and the analyst cannot tell
+which are coordinated. Q12's top rows pinpoint the singletons
+that are part of the SAME campaign without requiring the analyst
+to manually correlate locus paths across modules.
+
 ## False positives the analyst learns to filter
 
 Frequency stacking is not a verdict. The queries above produce

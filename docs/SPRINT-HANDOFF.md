@@ -6,29 +6,144 @@
 > developer), start here. It is intentionally dense: everything that
 > is non-obvious from the code lives in this doc.
 >
-> Last updated: 2026-05-20 after the v0.3.0-coverage merge
-> (commit `7b736af`).
+> Last updated: 2026-05-21 after the v0.3.2 release.
+>
+> The body of this doc (architectural canon, lessons learned,
+> known gotchas, conventions, iterate-fast cookbook, debug map)
+> remains the authoritative reference for "how this project
+> works". The block below summarises everything that has
+> happened since the original handoff snapshot
+> (`docs/SPRINT-HANDOFF.md` was first written at the v0.3.0-coverage
+> merge); read both this block and the body when picking up a
+> new session.
 
 ---
 
-## TL;DR — what landed in main
+## TL;DR — what landed in main since the original handoff
 
-The project sits **two minor releases past the last tag**:
+The repo is now **three tagged releases** past the original
+handoff snapshot, all by `Jarmi <jarmidaw@gmail.com>`.
 
-- `v0.2.0` (tag, commit `a9ac2c4`) — provenance, /proc correlation,
-  5 new modules, validated against lab-realistic 75-host fleet.
-- `4b73ad7` — signals catalog (ADR-0011), host dossier
-  (ADR-0012), declarative Q7 detections via `detections.yaml`
-  (ADR-0013). NOT tagged.
-- `bb35f67` — repo scrub + `.gitignore` hardening after the first
-  push left junk in history.
-- `7b736af` (HEAD on main) — v0.3.0-coverage: three systemd-
-  structural modules (linger, tmpfiles, sysusers), ten
-  orphan-signal detection rules, three module-specific detections,
-  Q9 calibration. NOT tagged.
+- **`v0.3.0`** (2026-05-21) — golden coverage, module docs, Q9
+  calibration. Closes the original hard pendings (golden tests
+  for `linger`, `tmpfiles`, `sysusers`; module reference docs;
+  Q9 ExecTarget=invokes-not-touches calibration in
+  `docs/stacking-cookbook.md` + `cmd/linpersist-report/stats.go`;
+  `docs/benchmarks/v0.3.0-realistic.md`; `docs/benchmarks/`
+  no longer gitignored). 19 golden test cases across the three
+  new modules; 90.4 / 86.0 / 85.7 % coverage.
 
-**Next tag should be `v0.3.0`** once the items in "Open follow-ups"
-below are closed.
+- **`v0.3.1`** (2026-05-21) — host tags, Q3 peer-group, --diff,
+  deployment guide. Introduces `--tag key=value` (repeatable) on
+  the agent with K8s-style strict validation and multi-value
+  support (ADR-0015); refactors Q3 to peer-group by
+  `(os_id, canonical_tag_set)`; adds
+  `linpersist-report --diff prev curr` with text + HTML render;
+  ships `docs/deployment.md` with five operator patterns
+  (Ansible/Salt/Chef/Puppet, cron, systemd timer, wrapper
+  script, K8s DaemonSet). 25 new tests; 0 regressions on
+  lab-realistic.
+
+- **`v0.3.2`** (2026-05-21) — MITRE coverage panel + Q12
+  campaign clustering + CHANGELOG cleanup. The MITRE panel
+  cross-cuts `matrix.yaml` (with `go:embed` for operator
+  deployments) against live records, showing surfacing vs
+  dormant techniques per ATT&CK ID. Q12 surfaces multi-arm
+  campaigns whose individual arms each look like Q1 singletons
+  in their own module (the v0.2.0 deploy-sync case is exactly
+  what it catches; lab-realistic confirms the first row is
+  `sync-agent, 2 hosts, cron + systemd`). CHANGELOG split into
+  proper `[0.2.0]` + `[0.3.0]` + `[0.3.1]` + `[0.3.2]`
+  sections (the original `[Unreleased]` mega-blob is gone).
+  New release gate `matrix-sync-verify` keeps the embedded
+  `matrix.yaml` in sync with the repo root copy.
+
+**Tag history now**: `v0.1.0-alpha` → `v0.2.0` → `v0.3.0` →
+`v0.3.1` → `v0.3.2`. Only `v0.3.0` and `v0.3.1` are pushed to
+`origin` as of this writing; the older tags are local-only by
+explicit operator decision. `v0.3.2` push is pending.
+
+## Inventory delta since the original handoff
+
+- **+ 4 new top-level files**: `docs/adr/0015-host-tags.md`,
+  `docs/deployment.md`, `docs/benchmarks/v0.3.0-realistic.md`,
+  `cmd/linpersist-report/diff.go` (+ companion render).
+- **+ 3 new module docs** under `docs/modules/`: `linger.md`,
+  `tmpfiles.md`, `sysusers.md`.
+- **+ 3 new module test packages** with 19 golden cases total
+  under `internal/testdata/golden/{linger,sysusers,tmpfiles}/`.
+- **+ 1 new package** `internal/core/tags.go` (host tag
+  validation, canonicalization, reserved key gate).
+- **+ 1 new query** Q12 (campaign basename clustering) in
+  Go (`stats.go::computeQ12`), SQL (`stack_demo.sql` hand-edited),
+  HTML (`report.tmpl` tab + pane), text (`render_text.go`
+  section), and cookbook (`docs/stacking-cookbook.md` section).
+- **+ 1 new report panel** MITRE coverage (text + HTML +
+  Overview card) in `cmd/linpersist-report/mitre_coverage.go`,
+  with embedded `matrix.yaml` via `go:embed`.
+- **+ 1 release gate** `matrix-sync-verify` in `Makefile` `all`.
+- **+ 1 ADR** ADR-0015 (host tags).
+- **+ 56 unit tests** total across the three releases (golden
+  cases excluded): linger 11, sysusers 16, tmpfiles 16, tags 8,
+  Q3 peer-group 7, diff 10. All race-clean.
+
+## What is OPEN after v0.3.2
+
+- **Lab implant fixtures** for `linger`/`tmpfiles`/`sysusers`
+  (v0.3.0-coverage rules ship pre-armed; lab-realistic does not
+  yet seed those vectors so the 13 new detection rules show
+  zero TPs). Deferred from v0.3.2 because `lab-realistic/` is
+  gitignored and rebuilding the Docker fleet is sprint-of-its-
+  own work. Suggested for **v0.3.3** as the "lab quality"
+  sprint: three new implant templates + catalog entries +
+  hostlist assignments + a benchmark `v0.3.3-realistic.md`
+  documenting the TPs.
+- **Q12 calibration**: the v0.3.2 implementation has no
+  allow-list for vendor baseline basenames (nginx, redis-server,
+  prometheus, sshd_config, etc.) that legitimately cross
+  `systemd.unit` + `sysv.init`. Analyst-side triage works
+  (ASC sort, ignore tail) but a calibrated rule for Q7
+  promotion would be nicer. v0.3.x candidate.
+- **Q3 SQL drift gate**: `tools/stack_demo.sql` Q3 is
+  hand-edited to mirror Go; there is no automated
+  detgen-equivalent. v0.3.x candidate (mirror `detgen-verify`
+  on Q3 if Q3 diverges further).
+- **MITRE panel "no coverage declared" view**: panel currently
+  only shows technique IDs that matrix.yaml declares. ATT&CK
+  Linux Matrix has more techniques than matrix.yaml claims; a
+  panel variant showing "technique declared in ATT&CK but no
+  module covers it" would help prioritise the v0.4.0 module
+  backlog. Minor.
+
+## Next sprint (v0.4.0 cloud-native) — proposed scope
+
+The cloud-native vector backlog (from the original handoff,
+unchanged):
+
+- `docker.daemon` (`/etc/docker/daemon.json`) — T1543.005.
+- `k8s.static-pods` (`/etc/kubernetes/manifests/`) — T1053.007.
+- `cloud-init` (`/etc/cloud/cloud.cfg{,.d/}`,
+  `/var/lib/cloud/scripts/per-boot/`) — T1543/T1547 hybrid.
+- `dbus.services` (`/usr/share/dbus-1/system-services/*.service`)
+  — T1543 family.
+- Supply-chain dotfiles: `npm.global` (`~/.npmrc` global,
+  `/usr/lib/node_modules/`), `pip.user` (`~/.config/pip/`),
+  `ai-cli.configs` (Claude Code / Copilot / Cursor rules files
+  -- emerging vector that no mainstream collector covers yet).
+
+Plus the v0.3.x deferreds folded in:
+
+- Lab implant fixtures for the v0.3.0-coverage rules.
+- Q12 baseline allow-list calibration.
+
+Estimated ~6-8h. The first conversation should close ADR
+decisions (one new module = one ADR if the canonical-form is
+non-trivial; ai-cli.configs warrants its own ADR because it's
+a new class of artifact).
+
+---
+
+The block below is the original handoff body, conserved as-is.
 
 ## Current inventory (from matrix-audit + code)
 

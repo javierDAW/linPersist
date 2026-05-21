@@ -1,0 +1,662 @@
+# linpersist coverage matrix
+#
+# Source of truth for MITRE ATT&CK Linux persistence coverage.
+# Each entry describes one site_class collected by exactly one module.
+#
+# status values:
+#   planned     -- accepted into the roadmap, not yet implemented
+#   wip         -- module exists, golden tests not green
+#   implemented -- code complete, golden tests green
+#   tested      -- integration tests green on at least two target distros
+#
+# Adding a new site_class requires: spec discussed, ADR if non-obvious,
+# golden tests written first, then implementation. Never the other way
+# around.
+
+schema_version: 1
+target_release: v0.1.0
+
+site_classes:
+
+  - site_class: cron.d
+    module: cron
+    mitre: [T1053.003]
+    loci:
+      - /etc/crontab
+      - /etc/cron.d/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      System-wide crontabs with explicit USER column. One record per
+      non-comment, non-blank line. Variable assignments (MAILTO=,
+      PATH=, SHELL=, RANDOM_DELAY=, ...) emitted as their own records
+      with signal cron_var_assignment.
+
+  - site_class: cron.user
+    module: cron
+    mitre: [T1053.003]
+    loci:
+      - /var/spool/cron/crontabs/
+      - /var/spool/cron/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      Per-user crontabs without USER column; the user name is the file
+      name. /var/spool/cron/crontabs/ on Debian/Ubuntu,
+      /var/spool/cron/ on RHEL/CentOS/Amazon Linux. One record per
+      non-comment, non-blank line.
+
+  - site_class: cron.periodic
+    module: cron
+    mitre: [T1053.003]
+    loci:
+      - /etc/cron.hourly/
+      - /etc/cron.daily/
+      - /etc/cron.weekly/
+      - /etc/cron.monthly/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      run-parts drop-in directories. Each executable file is an
+      atomic record (granularity = per file, not per line). Symlinks
+      are followed for hashing and provenance but locus stays the
+      original path.
+
+  - site_class: cron.anacron
+    module: cron
+    mitre: [T1053.003]
+    loci:
+      - /etc/anacrontab
+    status: implemented
+    test_coverage: golden
+    notes: |
+      Anacrontab format per anacrontab(5):
+      "period delay jobid command". One record per non-comment,
+      non-blank line. Variable assignments handled identically to
+      cron.d. @period shorthands (@monthly, @yearly, @daily) emitted
+      verbatim.
+
+  - site_class: systemd.unit
+    module: systemd
+    mitre: [T1543.002]
+    loci:
+      - /etc/systemd/system/
+      - /usr/lib/systemd/system/
+      - /lib/systemd/system/
+      - /run/systemd/system/
+      - /etc/systemd/user/
+      - /usr/lib/systemd/user/
+      - /home/*/.config/systemd/user/
+      - /root/.config/systemd/user/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      Per-file record granularity. Extensions in scope: .service,
+      .socket, .path, .mount, .automount, .swap, .target. .slice and
+      .scope deliberately out of scope for v0.1.0 (noise from
+      session-*.scope, user-*.slice; re-evaluate in v0.2.0). Drop-ins
+      at *.d/*.conf emit as independent records with signal
+      systemd_dropin. Canonical form joins line continuations, sorts
+      sections (Unit -> type -> Install) and keys alphabetically with
+      Exec* family exempted from sort, sorts whitespace-separated set
+      values (Wants, After, ...) alphabetically, preserves ExecStart
+      prefixes verbatim. See ADR-0007.
+
+  - site_class: systemd.timer
+    module: systemd
+    mitre: [T1053.006]
+    loci:
+      - /etc/systemd/system/
+      - /usr/lib/systemd/system/
+      - /lib/systemd/system/
+      - /run/systemd/system/
+      - /etc/systemd/user/
+      - /usr/lib/systemd/user/
+      - /home/*/.config/systemd/user/
+      - /root/.config/systemd/user/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      One record per .timer file. Cross-references the .service it
+      activates via explicit Unit= or implicit naming convention
+      (foo.timer -> foo.service); the cross-reference is preserved
+      verbatim in the canonical form, the backend resolves it. Same
+      canonical-form pipeline as systemd.unit (see ADR-0007). User
+      timers under /home/*/.config/systemd/user/ collected (linger
+      hosts).
+
+  - site_class: sysv.init
+    module: sysv
+    mitre: [T1037.004]
+    loci:
+      - /etc/init.d/
+      - /etc/rc.d/init.d/
+      - /etc/rc.local
+      - /etc/rc.d/rc.local
+      - /etc/rc0.d/
+      - /etc/rc1.d/
+      - /etc/rc2.d/
+      - /etc/rc3.d/
+      - /etc/rc4.d/
+      - /etc/rc5.d/
+      - /etc/rc6.d/
+      - /etc/rcS.d/
+      - /etc/rc.d/rc0.d/
+      - /etc/rc.d/rc1.d/
+      - /etc/rc.d/rc2.d/
+      - /etc/rc.d/rc3.d/
+      - /etc/rc.d/rc4.d/
+      - /etc/rc.d/rc5.d/
+      - /etc/rc.d/rc6.d/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      Largely legacy but still present on RHEL 7, Amazon Linux 2 and
+      embedded systems. init.d/* files emit as records directly.
+      rc.local files emit as records too. rc[0-6].d/* symlinks are
+      treated like systemd .wants/.requires: internal targets (inside
+      init.d/) are skipped to avoid double-counting; external targets
+      (e.g. a symlink to /tmp/.cache/x.sh) emit a record with the
+      sysv_external_init_symlink signal.
+
+  - site_class: ssh.authkeys
+    module: ssh
+    mitre: [T1098.004]
+    loci:
+      - /etc/ssh/authorized_keys
+      - /etc/ssh/authorized_keys.d/
+      - /root/.ssh/authorized_keys
+      - /root/.ssh/authorized_keys2
+      - /home/*/.ssh/authorized_keys
+      - /home/*/.ssh/authorized_keys2
+    status: implemented
+    test_coverage: golden
+    notes: |
+      One record per non-comment, non-blank key line. Normalization
+      canonicalizes the option list order (command=, from=, no-pty,
+      environment=, permitopen=, ...) and excludes the trailing
+      comment from content_norm_sha256. The base64 public-key blob
+      is NEVER emitted: only its sha256 lands in exec_target_sha256.
+      exec_target carries the keytype (ssh-ed25519, ssh-rsa, ...).
+      See ADR-0003 for the blob-handling decision. New signals
+      ssh_options_present and ssh_forced_command added to the core
+      catalog for this module.
+
+  - site_class: sshd.config
+    module: sshd
+    mitre: [T1098.004, T1556]
+    loci:
+      - /etc/ssh/sshd_config
+      - /etc/ssh/sshd_config.d/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      One record per non-comment, non-blank directive line, plus
+      one record per Match line. Match block scoping is encoded
+      into content_norm_sha256 by prepending the canonical Match
+      line to each directive's canonical form (see ADR-0004).
+      Directive keywords are lower-cased; values preserved verbatim.
+      Three module-specific signals added to core:
+      sshd_permit_root_login_yes, sshd_authorized_keys_command,
+      sshd_match_block_directive. Lives in its own module (sshd)
+      separate from ssh.authkeys because the parsing logic and
+      site_class are independent.
+
+  - site_class: pam
+    module: pam
+    mitre: [T1556.003]
+    loci:
+      - /etc/pam.d/
+      - /etc/pam.conf
+    status: implemented
+    test_coverage: golden
+    notes: |
+      One record per non-comment, non-blank line across every file
+      under /etc/pam.d/, plus /etc/pam.conf if present. Per-line
+      granularity. Line format per pam(7):
+      "<type> <control> <module-path> [args...]". exec_target is
+      the resolved module-path; standard core signals
+      (exec_target_orphan, interpreter_in_tmp,
+      recent_target_mtime_7d) cover the textbook implant pattern of
+      dropping a .so under /tmp and referencing it from /etc/pam.d/.
+      No pam-specific signals added in v0.1.0.
+
+  - site_class: ldso.preload
+    module: ldso
+    mitre: [T1574.006]
+    loci:
+      - /etc/ld.so.preload
+    status: implemented
+    test_coverage: golden
+    notes: |
+      ld.so.preload is one of the cheapest, highest-signal persistence
+      sites. Every non-empty line is a separate record with signals
+      including ld_preload_set and exec_target_orphan. Lines containing
+      multiple whitespace-separated paths are split: glibc honors that
+      form even though ld.so(8) documents one path per line.
+
+  - site_class: ldso.conf
+    module: ldso
+    mitre: [T1574.006]
+    loci:
+      - /etc/ld.so.conf
+    status: implemented
+    test_coverage: golden
+    notes: |
+      Library search-path configuration. One record per non-comment,
+      non-blank line. include directives emitted verbatim as their own
+      record; the agent does NOT expand the glob inside the record but
+      walks /etc/ld.so.conf.d/ separately under ldso.confd.
+
+  - site_class: ldso.confd
+    module: ldso
+    mitre: [T1574.006]
+    loci:
+      - /etc/ld.so.conf.d/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      Drop-in directory for ld.so.conf. One record per non-comment,
+      non-blank line across every *.conf file under the directory.
+
+  - site_class: sudoers
+    module: sudoers
+    mitre: [T1548.003]
+    loci:
+      - /etc/sudoers
+      - /etc/sudoers.d/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      One record per non-comment, non-blank line. Five line kinds
+      recognized: alias (User_Alias, Runas_Alias, Host_Alias,
+      Cmnd_Alias), Defaults, user-spec, #include, #includedir.
+      Per-line granularity; multi-user / multi-command user-specs
+      are NOT cartesian-expanded in v0.1.0. Members of *_Alias
+      records are sorted alphabetically for stacking. Include
+      directives emitted verbatim; the walker traverses
+      /etc/sudoers.d/* on its own without honoring custom
+      #includedir paths. Three module-specific signals added to
+      core: sudoers_nopasswd, sudoers_all_commands,
+      sudoers_include_directive.
+
+  - site_class: passwd.user
+    module: passwd
+    mitre: [T1136.001]
+    loci:
+      - /etc/passwd
+    status: implemented
+    test_coverage: golden
+    notes: |
+      One record per user with uid 0 OR shell not in
+      {/usr/sbin/nologin, /sbin/nologin, /bin/false, /usr/bin/false}.
+      Per-line granularity. Signal passwd_uid_zero fires when uid=0
+      and username != "root" (non-root uid-0 account is anomalous).
+
+  - site_class: passwd.shadow
+    module: passwd
+    mitre: [T1136.001]
+    loci:
+      - /etc/shadow
+    status: implemented
+    test_coverage: golden
+    notes: |
+      One record per shadow line corresponding to a passwd.user entry
+      (same filter applied). Password hash NEVER emitted (ADR-0005);
+      only password_status enum: set / locked / disabled / empty /
+      unknown. Signal passwd_no_password fires when status == empty.
+
+  - site_class: passwd.group
+    module: passwd
+    mitre: [T1136.001]
+    loci:
+      - /etc/group
+    status: implemented
+    test_coverage: golden
+    notes: |
+      One record per group line. Members are sorted alphabetically
+      in the canonical form for stacking. Any change to membership
+      (an attacker adding a user to wheel, sudo, docker, etc.)
+      surfaces immediately as a singleton.
+
+  - site_class: passwd.gshadow
+    module: passwd
+    mitre: [T1136.001]
+    loci:
+      - /etc/gshadow
+    status: implemented
+    test_coverage: golden
+    notes: |
+      One record per gshadow line. Group password hash treated under
+      the same policy as user password hash (ADR-0005): hash never
+      emitted, only password_status enum.
+
+  - site_class: profile.system
+    module: profile
+    mitre: [T1546.004]
+    loci:
+      - /etc/profile
+      - /etc/profile.d/
+      - /etc/bash.bashrc
+      - /etc/zsh/zshenv
+      - /etc/zsh/zprofile
+      - /etc/environment
+    status: implemented
+    test_coverage: golden
+    notes: |
+      System-wide shell init. Per-file record granularity (pattern
+      from cron.periodic). content_norm_sha256 is computed over a
+      normalized form that strips comments (any line starting with
+      '#' after left-trim, including shebangs since these files are
+      sourced not executed), drops blank lines and trims trailing
+      whitespace per line. content_sha256 is over the raw file
+      bytes. No module-specific signals; standard core signals
+      (recent_mtime_*, world_writable, non_root_owner) apply.
+
+  - site_class: profile.user
+    module: profile
+    mitre: [T1546.004]
+    loci:
+      - /root/.bashrc
+      - /root/.bash_profile
+      - /root/.bash_login
+      - /root/.profile
+      - /root/.zshrc
+      - /root/.zshenv
+      - /home/*/.bashrc
+      - /home/*/.bash_profile
+      - /home/*/.bash_login
+      - /home/*/.profile
+      - /home/*/.zshrc
+      - /home/*/.zshenv
+    status: implemented
+    test_coverage: golden
+    notes: |
+      Per-user shell init. Same canonicalization rules as
+      profile.system. Walker enumerates /root/ and /home/*/ and
+      probes each file in the candidate set; missing files produce
+      no record. Order across files within a host is NOT recorded
+      -- each file is independent for LFA purposes.
+
+  - site_class: motd
+    module: motd
+    mitre: [T1037]
+    loci:
+      - /etc/motd
+      - /etc/motd.d/
+      - /etc/update-motd.d/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      MITRE ATT&CK does not (as of May 2026) carry a sub-technique
+      specific to motd-via-PAM. T1037 is used as the closest match
+      (Boot or Logon Initialization Scripts, parent technique).
+      Per-file granularity. Two canonical-form rules per locus:
+      plain text for /etc/motd and /etc/motd.d/* ('#' is content,
+      not a comment); shell for /etc/update-motd.d/* (strip '#'
+      comments + blank lines + trailing whitespace, same as profile
+      and sysv). exec_target is set only on update-motd.d/* records
+      (those scripts are invoked by pam_motd at login). /etc/issue
+      and /etc/issue.net are deliberately out of scope -- they are
+      pre-login banners, not a PAM-mediated persistence vector.
+
+  - site_class: kmod
+    module: kmod
+    mitre: [T1547.006]
+    loci:
+      - /etc/modules
+      - /etc/modules-load.d/
+      - /usr/lib/modules-load.d/
+      - /run/modules-load.d/
+      - /etc/modprobe.d/
+      - /lib/modprobe.d/
+      - /usr/lib/modprobe.d/
+      - /run/modprobe.d/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      Per-directive (per-line) granularity. /etc/modules and
+      modules-load.d/* are simple lists of module names (one per
+      line). modprobe.d/* uses the modprobe(5) directive grammar:
+      alias, blacklist, install, options, remove, softdep. Line
+      continuations (`\` at EOL) are joined before parsing.
+      Canonical form lowercases the first whitespace token and
+      collapses runs of internal whitespace to a single space; values
+      keep their source case. install directives fire
+      kmod_install_directive and populate exec_target with argv[0] of
+      the replacement command -- the textbook modprobe.d persistence
+      vector. blacklist directives fire kmod_blacklist_directive.
+
+  - site_class: udev
+    module: udev
+    mitre: [T1546]
+    loci:
+      - /etc/udev/rules.d/
+      - /lib/udev/rules.d/
+      - /usr/lib/udev/rules.d/
+      - /run/udev/rules.d/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      Per-rule (per-logical-line) granularity. Backslash line
+      continuations are joined before parsing. Canonical form
+      collapses whitespace OUTSIDE quoted values to a single space
+      and standardizes spacing around commas to ", "; whitespace
+      INSIDE "..." quoted values is preserved verbatim. Key-op-value
+      triples retain source order. exec_target is the first token of
+      the first RUN+=/RUN= value found in the rule. RUN+= fires
+      udev_run_directive; PROGRAM= fires udev_program_directive.
+      MITRE T1546 (parent: Event Triggered Execution) -- ATT&CK has
+      no Linux-udev sub-technique as of May 2026.
+
+  - site_class: at.jobs
+    module: atjobs
+    mitre: [T1053.001]
+    loci:
+      - /var/spool/at/
+      - /var/spool/cron/atjobs/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      atd spool files: shell scripts that atd executes when their
+      queued time arrives. Per-file granularity. exec_target is set
+      to the spool file itself (same pattern as cron.periodic). The
+      atd-prepended header (umask, HOME=, PATH=, LOGNAME=, USER=,
+      SHELL=, TERM=, cd <home>) is stripped from
+      content_norm_sha256 -- it is volatile per user and would
+      defeat stacking. The heredoc body (between
+      `${SHELL:-/bin/sh} << 'MARKER'` and the closing MARKER on its
+      own line) is the canonical content; comments and blank lines
+      are then stripped (same rules as profile/sysv/motd-shell).
+      Hand-edited spool files that do not follow the atd layout
+      fall back to hashing the whole input with the same comment +
+      blank-line strip -- deterministic but lower stacking yield.
+      No module-specific signals.
+
+  - site_class: polkit.rules
+    module: polkit
+    mitre: [T1548]
+    loci:
+      - /etc/polkit-1/rules.d/
+      - /usr/share/polkit-1/rules.d/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      Polkit JS rules files evaluated by the polkit daemon to decide
+      whether an action is allowed. Per-file granularity. Canonical
+      form strips `//` line comments, `/* ... */` block comments,
+      blank lines, and trailing whitespace, while respecting string
+      literal boundaries (so a `//` inside `"http://x"` stays as
+      content, not a comment). exec_target is intentionally NOT
+      populated -- polkit rules evaluate policy, they do not run
+      binaries. Two module-specific signals fire on token presence
+      in the canonical form: `polkit_admin_rule` when the file
+      contains `addAdminRule(`, and `polkit_yes_constant` when it
+      contains `polkit.Result.YES`. MITRE T1548 (Abuse Elevation
+      Control Mechanism, parent technique) -- ATT&CK has no
+      Linux-polkit sub-technique as of May 2026.
+
+  - site_class: network.dispatchers
+    module: netdispatch
+    mitre: [T1546]
+    loci:
+      - /etc/NetworkManager/dispatcher.d/
+      - /etc/NetworkManager/dispatcher.d/pre-up.d/
+      - /etc/NetworkManager/dispatcher.d/pre-down.d/
+      - /etc/NetworkManager/dispatcher.d/no-wait.d/
+      - /etc/dhcp/dhclient-enter-hooks.d/
+      - /etc/dhcp/dhclient-exit-hooks.d/
+      - /etc/dhcpcd.enter.hook
+      - /etc/dhcpcd.exit.hook
+      - /etc/network/if-pre-up.d/
+      - /etc/network/if-up.d/
+      - /etc/network/if-down.d/
+      - /etc/network/if-post-down.d/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      Executable scripts invoked by network daemons on state
+      transitions. Four daemon families covered: NetworkManager,
+      dhclient, dhcpcd (single-file hooks rather than a directory),
+      and ifupdown. Per-file granularity. exec_target is the script
+      file path itself (same model as cron.periodic). Canonical
+      form strips '#' comments (including the shebang since it is
+      cosmetic for stacking), blank lines, and trailing whitespace
+      per line -- same rules as profile/sysv/motd-shell/atjobs.
+      Non-executable files emit a record with errors[] code
+      NOT_EXECUTABLE since the dispatcher daemon would skip them at
+      runtime. MITRE T1546 (Event Triggered Execution, parent
+      technique) -- ATT&CK has no Linux-network-dispatcher
+      sub-technique as of May 2026. PANIX, Mandiant, and The DFIR
+      Report have flagged this family in real campaigns.
+
+  - site_class: kernel.grub.config
+    module: grub
+    mitre: [T1542.003]
+    loci:
+      - /etc/default/grub
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      Per-line records from /etc/default/grub. Each non-comment,
+      non-blank KEY=VALUE line emits a record. The high-precision
+      signal is grub_cmdline_init: a GRUB_CMDLINE_LINUX* value
+      containing `init=<path>` overrides the kernel's pid-1 binary
+      at next boot -- the textbook bootloader-cmdline injection
+      pattern. When the signal fires, exec_target is populated with
+      the override path and the standard interpreter_in_tmp /
+      exec_target_orphan / non_package_path enrichments apply.
+      Canonical form strips the optional `export ` prefix and
+      trailing whitespace; quotes around values are preserved
+      verbatim (they affect grub-mkconfig parsing). MITRE T1542.003
+      (Pre-OS Boot: Bootkit) -- closest match in ATT&CK for
+      cmdline-injection without a real bootloader implant.
+
+  - site_class: kernel.grub.dropin
+    module: grub
+    mitre: [T1542.003]
+    loci:
+      - /etc/grub.d/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      Per-file records from /etc/grub.d/*. Each script is invoked
+      by grub-mkconfig at grub.cfg regeneration time as the user
+      running grub-mkconfig (typically root). Dropping a hostile
+      script here yields both write-time code execution AND a
+      custom boot entry that runs at the next boot. exec_target is
+      set to the script file path itself (same model as
+      cron.periodic). Canonical form strips '#' comments (including
+      the shebang since it is cosmetic for stacking), blank lines,
+      and trailing whitespace per line -- same rules as
+      profile/sysv/motd-shell/atjobs/netdispatch. MITRE T1542.003.
+
+  - site_class: xdg.autostart
+    module: xdg
+    mitre: [T1547.013]
+    loci:
+      - /etc/xdg/autostart/
+      - /root/.config/autostart/
+      - /home/*/.config/autostart/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      FreeDesktop .desktop INI files that the desktop session
+      executes at login. Per-file granularity. Canonical form drops
+      comments, blank lines, locale-suffixed keys
+      (Name[en], Comment[de], ...), and sorts keys within each
+      section alphabetically. Two semantically-equivalent .desktop
+      files produce the same content_norm_sha256 regardless of key
+      order, comment presence, or which locales are populated.
+      exec_target is argv[0] of the Exec= line in [Desktop Entry],
+      with FreeDesktop field codes (%U, %f, %i, ...) stripped and
+      surrounding double quotes removed. Standard core signals
+      apply (interpreter_in_tmp, exec_target_orphan,
+      non_package_path via provenance, live_process_attached via
+      /proc snapshot). No module-specific signals in v0.2.0; the
+      locus prefix tells the backend whether the record is
+      system-wide (/etc/xdg/autostart/) or per-user
+      (/root/.config/autostart/, /home/*/.config/autostart/).
+
+  - site_class: systemd.linger
+    module: linger
+    mitre: [T1546]
+    loci:
+      - /var/lib/systemd/linger/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      Per-user file under /var/lib/systemd/linger/<username> enables
+      user-mode systemd units for that account to survive logout.
+      Per-file granularity; the file body is systemd-managed and
+      always empty, so content_norm_sha256 is computed over the
+      username (the only stable discriminator for stacking). Signal
+      systemd_linger_non_root fires for any username other than
+      "root" -- root is baseline, non-root is the documented
+      persistence vector (PANIX, Mandiant Linux IR reports). MITRE
+      T1546 (Event Triggered Execution, parent technique) -- ATT&CK
+      has no Linux-systemd-linger sub-technique as of May 2026.
+
+  - site_class: systemd.tmpfiles
+    module: tmpfiles
+    mitre: [T1543.002]
+    loci:
+      - /etc/tmpfiles.d/
+      - /usr/lib/tmpfiles.d/
+      - /run/tmpfiles.d/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      systemd-tmpfiles directives executed at boot (and on demand
+      via `systemd-tmpfiles --create`). Per-directive granularity;
+      each non-comment, non-blank line in a *.conf is one record.
+      Canonical form collapses whitespace outside double-quoted
+      segments; type letter and path are preserved verbatim so LFA
+      groups directives by semantic intent. ExecTarget is the path
+      tmpfiles.d operates on (fields[1]) so the standard core
+      enrichments (interpreter_in_tmp, exec_target_orphan,
+      non_package_path via the resolver) apply when a directive
+      creates a payload under /tmp. New signal
+      tmpfiles_creates_under_tmp fires for create-class type
+      letters (f F w d D L C c b p) targeting a tmp-class path --
+      the textbook "restore payload across reboots" implant.
+
+  - site_class: systemd.sysusers
+    module: sysusers
+    mitre: [T1136.001]
+    loci:
+      - /etc/sysusers.d/
+      - /usr/lib/sysusers.d/
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      systemd-sysusers declarative user/group creation. Per-directive
+      granularity; each non-comment, non-blank line in a *.conf is
+      one record. Format per sysusers.d(5):
+      "type name id 'gecos' home shell". Canonical form collapses
+      whitespace outside double-quoted segments. Signal
+      sysusers_uid_zero fires when type==u AND id==0 AND name!=root:
+      the second-root-account implant routed through the declarative
+      path instead of direct /etc/passwd edit. Pair with passwd.user
+      records (cross-record correlation in the backend) to spot the
+      double-write attack pattern.

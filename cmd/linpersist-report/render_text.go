@@ -95,6 +95,8 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		{"  info", strconv.Itoa(sev["info"])},
 		{"Q8 mtime spikes", strconv.Itoa(len(report.Q8MtimeConcentration))},
 		{"Q11 orphan outside tmp", maybeRed(a, strconv.Itoa(len(report.Q11OrphanOutsideTmp)), len(report.Q11OrphanOutsideTmp) > 0)},
+		{"MITRE coverage", mitreCoverageSummary(report.MITRECoverage)},
+		{"Q12 basename clusters", strconv.Itoa(len(report.Q12BasenameClustering))},
 	}
 	for _, s := range summary {
 		fmt.Fprintf(out, "  %-26s %s\n", s.k+":", s.v)
@@ -144,6 +146,31 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	}
 	tw.Flush()
 	fmt.Fprintln(out)
+
+	// --- MITRE ATT&CK coverage -------------------------------------
+	textSection(out, a, fmt.Sprintf("MITRE ATT&CK coverage (%s)", mitreCoverageSummary(report.MITRECoverage)))
+	if report.MITRECoverage.TotalTechniques == 0 {
+		fmt.Fprintln(out, "  (matrix.yaml unavailable -- panel suppressed)")
+		fmt.Fprintln(out)
+	} else {
+		fmt.Fprintln(out, "Techniques declared in matrix.yaml cross-referenced with live records.")
+		fmt.Fprintln(out, "surfacing = at least one record carries the technique ID;")
+		fmt.Fprintln(out, "dormant   = declared as covered but no record observed yet.")
+		fmt.Fprintln(out)
+		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "  technique\tstatus\trecords\thosts\tsite_classes")
+		for _, row := range report.MITRECoverage.Rows {
+			status := row.Status
+			if status == "dormant" {
+				status = a.orange(status)
+			}
+			fmt.Fprintf(tw, "  %s\t%s\t%d\t%d\t%s\n",
+				row.TechniqueID, status, row.Records, row.Hosts,
+				strings.Join(row.SiteClasses, ", "))
+		}
+		tw.Flush()
+		fmt.Fprintln(out)
+	}
 
 	// --- Signal distribution (fleet-wide) ---------------------------
 	textSection(out, a, "Signal distribution (fleet-wide)")
@@ -372,6 +399,32 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 				r.ExecTarget, r.Hosts, r.Records,
 				r.Module, r.SiteClass, r.SampleHost,
 				r.SampleLocus)
+		}
+		tw.Flush()
+	}
+	fmt.Fprintln(out)
+
+	// --- Q12: campaign basename clustering ---------------------------
+	textSection(out, a, fmt.Sprintf("Q12 · Campaign basename clusters (%d)",
+		len(report.Q12BasenameClustering)))
+	fmt.Fprintln(out, "Same basename across >=2 modules on >=2 hosts. Catches multi-arm")
+	fmt.Fprintln(out, "campaigns whose arms each look like Q1 singletons in their own module.")
+	fmt.Fprintln(out, "Sorted ascending by host count -- rare/coordinated patterns surface first.")
+	fmt.Fprintln(out)
+	if len(report.Q12BasenameClustering) == 0 {
+		fmt.Fprintln(out, "  no rows")
+	} else {
+		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "  basename\thosts\trecords\tmodules\tsample_host\tsample_exec_target")
+		for _, r := range report.Q12BasenameClustering {
+			sampleExec := r.SampleExecTarget
+			if sampleExec == "" {
+				sampleExec = "(locus) " + r.SampleLocus
+			}
+			fmt.Fprintf(tw, "  %s\t%d\t%d\t%s\t%s\t%s\n",
+				r.Basename, r.Hosts, r.Records,
+				strings.Join(r.Modules, ", "),
+				r.SampleHost, sampleExec)
 		}
 		tw.Flush()
 	}
