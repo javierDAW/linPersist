@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 560" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13">
+  <title>linpersist detection flow</title>
+  <desc>A single NDJSON record runs through the declarative matcher and either ends up as a Q7 row with a severity pill or stays as inert collected data.</desc>
+
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1f2937"/>
+    </marker>
+    <marker id="arr-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+    </marker>
+  </defs>
+
+  <rect width="1080" height="560" fill="#ffffff"/>
+
+  <text x="540" y="30" text-anchor="middle" font-size="16" font-weight="700" fill="#0f172a">From record to verdict — one row at a time</text>
+  <text x="540" y="50" text-anchor="middle" font-size="12" fill="#475569">No scoring lives in the agent. Verdict is declared in detections.yaml and rendered by linpersist-report.</text>
+
+  <!-- Record card -->
+  <g transform="translate(40,80)">
+    <rect width="320" height="220" rx="8" fill="#f8fafc" stroke="#0f172a" stroke-width="1.5"/>
+    <rect width="320" height="28" rx="8" fill="#0f172a"/>
+    <text x="14" y="19" fill="#f1f5f9" font-weight="700">NDJSON record (schema_v: 1)</text>
+
+    <text x="14" y="56" font-size="11" fill="#0f172a"><tspan fill="#94a3b8">"module":</tspan> "cron",</text>
+    <text x="14" y="72" font-size="11" fill="#0f172a"><tspan fill="#94a3b8">"site_class":</tspan> "cron.d",</text>
+    <text x="14" y="88" font-size="11" fill="#0f172a"><tspan fill="#94a3b8">"locus":</tspan> "/etc/cron.d/backup",</text>
+    <text x="14" y="104" font-size="11" fill="#0f172a"><tspan fill="#94a3b8">"mitre":</tspan> ["T1053.003"],</text>
+    <text x="14" y="120" font-size="11" fill="#0f172a"><tspan fill="#94a3b8">"exec_target":</tspan> "/tmp/.x.sh",</text>
+    <text x="14" y="136" font-size="11" fill="#0f172a"><tspan fill="#94a3b8">"exec_target_pkg_status":</tspan> "orphan",</text>
+    <text x="14" y="152" font-size="11" fill="#0f172a"><tspan fill="#94a3b8">"signals":</tspan> [</text>
+    <text x="30" y="168" font-size="11" fill="#16a34a">"non_package_path",</text>
+    <text x="30" y="184" font-size="11" fill="#16a34a">"recent_mtime_7d",</text>
+    <text x="30" y="200" font-size="11" fill="#16a34a">"interpreter_in_tmp"</text>
+    <text x="14" y="216" font-size="11" fill="#0f172a">]</text>
+  </g>
+
+  <!-- Arrow record -> matcher -->
+  <path d="M 360 190 L 410 190" fill="none" stroke="#1f2937" stroke-width="1.8" marker-end="url(#arr)"/>
+  <text x="385" y="180" text-anchor="middle" font-size="10" fill="#475569">one row</text>
+
+  <!-- Matcher box -->
+  <g transform="translate(410,80)">
+    <rect width="320" height="380" rx="8" fill="#eef2ff" stroke="#4338ca" stroke-width="1.5"/>
+    <rect width="320" height="28" rx="8" fill="#4338ca"/>
+    <text x="14" y="19" fill="#fff" font-weight="700">matcher (linpersist-report)</text>
+
+    <text x="14" y="54" font-size="11" fill="#1e1b4b">reads detections.yaml at boot,</text>
+    <text x="14" y="70" font-size="11" fill="#1e1b4b">evaluates each rule against the record:</text>
+
+    <g transform="translate(14,82)">
+      <rect width="292" height="34" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="10" y="14" font-size="11" font-weight="700" fill="#4338ca">module_in</text>
+      <text x="10" y="28" font-size="10" fill="#475569">record.module ∈ ["cron"]</text>
+    </g>
+
+    <g transform="translate(14,124)">
+      <rect width="292" height="34" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="10" y="14" font-size="11" font-weight="700" fill="#4338ca">signals_all</text>
+      <text x="10" y="28" font-size="10" fill="#475569">all of [recent_mtime_7d, non_package_path]</text>
+    </g>
+
+    <g transform="translate(14,166)">
+      <rect width="292" height="34" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="10" y="14" font-size="11" font-weight="700" fill="#4338ca">signals_any</text>
+      <text x="10" y="28" font-size="10" fill="#475569">any of [interpreter_in_tmp, shell_indirect]</text>
+    </g>
+
+    <g transform="translate(14,208)">
+      <rect width="292" height="34" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="10" y="14" font-size="11" font-weight="700" fill="#4338ca">signals_none</text>
+      <text x="10" y="28" font-size="10" fill="#475569">none of [pkg_signed_managed] (FP guard)</text>
+    </g>
+
+    <g transform="translate(14,250)">
+      <rect width="292" height="34" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="10" y="14" font-size="11" font-weight="700" fill="#4338ca">content_contains_any</text>
+      <text x="10" y="28" font-size="10" fill="#475569">["curl ", "wget "] in content_snippet</text>
+    </g>
+
+    <line x1="14" y1="298" x2="306" y2="298" stroke="#4338ca" stroke-width="0.6"/>
+    <text x="14" y="316" font-size="11" font-weight="700" fill="#4338ca">rule matches</text>
+    <text x="14" y="332" font-size="11" fill="#1e1b4b">→ emit Q7 row</text>
+    <text x="14" y="348" font-size="11" fill="#1e1b4b">→ tag with severity</text>
+    <text x="14" y="364" font-size="11" fill="#1e1b4b">→ keep references to MITRE IDs</text>
+  </g>
+
+  <!-- Branch arrows out -->
+  <path d="M 730 200 L 800 130" fill="none" stroke="#1f2937" stroke-width="1.8" marker-end="url(#arr)"/>
+  <path d="M 730 360 L 800 470" fill="none" stroke="#9ca3af" stroke-width="1.2" marker-end="url(#arr-mut)" stroke-dasharray="4 3"/>
+  <text x="775" y="155" font-size="10" fill="#16a34a" font-weight="600">match</text>
+  <text x="755" y="460" font-size="10" fill="#94a3b8">no match</text>
+
+  <!-- Hit box -->
+  <g transform="translate(800,80)">
+    <rect width="240" height="220" rx="8" fill="#fff7ed" stroke="#c2410c" stroke-width="1.5"/>
+    <rect width="240" height="28" rx="8" fill="#c2410c"/>
+    <text x="14" y="19" fill="#fff" font-weight="700">Q7 hit row</text>
+
+    <text x="14" y="54" font-size="11" fill="#0f172a">cron_implant_in_tmp</text>
+    <text x="14" y="72" font-size="10" fill="#475569">T1053.003 — Cron</text>
+
+    <rect x="14" y="84" width="60" height="20" rx="10" fill="#dc2626"/>
+    <text x="44" y="98" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">critical</text>
+
+    <text x="14" y="124" font-size="10" fill="#0f172a">host: host-001</text>
+    <text x="14" y="140" font-size="10" fill="#0f172a">locus: /etc/cron.d/backup</text>
+    <text x="14" y="156" font-size="10" fill="#0f172a">exec: /tmp/.x.sh</text>
+    <text x="14" y="172" font-size="10" fill="#0f172a">signals: 3 matched, 0 blocked</text>
+
+    <line x1="14" y1="184" x2="226" y2="184" stroke="#c2410c" stroke-width="0.6"/>
+    <text x="14" y="202" font-size="10" font-weight="700" fill="#7c2d12">analyst triages</text>
+    <text x="14" y="214" font-size="10" fill="#475569">link → Q9 orphan, Q6 mtime</text>
+  </g>
+
+  <!-- No match box -->
+  <g transform="translate(800,420)">
+    <rect width="240" height="100" rx="8" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.2"/>
+    <text x="120" y="22" text-anchor="middle" font-weight="700" fill="#475569">no match — record stays in corpus</text>
+    <text x="14" y="44" font-size="10" fill="#475569">Still visible in:</text>
+    <text x="14" y="58" font-size="10" fill="#0f172a">• Q1 frequency stacks</text>
+    <text x="14" y="72" font-size="10" fill="#0f172a">• Q4 LFA tail</text>
+    <text x="14" y="86" font-size="10" fill="#0f172a">• --host dossier full dump</text>
+  </g>
+
+  <!-- Footer note -->
+  <g transform="translate(40,320)">
+    <rect width="320" height="180" rx="8" fill="#ecfeff" stroke="#0e7490" stroke-width="1"/>
+    <text x="14" y="22" font-weight="700" fill="#164e63">design invariant</text>
+    <text x="14" y="44" font-size="11" fill="#0f172a">The agent emits the record verbatim;</text>
+    <text x="14" y="60" font-size="11" fill="#0f172a">it never decides "malicious".</text>
+    <text x="14" y="80" font-size="11" fill="#0f172a">The matcher is declarative YAML —</text>
+    <text x="14" y="96" font-size="11" fill="#0f172a">edit a rule and re-run, no rebuild.</text>
+    <text x="14" y="120" font-size="11" fill="#475569" font-weight="600">predicates available</text>
+    <text x="14" y="136" font-size="10" fill="#475569">module_in · site_class_in</text>
+    <text x="14" y="150" font-size="10" fill="#475569">signals_all · signals_any · signals_none</text>
+    <text x="14" y="164" font-size="10" fill="#475569">content_contains_any</text>
+  </g>
+</svg>

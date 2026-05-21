@@ -12,24 +12,7 @@ turning every Linux persistence site into a hash, stacking those
 hashes, and reading the long tail — the singletons. Everything an
 attacker plants for persistence lives there.
 
-```
-                  one per fleet host                                                analyst's box
-   +----------------------------------------+                          +----------------------------------------+
-   |                                        |                          |                                        |
-   |          linpersist (agent)            |        NDJSON, 1         |       linpersist-report (renderer)     |
-   |   walks /etc, /var/lib/systemd, ...    | ---  record per      --> |      fleet HTML / text  -or-           |
-   |   normalizes content -> stable hash    |   persistence site       |      --host <id> dossier               |
-   |   emits cheap "signals"                |                          |                                        |
-   |     ~10 MB, static, no deps            |                          |   ~5 MB, static, no deps               |
-   +----------------------------------------+                          +----------------------------------------+
-                                                                                       |
-                                                                                       |  for fleets > 10k hosts:
-                                                                                       v
-                                                                       +---------------------------------+
-                                                                       |   tools/stack_demo.sql          |
-                                                                       |   piped into a `duckdb` shell   |
-                                                                       +---------------------------------+
-```
+![Pipeline: host to verdict](docs/img/pipeline.svg)
 
 ## Why bother — what only this tool does well
 
@@ -122,23 +105,7 @@ special: it matches every record against the rules declared in
 fired plus a severity tier. Q11 catches the implant subclass
 "unmanaged binary outside `/tmp`" via package-manager provenance.
 
-```
-   Record (NDJSON line)
-        |
-        | signals[]: recent_mtime_7d, exec_target_orphan,
-        |            interpreter_in_tmp, non_package_path, ...
-        v
-   +-------------------------+        +-----------------+
-   | Matcher (build-embedded |<-------| detections.yaml |
-   |   detections.yaml)      |        |  (23 rules)     |
-   +------------+------------+        +-----------------+
-                |
-                v
-   Q7 row in the report:
-   severity  host  module  site_class  locus  exec_target
-   matched_detections=[<rule-id>]
-   triage_signals=[...]
-```
+![Detection flow](docs/img/detection-flow.svg)
 
 ## How you use it
 
@@ -196,22 +163,7 @@ and a **module-coverage gap detector** flagging modules the host
 emitted zero records for when the fleet median is non-zero
 (silent agent failure, container image gap).
 
-```
-   Fleet mode (linpersist-report -i fleet/)         Dossier mode (--host <id>)
-   ------------------------------------------       --------------------------------------------
-   ~200 KB HTML, fixed size on any fleet            ~20 KB HTML per host
-   Q1   LFA singletons                              Host header (os / kernel / agent_version)
-   Q2   per-locus singletons                        Signal panel (rarest fleet-wide first)
-   Q3   peer-group LFA by os_id                     Implants for THIS host (Q4 filtered)
-   Q4   implant fingerprint                         Roll-call for THIS host (Q7 filtered)
-   Q5   signal distribution                         Fleet-unique records this host carries (Q1)
-   Q6   worm pattern                                Per-locus singletons (Q2)
-   Q7   implant roll-call (matched_detections)      Exec_target in tmp (Q9)
-   Q8   recent-mtime concentration                  Orphan exec_target outside tmp (Q11)
-   Q9   exec_target in tmp                          Recent-mtime spikes per module (Q8)
-   Q10  per-host coverage health                    Module coverage + gap detector
-   Q11  orphan exec_target outside tmp              ---
-```
+![Fleet vs dossier modes](docs/img/two-modes.svg)
 
 ### Power-user path: DuckDB
 

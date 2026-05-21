@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 600" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13">
+  <title>linpersist-report modes</title>
+  <desc>Same NDJSON corpus, two consumption modes. Fleet mode aggregates Q1-Q11 across all hosts. Dossier mode dumps every record for one host.</desc>
+
+  <defs>
+    <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1f2937"/>
+    </marker>
+  </defs>
+
+  <rect width="1080" height="600" fill="#ffffff"/>
+
+  <text x="540" y="30" text-anchor="middle" font-size="16" font-weight="700" fill="#0f172a">Two ways to read the same corpus</text>
+  <text x="540" y="50" text-anchor="middle" font-size="12" fill="#475569">linpersist-report decides what to show based on a single flag.</text>
+
+  <!-- Shared corpus -->
+  <g transform="translate(420,80)">
+    <rect width="240" height="80" rx="8" fill="#ecfeff" stroke="#0e7490" stroke-width="1.5"/>
+    <text x="120" y="22" text-anchor="middle" font-weight="700" fill="#164e63">corpus/</text>
+    <text x="120" y="42" text-anchor="middle" font-size="11" fill="#0f172a">N hosts &#215; M records</text>
+    <text x="120" y="58" text-anchor="middle" font-size="11" fill="#475569">NDJSON, schema_v: 1</text>
+    <text x="120" y="74" text-anchor="middle" font-size="11" fill="#475569">read-only</text>
+  </g>
+
+  <!-- Split arrows -->
+  <path d="M 480 160 L 280 200" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#a2)"/>
+  <path d="M 600 160 L 800 200" fill="none" stroke="#1f2937" stroke-width="1.6" marker-end="url(#a2)"/>
+
+  <!-- Left: Fleet mode -->
+  <g transform="translate(40,200)">
+    <rect width="480" height="370" rx="10" fill="#eef2ff" stroke="#4338ca" stroke-width="1.5"/>
+    <rect width="480" height="32" rx="10" fill="#4338ca"/>
+    <text x="16" y="22" fill="#fff" font-weight="700">FLEET MODE</text>
+    <text x="464" y="22" text-anchor="end" fill="#c7d2fe" font-size="11">--report fleet.html</text>
+
+    <text x="16" y="58" font-size="11" fill="#1e1b4b">All hosts, all 11 queries.</text>
+    <text x="16" y="74" font-size="11" fill="#1e1b4b">Built for fleet-scale triage.</text>
+
+    <!-- Q grid -->
+    <g transform="translate(16,90)">
+      <rect width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="46" y="18" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q1</text>
+      <text x="46" y="34" text-anchor="middle" font-size="9" fill="#475569">freq stack</text>
+
+      <rect x="96" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="142" y="18" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q2</text>
+      <text x="142" y="34" text-anchor="middle" font-size="9" fill="#475569">module roll</text>
+
+      <rect x="192" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="238" y="18" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q3</text>
+      <text x="238" y="34" text-anchor="middle" font-size="9" fill="#475569">site_class</text>
+
+      <rect x="288" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="334" y="18" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q4</text>
+      <text x="334" y="34" text-anchor="middle" font-size="9" fill="#475569">LFA tail</text>
+
+      <rect y="50" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="46" y="68" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q5</text>
+      <text x="46" y="84" text-anchor="middle" font-size="9" fill="#475569">peer group</text>
+
+      <rect x="96" y="50" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="142" y="68" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q6</text>
+      <text x="142" y="84" text-anchor="middle" font-size="9" fill="#475569">mtime burst</text>
+
+      <rect x="192" y="50" width="92" height="44" rx="4" fill="#fef3c7" stroke="#c2410c" stroke-width="1.2"/>
+      <text x="238" y="68" text-anchor="middle" font-weight="700" font-size="11" fill="#7c2d12">Q7</text>
+      <text x="238" y="84" text-anchor="middle" font-size="9" fill="#7c2d12">detections</text>
+
+      <rect x="288" y="50" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="334" y="68" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q8</text>
+      <text x="334" y="84" text-anchor="middle" font-size="9" fill="#475569">signals</text>
+
+      <rect y="100" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="46" y="118" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q9</text>
+      <text x="46" y="134" text-anchor="middle" font-size="9" fill="#475569">orphans</text>
+
+      <rect x="96" y="100" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="142" y="118" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q10</text>
+      <text x="142" y="134" text-anchor="middle" font-size="9" fill="#475569">snippet LFA</text>
+
+      <rect x="192" y="100" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="238" y="118" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q11</text>
+      <text x="238" y="134" text-anchor="middle" font-size="9" fill="#475569">mitre roll</text>
+
+      <rect x="288" y="100" width="92" height="44" rx="4" fill="#f1f5f9" stroke="#94a3b8" stroke-width="0.8" stroke-dasharray="3 2"/>
+      <text x="334" y="118" text-anchor="middle" font-size="10" fill="#475569">+ extensions</text>
+      <text x="334" y="134" text-anchor="middle" font-size="9" fill="#475569">via SQL</text>
+    </g>
+
+    <line x1="16" y1="258" x2="464" y2="258" stroke="#4338ca" stroke-width="0.6"/>
+
+    <text x="16" y="278" font-size="11" font-weight="700" fill="#1e1b4b">when to use</text>
+    <text x="16" y="294" font-size="11" fill="#1e1b4b">daily fleet sweep:</text>
+    <text x="16" y="310" font-size="11" fill="#1e1b4b">surface anomalies across all hosts at once.</text>
+
+    <text x="16" y="334" font-size="11" font-weight="700" fill="#1e1b4b">scales to</text>
+    <text x="16" y="350" font-size="11" fill="#1e1b4b">~10k hosts on the Go renderer,</text>
+    <text x="16" y="364" font-size="11" fill="#1e1b4b">&gt;10k via DuckDB + stack_demo.sql.</text>
+  </g>
+
+  <!-- Right: Dossier mode -->
+  <g transform="translate(560,200)">
+    <rect width="480" height="370" rx="10" fill="#fdf4ff" stroke="#a21caf" stroke-width="1.5"/>
+    <rect width="480" height="32" rx="10" fill="#a21caf"/>
+    <text x="16" y="22" fill="#fff" font-weight="700">DOSSIER MODE</text>
+    <text x="464" y="22" text-anchor="end" fill="#fbcfe8" font-size="11">--host &lt;id&gt;</text>
+
+    <text x="16" y="58" font-size="11" fill="#581c87">One host, every record.</text>
+    <text x="16" y="74" font-size="11" fill="#581c87">Open after Q7 surfaces a candidate.</text>
+
+    <!-- Dossier sections -->
+    <g transform="translate(16,90)">
+      <rect width="448" height="36" rx="4" fill="#fff" stroke="#a21caf" stroke-width="0.8"/>
+      <text x="12" y="22" font-weight="700" font-size="11" fill="#581c87">host header</text>
+      <text x="200" y="22" font-size="10" fill="#475569">os, kernel, agent_version</text>
+
+      <rect y="44" width="448" height="36" rx="4" fill="#fff" stroke="#a21caf" stroke-width="0.8"/>
+      <text x="12" y="66" font-weight="700" font-size="11" fill="#581c87">Q7 hits (this host)</text>
+      <text x="200" y="66" font-size="10" fill="#475569">severity-sorted, MITRE IDs</text>
+
+      <rect y="88" width="448" height="36" rx="4" fill="#fff" stroke="#a21caf" stroke-width="0.8"/>
+      <text x="12" y="110" font-weight="700" font-size="11" fill="#581c87">records by module</text>
+      <text x="200" y="110" font-size="10" fill="#475569">cron, systemd, ssh.authkeys ...</text>
+
+      <rect y="132" width="448" height="36" rx="4" fill="#fff" stroke="#a21caf" stroke-width="0.8"/>
+      <text x="12" y="154" font-weight="700" font-size="11" fill="#581c87">signal histogram</text>
+      <text x="200" y="154" font-size="10" fill="#475569">rarest fleet-wide first</text>
+
+      <rect y="176" width="448" height="36" rx="4" fill="#f1f5f9" stroke="#94a3b8" stroke-width="0.8" stroke-dasharray="3 2"/>
+      <text x="12" y="198" font-size="11" fill="#475569">aggregations skipped: only one host.</text>
+    </g>
+
+    <line x1="16" y1="280" x2="464" y2="280" stroke="#a21caf" stroke-width="0.6"/>
+
+    <text x="16" y="300" font-size="11" font-weight="700" fill="#581c87">when to use</text>
+    <text x="16" y="316" font-size="11" fill="#581c87">drill-down on a flagged host:</text>
+    <text x="16" y="330" font-size="11" fill="#581c87">show me everything we have on it.</text>
+
+    <text x="16" y="354" font-size="11" font-weight="700" fill="#581c87">scales to</text>
+    <text x="16" y="370" font-size="11" fill="#581c87">one host at a time, on demand.</text>
+  </g>
+</svg>
