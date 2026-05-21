@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 620" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13">
+  <title>linpersist repo architecture</title>
+  <desc>Three entrypoints (agent, report, detgen) sit on top of shared internal/core. Modules emit records, detections.yaml drives Q7 matching, detgen regenerates the Q7 block of stack_demo.sql at release time.</desc>
+
+  <defs>
+    <marker id="ax" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1f2937"/>
+    </marker>
+    <marker id="ax-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+    </marker>
+  </defs>
+
+  <rect width="1080" height="620" fill="#ffffff"/>
+
+  <text x="540" y="30" text-anchor="middle" font-size="16" font-weight="700" fill="#0f172a">Repo architecture — three entrypoints over a shared core</text>
+  <text x="540" y="50" text-anchor="middle" font-size="12" fill="#475569">Two runtime binaries plus one maintainer-side generator. All three depend on internal/core.</text>
+
+  <!-- Row 1: entrypoints -->
+  <text x="160" y="80" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">runtime (per host)</text>
+  <text x="540" y="80" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">runtime (analyst box)</text>
+  <text x="920" y="80" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">maintainer-side (release gate)</text>
+
+  <!-- linpersist agent -->
+  <g transform="translate(40,90)">
+    <rect width="240" height="86" rx="8" fill="#fef9c3" stroke="#a16207" stroke-width="1.5"/>
+    <rect width="240" height="28" rx="8" fill="#a16207"/>
+    <text x="14" y="19" fill="#fff" font-weight="700">cmd/linpersist</text>
+    <text x="14" y="50" font-size="11" fill="#713f12">walks loci, normalizes, hashes,</text>
+    <text x="14" y="66" font-size="11" fill="#713f12">tags signals, emits NDJSON</text>
+    <text x="14" y="80" font-size="10" fill="#713f12">~10 MB static · CGO_ENABLED=0</text>
+  </g>
+
+  <!-- linpersist-report -->
+  <g transform="translate(420,90)">
+    <rect width="240" height="86" rx="8" fill="#eef2ff" stroke="#4338ca" stroke-width="1.5"/>
+    <rect width="240" height="28" rx="8" fill="#4338ca"/>
+    <text x="14" y="19" fill="#fff" font-weight="700">cmd/linpersist-report</text>
+    <text x="14" y="50" font-size="11" fill="#1e1b4b">renders fleet HTML / text</text>
+    <text x="14" y="66" font-size="11" fill="#1e1b4b">or --host &lt;id&gt; dossier</text>
+    <text x="14" y="80" font-size="10" fill="#1e1b4b">runs declarative matcher</text>
+  </g>
+
+  <!-- detgen -->
+  <g transform="translate(800,90)">
+    <rect width="240" height="86" rx="8" fill="#f1f5f9" stroke="#475569" stroke-width="1.5" stroke-dasharray="5 3"/>
+    <rect width="240" height="28" rx="8" fill="#475569"/>
+    <text x="14" y="19" fill="#fff" font-weight="700">cmd/detgen</text>
+    <text x="14" y="50" font-size="11" fill="#0f172a">YAML &#8594; SQL transpiler</text>
+    <text x="14" y="66" font-size="11" fill="#0f172a">rewrites Q7 block in stack_demo</text>
+    <text x="14" y="80" font-size="10" fill="#475569">not shipped, not run at runtime</text>
+  </g>
+
+  <!-- Arrows row 1 -> row 2 -->
+  <path d="M 160 176 L 160 210" fill="none" stroke="#1f2937" stroke-width="1.5" marker-end="url(#ax)"/>
+  <path d="M 540 176 L 540 210" fill="none" stroke="#1f2937" stroke-width="1.5" marker-end="url(#ax)"/>
+  <path d="M 920 176 L 920 192 L 1056 192 L 1056 350 L 870 350 L 870 508" fill="none" stroke="#9ca3af" stroke-width="1.2" marker-end="url(#ax-mut)" stroke-dasharray="4 3"/>
+  <text x="1060" y="270" text-anchor="end" font-size="10" fill="#475569">regenerates Q7 block</text>
+
+  <!-- Row 2: shared core -->
+  <g transform="translate(60,210)">
+    <rect width="960" height="120" rx="10" fill="#ecfeff" stroke="#0e7490" stroke-width="1.6"/>
+    <rect width="960" height="30" rx="10" fill="#0e7490"/>
+    <text x="16" y="20" fill="#fff" font-weight="700">internal/core/  (shared by both runtime binaries)</text>
+    <text x="940" y="20" text-anchor="end" fill="#cffafe" font-size="11">schema_v: 1</text>
+
+    <g transform="translate(16,46)">
+      <rect width="220" height="60" rx="4" fill="#fff" stroke="#0e7490" stroke-width="0.8"/>
+      <text x="10" y="18" font-size="11" font-weight="700" fill="#164e63">Record schema</text>
+      <text x="10" y="34" font-size="10" fill="#0f172a">struct + JSON tags</text>
+      <text x="10" y="48" font-size="10" fill="#0f172a">canonical NDJSON</text>
+    </g>
+
+    <g transform="translate(248,46)">
+      <rect width="220" height="60" rx="4" fill="#fff" stroke="#0e7490" stroke-width="0.8"/>
+      <text x="10" y="18" font-size="11" font-weight="700" fill="#164e63">Signals catalog</text>
+      <text x="10" y="34" font-size="10" fill="#0f172a">43 canonical signals</text>
+      <text x="10" y="48" font-size="10" fill="#0f172a">per-signal EmittedBy</text>
+    </g>
+
+    <g transform="translate(480,46)">
+      <rect width="220" height="60" rx="4" fill="#fff" stroke="#0e7490" stroke-width="0.8"/>
+      <text x="10" y="18" font-size="11" font-weight="700" fill="#164e63">Module interface</text>
+      <text x="10" y="34" font-size="10" fill="#0f172a">Name / SiteClasses / Collect</text>
+      <text x="10" y="48" font-size="10" fill="#0f172a">runner with per-mod timeout</text>
+    </g>
+
+    <g transform="translate(712,46)">
+      <rect width="232" height="60" rx="4" fill="#fff" stroke="#0e7490" stroke-width="0.8"/>
+      <text x="10" y="18" font-size="11" font-weight="700" fill="#164e63">host meta + provenance</text>
+      <text x="10" y="34" font-size="10" fill="#0f172a">/etc/os-release, machine-id</text>
+      <text x="10" y="48" font-size="10" fill="#0f172a">dpkg / rpm orphan check</text>
+    </g>
+  </g>
+
+  <!-- Row 2 -> Row 3 connectors -->
+  <path d="M 200 330 L 200 370" fill="none" stroke="#1f2937" stroke-width="1.5" marker-end="url(#ax)"/>
+  <path d="M 540 330 L 540 370" fill="none" stroke="#1f2937" stroke-width="1.5" marker-end="url(#ax)"/>
+
+  <!-- Row 3: three internal packages -->
+  <!-- internal/modules -->
+  <g transform="translate(40,370)">
+    <rect width="320" height="220" rx="8" fill="#ecfccb" stroke="#4d7c0f" stroke-width="1.5"/>
+    <rect width="320" height="28" rx="8" fill="#4d7c0f"/>
+    <text x="14" y="19" fill="#fff" font-weight="700">internal/modules/  (21 families)</text>
+
+    <g transform="translate(14,40)">
+      <text x="0" y="14" font-size="10" fill="#1a2e05">cron</text>
+      <text x="80" y="14" font-size="10" fill="#1a2e05">systemd.unit</text>
+      <text x="190" y="14" font-size="10" fill="#1a2e05">systemd.timer</text>
+      <text x="0" y="30" font-size="10" fill="#1a2e05">sysv.init</text>
+      <text x="80" y="30" font-size="10" fill="#1a2e05">ssh.authkeys</text>
+      <text x="190" y="30" font-size="10" fill="#1a2e05">sshd.config</text>
+      <text x="0" y="46" font-size="10" fill="#1a2e05">pam</text>
+      <text x="80" y="46" font-size="10" fill="#1a2e05">sudoers</text>
+      <text x="190" y="46" font-size="10" fill="#1a2e05">passwd</text>
+      <text x="0" y="62" font-size="10" fill="#1a2e05">ldso.preload</text>
+      <text x="80" y="62" font-size="10" fill="#1a2e05">kmod</text>
+      <text x="190" y="62" font-size="10" fill="#1a2e05">udev</text>
+      <text x="0" y="78" font-size="10" fill="#1a2e05">profile.sys</text>
+      <text x="80" y="78" font-size="10" fill="#1a2e05">profile.user</text>
+      <text x="190" y="78" font-size="10" fill="#1a2e05">motd</text>
+      <text x="0" y="94" font-size="10" fill="#1a2e05">grub</text>
+      <text x="80" y="94" font-size="10" fill="#1a2e05">polkit</text>
+      <text x="190" y="94" font-size="10" fill="#1a2e05">xdg.autostart</text>
+      <text x="0" y="110" font-size="10" fill="#1a2e05">atjobs</text>
+      <text x="80" y="110" font-size="10" fill="#1a2e05">netdispatch</text>
+      <text x="190" y="110" font-size="10" fill="#1a2e05">systemd.linger</text>
+      <text x="0" y="126" font-size="10" fill="#1a2e05">systemd.tmpfiles</text>
+      <text x="190" y="126" font-size="10" fill="#1a2e05">systemd.sysusers</text>
+    </g>
+
+    <line x1="14" y1="184" x2="306" y2="184" stroke="#4d7c0f" stroke-width="0.6"/>
+    <text x="14" y="202" font-size="10" fill="#1a2e05">each implements core.Module</text>
+    <text x="14" y="214" font-size="10" fill="#475569">read-only walk &#8594; emit Record</text>
+  </g>
+
+  <!-- internal/detections -->
+  <g transform="translate(380,370)">
+    <rect width="320" height="220" rx="8" fill="#fdf4ff" stroke="#a21caf" stroke-width="1.5"/>
+    <rect width="320" height="28" rx="8" fill="#a21caf"/>
+    <text x="14" y="19" fill="#fff" font-weight="700">internal/detections/</text>
+
+    <g transform="translate(14,40)">
+      <rect width="292" height="40" rx="4" fill="#fff" stroke="#a21caf" stroke-width="0.8"/>
+      <text x="10" y="16" font-size="11" font-weight="700" fill="#581c87">detections.yaml</text>
+      <text x="10" y="32" font-size="10" fill="#0f172a">23 rules, embedded at build</text>
+    </g>
+
+    <g transform="translate(14,90)">
+      <rect width="292" height="40" rx="4" fill="#fff" stroke="#a21caf" stroke-width="0.8"/>
+      <text x="10" y="16" font-size="11" font-weight="700" fill="#581c87">loader.go / matcher.go</text>
+      <text x="10" y="32" font-size="10" fill="#0f172a">predicate evaluation per record</text>
+    </g>
+
+    <g transform="translate(14,140)">
+      <rect width="292" height="40" rx="4" fill="#fff" stroke="#a21caf" stroke-width="0.8"/>
+      <text x="10" y="16" font-size="11" font-weight="700" fill="#581c87">sql.go</text>
+      <text x="10" y="32" font-size="10" fill="#0f172a">emits Q7 block for stack_demo.sql</text>
+    </g>
+
+    <line x1="14" y1="194" x2="306" y2="194" stroke="#a21caf" stroke-width="0.6"/>
+    <text x="14" y="212" font-size="10" fill="#581c87">linked into linpersist-report and detgen</text>
+  </g>
+
+  <!-- tools/stack_demo.sql -->
+  <g transform="translate(720,370)">
+    <rect width="320" height="220" rx="8" fill="#fff7ed" stroke="#c2410c" stroke-width="1.5"/>
+    <rect width="320" height="28" rx="8" fill="#c2410c"/>
+    <text x="14" y="19" fill="#fff" font-weight="700">tools/stack_demo.sql</text>
+
+    <text x="14" y="50" font-size="11" fill="#0f172a">Q1 LFA singletons</text>
+    <text x="14" y="66" font-size="11" fill="#0f172a">Q2 per-locus singletons</text>
+    <text x="14" y="82" font-size="11" fill="#0f172a">Q3 peer-group LFA</text>
+    <text x="14" y="98" font-size="11" fill="#0f172a">Q4 implant fingerprint</text>
+    <text x="14" y="114" font-size="11" fill="#0f172a">Q5 signal distribution</text>
+    <text x="14" y="130" font-size="11" fill="#0f172a">Q6 worm pattern</text>
+
+    <rect x="10" y="138" width="300" height="42" rx="4" fill="#fef3c7" stroke="#c2410c" stroke-width="1.2"/>
+    <text x="20" y="156" font-size="11" font-weight="700" fill="#7c2d12">Q7 implant roll-call</text>
+    <text x="20" y="172" font-size="10" fill="#7c2d12">BEGIN/END GENERATED &#8212; rewritten by detgen</text>
+
+    <text x="14" y="200" font-size="11" fill="#0f172a">Q8 mtime · Q9 tmp exec</text>
+    <text x="14" y="214" font-size="11" fill="#0f172a">Q10 coverage health · Q11 orphan</text>
+  </g>
+
+  <!-- Cross-arrow: detections -> SQL (right) -->
+  <path d="M 700 480 L 720 480" fill="none" stroke="#1f2937" stroke-width="1.5" marker-end="url(#ax)"/>
+  <text x="710" y="473" text-anchor="middle" font-size="9" fill="#475569">sql.go</text>
+</svg>

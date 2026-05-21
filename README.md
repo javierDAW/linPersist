@@ -319,29 +319,7 @@ EDR. No replacement, just a really good input.
 
 ## Architecture
 
-```
-   linpersist-report      linpersist                detgen
-   (fleet + dossier)      (collects on each host)   (regenerates SQL from YAML)
-        |                       |                        |
-        +-----------+-----------+                        |
-                    |                                    |
-                    v                                    v
-              internal/core/                  tools/stack_demo.sql
-              - Record schema (v1)            (Q7 block: BEGIN GENERATED .. END GENERATED)
-              - Signals catalog (43 entries)
-              - Module interface
-                    |
-                    v
-              internal/modules/  (21 module families)
-              - cron, systemd, ssh, sshd, sudoers, pam,
-                passwd, ldso, kmod, udev, profile, motd,
-                grub, polkit, xdg, atjobs, netdispatch,
-                sysv, linger, tmpfiles, sysusers
-
-              internal/detections/  (the matcher engine)
-              - detections.yaml (23 rules, schema v1)
-              - loader / matcher / sql.go
-```
+![Repo architecture](docs/img/architecture.svg)
 
 Two release gates are wired into `make all`:
 
