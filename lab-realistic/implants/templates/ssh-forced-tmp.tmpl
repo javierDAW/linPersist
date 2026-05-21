@@ -1,0 +1,30 @@
+# Implant template: ssh-forced-tmp (L1, armed)
+#
+# An ssh authorized_keys entry with command="/tmp/.X/persist" forced
+# command. The payload file IS created (armed). On a jump host with
+# legitimate forced-command keys (backup workflows), this implant
+# tests whether linpersist can distinguish them based on the
+# interpreter_in_tmp signal (the command path is in /tmp/).
+#
+# Variables: ${authorized_keys_file}, ${forced_cmd_path}, ${key_blob}
+
+# Create the payload script (armed scenario).
+RUN mkdir -p "$$(dirname ${forced_cmd_path})" && \
+    printf '%s\n' \
+        '#!/bin/sh' \
+        '# INERT IMPLANT MARKER -- lab artifact, not real malware.' \
+        'echo "lab-implant ssh-forced-tmp host=$$(hostname)" >> /tmp/.implant-trace' \
+        > ${forced_cmd_path} && \
+    chmod 0755 ${forced_cmd_path}
+
+# Append the attacker key. Note: we append, not overwrite, so we
+# coexist with any legitimate keys the role overlay (e.g. jump) put
+# there. This is more realistic than overwriting.
+RUN mkdir -p "$$(dirname ${authorized_keys_file})" && \
+    chmod 0700 "$$(dirname ${authorized_keys_file})" && \
+    touch ${authorized_keys_file} && \
+    printf 'command="%s" ssh-ed25519 %s attacker@operator\n' \
+        '${forced_cmd_path}' \
+        '${key_blob}' \
+        >> ${authorized_keys_file} && \
+    chmod 0600 ${authorized_keys_file}

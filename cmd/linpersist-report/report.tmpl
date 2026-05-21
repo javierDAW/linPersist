@@ -502,6 +502,43 @@
     </div>
   </section>
 
+  {{/* ========== Q12 ========== */}}
+  <section class="pane" data-pane="q12">
+    <h2>Q12 · Campaign basename clusters</h2>
+    <p class="lede">Same basename of <code>exec_target</code> (or <code>locus</code> when exec_target is empty) appearing in two or more modules across two or more hosts. Surfaces multi-arm campaigns whose individual arms each look like Q1 singletons in their own module (the v0.2.0 deploy-sync pattern). Sorted ascending by host count.</p>
+    <p class="hint">Expect FPs from vendor baselines shipping the same name in <code>systemd.unit</code> and <code>sysv.init</code> (nginx, redis-server, prometheus, cron). Triage from the top -- rare cross-module pairs are the interesting ones.</p>
+    {{if .Report.Q12BasenameClustering}}
+    <input class="search" type="search" placeholder="filter rows..." data-target="#t-q12">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q12">
+        <thead><tr>
+          <th>basename</th>
+          <th data-sort-type="num">hosts</th>
+          <th data-sort-type="num">records</th>
+          <th>modules</th>
+          <th>sample_host</th>
+          <th>sample_exec_target / locus</th>
+        </tr></thead>
+        <tbody>
+        {{range .Report.Q12BasenameClustering}}
+          <tr>
+            <td><code>{{.Basename}}</code></td>
+            <td class="num">{{.Hosts}}</td>
+            <td class="num">{{.Records}}</td>
+            <td>{{range $i, $m := .Modules}}{{if $i}}, {{end}}<code>{{$m}}</code>{{end}}</td>
+            <td>{{.SampleHost}}</td>
+            <td><code>{{if .SampleExecTarget}}{{.SampleExecTarget}}{{else}}(locus) {{.SampleLocus}}{{end}}</code></td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <p class="hint">No rows. Either the fleet contains no cross-module basename overlaps, or every overlap landed on a single host.</p>
+    {{end}}
+  </section>
+
+
 </main>
 
 <script>{{ .JS }}</script>

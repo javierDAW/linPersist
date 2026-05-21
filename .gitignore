@@ -25,11 +25,15 @@ Thumbs.db
 .env
 .envrc
 
-# Local Docker labs (not versioned). Each has its own README; the
-# lab infrastructure itself is never published.
+# Local Docker labs. The original (v0.1.0..v0.2.0) policy kept the
+# entire directory out of the repo. As of v0.3.3 the lab-realistic
+# infrastructure (templates, policies, role configs, implant catalog,
+# scripts) IS part of the product and lives in the repo; only its
+# generated artifacts under lab-realistic/out/ remain ignored. The
+# legacy lab/ and lab-large/ playgrounds stay fully ignored.
 lab/
 lab-large/
-lab-realistic/
+lab-realistic/out/
 
 # Benchmark documents under docs/benchmarks/ are committed as of v0.3.0.
 

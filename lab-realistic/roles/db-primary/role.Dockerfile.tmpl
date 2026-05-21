@@ -1,0 +1,67 @@
+# Role: db-primary
+# Vars: ${hostname}, ${distro}, ${env}, ${datacenter}, ${engine}, ${provisioned_at_iso}
+FROM linpersist-lab/${distro}-base:latest
+
+RUN if [ "${engine}" = "pg" ]; then \
+        mkdir -p /etc/postgresql/15/main && \
+        printf '%s\n' \
+            '# postgresql.conf -- tuned over time.' \
+            "shared_buffers = 4GB         # 2023-11: bumped from 2GB after p99 spike" \
+            "max_connections = 200" \
+            "wal_level = replica" \
+            "archive_mode = on" \
+            "archive_command = 'pgbackrest --stanza=main archive-push %p'" \
+            "log_statement = 'ddl'" \
+            > /etc/postgresql/15/main/postgresql.conf && \
+        printf '%s\n' \
+            '# pg_hba.conf -- replica entries added over the years.' \
+            'local   all             postgres                                peer' \
+            'host    replication     replicator      10.0.1.10/32            scram-sha-256  # 2023-06 replica' \
+            'host    replication     replicator      10.0.1.11/32            scram-sha-256  # 2023-08 added second replica' \
+            'host    replication     replicator      10.0.2.10/32            scram-sha-256  # 2024-03 DR replica, JIRA-3211' \
+            'host    all             monitoring      10.0.5.0/24             scram-sha-256  # 2024-01 prometheus exporter' \
+            'host    all             all             10.0.0.0/8              scram-sha-256' \
+            > /etc/postgresql/15/main/pg_hba.conf ; \
+    else \
+        mkdir -p /etc/mysql/mariadb.conf.d && \
+        printf '%s\n' \
+            '[mysqld]' 'binlog_format = ROW' 'log_bin = /var/log/mysql/mariadb-bin' \
+            'server_id = 1' 'innodb_buffer_pool_size = 4G  # bumped 2024-Q1' \
+            > /etc/mysql/mariadb.conf.d/99-replication.cnf ; \
+    fi
+
+RUN mkdir -p /etc/cron.d /usr/local/sbin && \
+    printf '%s\n' \
+        '# JIRA-2104 -- nightly to S3 via pgbackrest / mydumper.' \
+        'SHELL=/bin/bash' \
+        'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
+        '0 2 * * * root /usr/local/sbin/db-nightly-backup.sh > /var/log/db-backup.log 2>&1' \
+        '15 */6 * * * root /usr/local/sbin/db-validate-replica.sh' \
+        > /etc/cron.d/db-backup && \
+    chown root:root /etc/cron.d/db-backup && chmod 0644 /etc/cron.d/db-backup && \
+    printf '#!/bin/sh\necho "lab-stub db-nightly-backup"\n' > /usr/local/sbin/db-nightly-backup.sh && \
+    chmod 0755 /usr/local/sbin/db-nightly-backup.sh && \
+    printf '#!/bin/sh\necho "lab-stub db-validate-replica"\n' > /usr/local/sbin/db-validate-replica.sh && \
+    chmod 0755 /usr/local/sbin/db-validate-replica.sh
+
+RUN mkdir -p /etc/sudoers.d && \
+    printf '%s\n' \
+        '%dba ALL=(postgres) NOPASSWD: /usr/bin/pg_ctl, /usr/sbin/service postgresql *' \
+        > /etc/sudoers.d/20-dba && chmod 0440 /etc/sudoers.d/20-dba
+
+RUN mkdir -p /opt/prometheus-exporters/bin /etc/systemd/system && \
+    printf '#!/bin/sh\nexec sleep infinity\n' > /opt/prometheus-exporters/bin/postgres_exporter && \
+    chmod 0755 /opt/prometheus-exporters/bin/postgres_exporter && \
+    printf '%s\n' \
+        '[Unit]' 'Description=postgres_exporter (vendor)' \
+        '[Service]' 'ExecStart=/opt/prometheus-exporters/bin/postgres_exporter' 'User=monitoring' \
+        '[Install]' 'WantedBy=multi-user.target' \
+        > /etc/systemd/system/postgres-exporter.service
+
+# DataDog also lives on db-primary per policy.
+RUN mkdir -p /opt/datadog-agent/bin && \
+    printf '#!/bin/sh\nexec sleep infinity\n' > /opt/datadog-agent/bin/datadog-agent && \
+    chmod 0755 /opt/datadog-agent/bin/datadog-agent
+
+RUN echo "${provisioned_at_iso}" > /etc/lab.provisioned_at && \
+    echo "role=db-primary env=${env} datacenter=${datacenter} engine=${engine}" > /etc/lab.role-metadata

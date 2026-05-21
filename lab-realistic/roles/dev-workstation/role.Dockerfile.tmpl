@@ -1,0 +1,72 @@
+# Role: dev-workstation
+# Vars: ${hostname}, ${distro}, ${env}, ${datacenter}, ${team},
+#       ${primary_user}, ${old_user_a}, ${old_user_b}, ${provisioned_at_iso}
+FROM linpersist-lab/${distro}-base:latest
+
+# Three users; useradd is in shadow-utils which the distro base ships.
+RUN useradd -m -s /bin/zsh ${primary_user} 2>/dev/null || true && \
+    useradd -m -s /bin/bash ${old_user_a} 2>/dev/null || true && \
+    useradd -m -s /bin/bash ${old_user_b} 2>/dev/null || true
+
+# Primary user dotfiles + AI CLI stubs.
+RUN U=${primary_user} ; H=/home/$$U && \
+    mkdir -p $$H/.config/anthropic $$H/.config/github-copilot $$H/.cursor \
+             $$H/.config/claude-code $$H/.ssh $$H/.local/bin \
+             $$H/.oh-my-zsh && \
+    printf '%s\n' \
+        'export ZSH=$$HOME/.oh-my-zsh' \
+        'ZSH_THEME="powerlevel10k/powerlevel10k"' \
+        'plugins=(git docker kubectl npm pyenv aws gcloud)' \
+        'source $$ZSH/oh-my-zsh.sh' \
+        'export PATH=$$HOME/.local/bin:$$HOME/.cargo/bin:$$PATH' \
+        'export EDITOR=vim' \
+        'alias k=kubectl' \
+        'alias tf=terraform' \
+        'alias gco="git checkout"' \
+        'alias gst="git status"' \
+        'export AWS_PROFILE=corp-${team}' \
+        'export HTTP_PROXY=http://proxy.corp.example:3128' \
+        'export HTTPS_PROXY=http://proxy.corp.example:3128' \
+        'export NO_PROXY=localhost,127.0.0.1,.corp.example' \
+        > $$H/.zshrc && \
+    printf '{"apiKey":"sk-ant-redacted","model":"claude-3-7-sonnet"}\n' \
+        > $$H/.config/anthropic/claude.json && \
+    printf '{"github.copilot.enable":{"*":true}}\n' \
+        > $$H/.config/github-copilot/hosts.json && \
+    printf '{"vibekit":{"enabled":true}}\n' > $$H/.cursor/settings.json && \
+    printf 'editorMode: vibe\nrules:\n  - preferTypeScript: true\n' \
+        > $$H/.config/claude-code/settings.yaml && \
+    printf '%s\n' \
+        'Host bastion-prod' \
+        '    HostName bastion-01.corp.example' \
+        '    User ${primary_user}' \
+        '    ProxyJump bastion-mtm' \
+        'Host bastion-staging' \
+        '    HostName bastion-02.corp.example' \
+        '    User ${primary_user}' \
+        > $$H/.ssh/config && \
+    printf '%s\n' \
+        '[user]' '    name = ${primary_user}' '    email = ${primary_user}@corp.example' \
+        '[alias]' '    co = checkout' '    st = status' '    lg = log --graph --oneline' \
+        '[core]' '    editor = vim' \
+        '[init]' '    defaultBranch = main' \
+        > $$H/.gitconfig && \
+    chown -R $$U:$$U $$H
+
+RUN U=${old_user_a} ; H=/home/$$U && \
+    mkdir -p $$H/.ssh && \
+    printf 'alias old="echo legacy"\nexport PATH=$$HOME/bin:$$PATH\n' > $$H/.bashrc && \
+    printf 'ssh-rsa AAAA-stale-key-2022 ${old_user_a}@laptop-old\n' > $$H/.ssh/authorized_keys && \
+    chown -R $$U:$$U $$H && chmod 0700 $$H/.ssh && chmod 0600 $$H/.ssh/authorized_keys
+
+RUN U=${old_user_b} ; H=/home/$$U && \
+    mkdir -p $$H/.config && \
+    printf '# Old zshrc, untouched since 2021.\nexport TERM=xterm-256color\n' > $$H/.zshrc && \
+    chown -R $$U:$$U $$H
+
+RUN U=${primary_user} && \
+    mkdir -p /home/$$U/.local/lib/python3.11/site-packages /home/$$U/.npm-global/lib/node_modules && \
+    chown -R $$U:$$U /home/$$U/.local /home/$$U/.npm-global
+
+RUN echo "${provisioned_at_iso}" > /etc/lab.provisioned_at && \
+    echo "role=dev-workstation env=corp datacenter=${datacenter} team=${team} primary=${primary_user}" > /etc/lab.role-metadata

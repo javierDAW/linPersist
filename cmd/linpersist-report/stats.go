@@ -1104,6 +1104,66 @@ func computeQ10(records []core.Record) []HostCoverageRow {
 //
 // Aggregation: group by exec_target, count distinct hosts and total
 // records. LFA-sorted (hosts ASC) so singletons surface first.
+// q11VendorBaselineBasenames lists basenames of vendor-shipped
+// binaries that legitimately install outside the package manager
+// (under /opt/<vendor>/ or /usr/local/bin/). They surface as
+// non_package_path records on every host that runs them; the
+// analyst-side triage hides them so the implant shapes stand out.
+// Calibration deferred from operator config; ship a curated
+// default set covering the most common enterprise telemetry and
+// container-runtime binaries.
+var q11VendorBaselineBasenames = map[string]struct{}{
+	"datadog-agent":     {},
+	"datadog-agent-cli": {},
+	"splunkd":           {},
+	"vector":            {},
+	"filebeat":          {},
+	"node_exporter":     {},
+	"redis_exporter":    {},
+	"postgres_exporter": {},
+	"mysqld_exporter":   {},
+	"blackbox_exporter": {},
+	"prometheus":        {},
+	"alertmanager":      {},
+	"grafana-server":    {},
+	"kubelet":           {},
+	"kube-proxy":        {},
+	"kubectl":           {},
+	"kubeadm":           {},
+	"crictl":            {},
+	"containerd":        {},
+	"rbash-wrapper":     {},
+	"pm2":               {},
+	"vault-cli":         {},
+	"ssh-keys":          {},
+	"systemd-pcrphase":  {},
+	"modprobe":          {},
+	"node":              {},
+	"trivy":             {},
+	"hadolint":          {},
+	"docker":            {},
+}
+
+// q11BaselineBasename returns true if exec_target's basename is on
+// the vendor-baseline allow-list. v0.3.3 introduced this filter so
+// Q11 stops surfacing legitimate vendor binaries as orphans; the
+// implant shapes (single-host hits in /usr/local/sbin/<name>) bubble
+// to the top of the table without competing with 20+ vendor rows.
+func q11BaselineBasename(execTarget string) bool {
+	s := execTarget
+	for len(s) > 1 && s[len(s)-1] == '/' {
+		s = s[:len(s)-1]
+	}
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == '/' {
+			s = s[i+1:]
+			break
+		}
+	}
+	_, ok := q11VendorBaselineBasenames[s]
+	return ok
+}
+
 func computeQ11(records []core.Record) []OrphanOutsideTmpRow {
 	tmpPrefixes := []string{"/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"}
 	type agg struct {
@@ -1130,6 +1190,9 @@ func computeQ11(records []core.Record) []OrphanOutsideTmpRow {
 			continue
 		}
 		if _, ok := sigSet(r.Signals)[core.SignalNonPackagePath]; !ok {
+			continue
+		}
+		if q11BaselineBasename(r.ExecTarget) {
 			continue
 		}
 		a := m[r.ExecTarget]
@@ -1287,6 +1350,17 @@ func basenameForQ12(r core.Record) string {
 	}
 	if s == "." || s == ".." {
 		return ""
+	}
+	// Strip common operator-shaped extensions so the same logical
+	// invocation surfaces across modules whose naming conventions
+	// differ (cron drops a file named <name>, profile.d demands
+	// <name>.sh, systemd demands <name>.service). Without this,
+	// the worm-shared 3-arm pattern fragments by extension.
+	for _, ext := range []string{".sh", ".service", ".conf", ".timer", ".socket"} {
+		if strings.HasSuffix(s, ext) {
+			s = s[:len(s)-len(ext)]
+			break
+		}
 	}
 	return s
 }

@@ -1,0 +1,12 @@
+# Implant template: passwd-uid0-backdoor (L1, armed)
+#
+# Classic uid=0 backdoor: a user other than root with uid 0 and a
+# real shell. linpersist's passwd module fires passwd_uid_zero on
+# exactly this pattern.
+#
+# Variables: ${attacker_user}
+
+RUN echo '${attacker_user}:x:0:0:System Helper:/root:/bin/bash' >> /etc/passwd && \
+    echo '${attacker_user}:!:19500:0:99999:7:::' >> /etc/shadow && \
+    chmod 0644 /etc/passwd && \
+    chmod 0640 /etc/shadow

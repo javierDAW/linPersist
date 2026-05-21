@@ -1,0 +1,14 @@
+# Implant template: linger-non-root-account (L1, armed)
+#
+# Enables systemd user lingering for a non-root account by dropping
+# the marker file at /var/lib/systemd/linger/${attacker_user}.
+# linpersist's linger module fires systemd_linger_non_root on
+# exactly this pattern; the detections.yaml rule
+# `systemd_linger_non_root_account` (high) promotes it to Q7.
+#
+# Variables: ${attacker_user}
+
+RUN mkdir -p /var/lib/systemd/linger && \
+    touch /var/lib/systemd/linger/${attacker_user} && \
+    chown root:root /var/lib/systemd/linger/${attacker_user} && \
+    chmod 0644 /var/lib/systemd/linger/${attacker_user}

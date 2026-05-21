@@ -1,0 +1,102 @@
+# Role: web-edge
+FROM linpersist-lab/${distro}-base:latest
+
+# Vector vendor stub (half the hosts get it; the other half use
+# filebeat, which we also stub here so no apt install needed).
+RUN if [ "${log_shipper}" = "vector" ]; then \
+        mkdir -p /opt/vector/bin && \
+        printf '#!/bin/sh\nexec /bin/echo vector lab-stub\n' > /opt/vector/bin/vector && \
+        chmod 0755 /opt/vector/bin/vector ; \
+    else \
+        mkdir -p /opt/filebeat/bin && \
+        printf '#!/bin/sh\nexec /bin/echo filebeat lab-stub\n' > /opt/filebeat/bin/filebeat && \
+        chmod 0755 /opt/filebeat/bin/filebeat ; \
+    fi
+
+RUN mkdir -p /etc/nginx /etc/nginx/sites-available /etc/nginx/sites-enabled && \
+    printf '%s\n' \
+        '# nginx.conf -- operator-tuned' \
+        'worker_processes 4;  # tuned 2024-02 after p99 spike' \
+        'events { worker_connections 1024; }' \
+        'http {' \
+        '    # ops: drop TLSv1.1 per 2023-Q4 security review.' \
+        '    ssl_protocols TLSv1.2 TLSv1.3;' \
+        '    include /etc/nginx/sites-enabled/*;' \
+        '}' \
+        > /etc/nginx/nginx.conf && \
+    printf '%s\n' \
+        'server {' \
+        '    listen 80;' \
+        '    server_name www.${hostname}.example;' \
+        '    location / {' \
+        '        proxy_pass http://127.0.0.1:8080;' \
+        '        proxy_set_header X-Forwarded-For $$remote_addr;' \
+        '    }' \
+        '}' \
+        > /etc/nginx/sites-available/www.conf && \
+    printf '%s\n' \
+        '# api vhost; added 2024 for the v2 API rollout.' \
+        'server {' \
+        '    listen 443 ssl;' \
+        '    server_name api.${hostname}.example;' \
+        '    ssl_certificate /etc/letsencrypt/live/api/fullchain.pem;' \
+        '    ssl_certificate_key /etc/letsencrypt/live/api/privkey.pem;' \
+        '    location / { proxy_pass http://127.0.0.1:9090; }' \
+        '}' \
+        > /etc/nginx/sites-available/api.conf && \
+    printf '%s\n' \
+        '# legacy redirect; left here from the 2022 cutover. Do not delete -- JIRA-984.' \
+        'server {' \
+        '    listen 80;' \
+        '    server_name legacy.${hostname}.example;' \
+        '    return 301 https://www.${hostname}.example$$request_uri;' \
+        '}' \
+        > /etc/nginx/sites-available/legacy.conf && \
+    ln -sf /etc/nginx/sites-available/www.conf /etc/nginx/sites-enabled/www.conf && \
+    ln -sf /etc/nginx/sites-available/api.conf /etc/nginx/sites-enabled/api.conf && \
+    ln -sf /etc/nginx/sites-available/legacy.conf /etc/nginx/sites-enabled/legacy.conf
+
+RUN mkdir -p /etc/cron.d && \
+    printf '%s\n' \
+        '# Certbot renewal, edited 2024-08 to add Slack notify on success.' \
+        'SHELL=/bin/bash' \
+        'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
+        '0 */12 * * * root test -x /usr/bin/certbot && /usr/bin/certbot -q renew --post-hook "curl -sf https://hooks.slack.example/T0/B0/abc -d host=$$(hostname)"' \
+        > /etc/cron.d/certbot && \
+    chmod 0644 /etc/cron.d/certbot
+
+RUN mkdir -p /etc/fail2ban && \
+    printf '%s\n' \
+        '[DEFAULT]' 'bantime  = 1h' 'findtime = 10m' 'maxretry = 5' \
+        '# Office network + datacenter range -- never ban.' \
+        'ignoreip = 127.0.0.1/8 ::1 10.0.0.0/8 192.168.0.0/16 198.51.100.0/24' \
+        '' '[sshd]' 'enabled = true' '' '[nginx-botsearch]' 'enabled = true' \
+        > /etc/fail2ban/jail.local
+
+RUN mkdir -p /etc/logrotate.d && \
+    printf '%s\n' \
+        '/var/log/nginx/*.log {' '    daily' '    rotate 14' '    compress' \
+        '    delaycompress' '    notifempty' '    create 0640 www-data adm' \
+        '    sharedscripts' '    postrotate' \
+        '        test ! -f /var/run/nginx.pid || kill -USR1 $$(cat /var/run/nginx.pid)' \
+        '    endscript' '}' \
+        > /etc/logrotate.d/nginx-local
+
+RUN useradd -m -s /bin/bash ops 2>/dev/null || true && \
+    useradd -m -s /bin/bash -d /var/www www 2>/dev/null || true && \
+    mkdir -p /etc/sudoers.d && \
+    printf '%s\n' \
+        '# Ops on-call team: certbot renewals + nginx reload.' \
+        '%ops ALL=(root) NOPASSWD: /usr/bin/certbot, /usr/sbin/nginx, /bin/systemctl reload nginx' \
+        > /etc/sudoers.d/10-ops-renewal && \
+    chmod 0440 /etc/sudoers.d/10-ops-renewal && \
+    mkdir -p /home/ops/.ssh && \
+    printf '%s\n' \
+        'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILABDEF1234567890abcdef alice@laptop' \
+        'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBBBCCDEEFF1234567890bcdef bob@desktop' \
+        > /home/ops/.ssh/authorized_keys && \
+    chown -R ops:ops /home/ops/.ssh && \
+    chmod 0700 /home/ops/.ssh && chmod 0600 /home/ops/.ssh/authorized_keys
+
+RUN echo "${provisioned_at_iso}" > /etc/lab.provisioned_at && \
+    echo "role=web-edge env=${env} datacenter=${datacenter} log_shipper=${log_shipper}" > /etc/lab.role-metadata

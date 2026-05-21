@@ -1,0 +1,32 @@
+# Implant template: tmpfiles-payload-at-boot (L1, armed)
+#
+# tmpfiles.d directive instructing systemd-tmpfiles to recreate a
+# payload file under /tmp on every boot. linpersist's tmpfiles
+# module fires tmpfiles_creates_under_tmp on f/F/w type letters
+# targeting tmp-class paths outside the X11 allow-list and without
+# glob/template metacharacters; the detections.yaml rule
+# `tmpfiles_creates_payload_at_boot` (critical) promotes it to Q7.
+#
+# Variables: ${tmpfiles_file}, ${target_path}, ${source_path}
+
+# Inert source binary the directive references.
+RUN mkdir -p "$$(dirname ${source_path})" && \
+    printf '%s\n' \
+        '#!/bin/sh' \
+        '# INERT IMPLANT MARKER -- lab artifact, not real malware.' \
+        'echo "lab-implant tmpfiles-payload-at-boot host=$$(hostname) ts=$$(date -Is)" >> /tmp/.implant-trace' \
+        > ${source_path} && \
+    chmod 0755 ${source_path}
+
+# The tmpfiles.d directive itself. f-type, fixed path under /tmp,
+# no glob metas -> matches the calibrated detection rule.
+RUN mkdir -p $$(dirname ${tmpfiles_file}) && \
+    printf '%s\n' \
+        '# Implant: recreate the payload at every boot.' \
+        'f ${target_path} 0755 root root - -' \
+        > ${tmpfiles_file} && \
+    chown root:root ${tmpfiles_file} && \
+    chmod 0644 ${tmpfiles_file} && \
+    mkdir -p "$$(dirname ${target_path})" && \
+    cp ${source_path} ${target_path} && \
+    chmod 0755 ${target_path}

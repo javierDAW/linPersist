@@ -1,0 +1,25 @@
+# Implant template: kmod-install-implant (L2, armed)
+#
+# A modprobe.d entry using `install` directive to hijack a kernel
+# module load. The textbook persistence vector: when the kernel needs
+# the module, modprobe runs the install command instead. v0.1.0 fires
+# kmod_install_directive on this -- same signal as legitimate distro
+# entries like `install floppy /bin/true`. Q7 sees both as the same.
+#
+# Variables: ${modprobe_file}, ${module_to_hook}, ${payload_path}
+
+RUN mkdir -p "$$(dirname ${payload_path})" && \
+    printf '%s\n' \
+        '#!/bin/sh' \
+        '# INERT IMPLANT MARKER -- lab artifact, not real malware.' \
+        'echo "lab-implant kmod-install host=$$(hostname)" >> /tmp/.implant-trace' \
+        > ${payload_path} && \
+    chmod 0755 ${payload_path}
+
+RUN mkdir -p "$$(dirname ${modprobe_file})" && \
+    printf '%s\n' \
+        '# Provisioned by infrastructure-as-code (DO NOT EDIT)' \
+        'install ${module_to_hook} /bin/sh -c "${payload_path} && /sbin/modprobe --ignore-install ${module_to_hook} \$$CMDLINE_OPTS"' \
+        > ${modprobe_file} && \
+    chown root:root ${modprobe_file} && \
+    chmod 0644 ${modprobe_file}

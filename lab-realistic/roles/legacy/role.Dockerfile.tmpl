@@ -1,0 +1,50 @@
+# Role: legacy (amzn2)
+FROM linpersist-lab/${distro}-base:latest
+
+RUN mkdir -p /etc/init.d /etc/rc.d/rc3.d /etc/rc.d/rc5.d /etc/rc.d/rc0.d && \
+    printf '%s\n' \
+        '#!/bin/bash' \
+        '# chkconfig: 35 99 01' \
+        '# description: Legacy custom service.' \
+        '. /etc/init.d/functions' \
+        'start() { echo "starting legacy svc"; }' \
+        'stop()  { echo "stopping"; }' \
+        'case "$$1" in start) start ;; stop) stop ;; esac' \
+        > /etc/init.d/legacy-svc && \
+    chmod 0755 /etc/init.d/legacy-svc && \
+    ln -sf /etc/init.d/legacy-svc /etc/rc.d/rc3.d/S99legacy-svc && \
+    ln -sf /etc/init.d/legacy-svc /etc/rc.d/rc5.d/S99legacy-svc && \
+    ln -sf /etc/init.d/legacy-svc /etc/rc.d/rc0.d/K01legacy-svc
+
+RUN mkdir -p /var/spool/at /var/spool/at/spool /usr/local/sbin && \
+    printf '%s\n' \
+        '#!/bin/sh' \
+        '# At job: nightly index rebuild. Submitted 2024-09-15.' \
+        '/usr/local/sbin/rebuild-index.sh' \
+        > /var/spool/at/a00001b00abcde && \
+    chmod 0700 /var/spool/at/a00001b00abcde && \
+    printf '#!/bin/sh\necho "lab-stub rebuild-index"\n' > /usr/local/sbin/rebuild-index.sh && \
+    chmod 0755 /usr/local/sbin/rebuild-index.sh
+
+RUN mkdir -p /etc/modules-load.d && \
+    printf '%s\n' '# Legacy ext kernel modules.' 'nf_conntrack' 'iptable_nat' \
+        > /etc/modules-load.d/legacy.conf
+
+RUN mkdir -p /etc/rc.d && \
+    printf '%s\n' \
+        '#!/bin/sh' \
+        '# rc.local; do not delete -- ops 2019-04.' \
+        '/usr/local/sbin/legacy-warmup.sh &' \
+        > /etc/rc.d/rc.local && chmod 0755 /etc/rc.d/rc.local && \
+    printf '#!/bin/sh\necho "lab-stub legacy-warmup"\n' > /usr/local/sbin/legacy-warmup.sh && \
+    chmod 0755 /usr/local/sbin/legacy-warmup.sh
+
+RUN mkdir -p /etc/update-motd.d && \
+    printf '%s\n' \
+        '#!/bin/sh' \
+        'echo "*** LEGACY HOST -- handle with care. JIRA-Migration-9412 ***"' \
+        > /etc/update-motd.d/00-legacy-banner && \
+    chmod 0755 /etc/update-motd.d/00-legacy-banner
+
+RUN echo "${provisioned_at_iso}" > /etc/lab.provisioned_at && \
+    echo "role=legacy env=${env} datacenter=${datacenter}" > /etc/lab.role-metadata

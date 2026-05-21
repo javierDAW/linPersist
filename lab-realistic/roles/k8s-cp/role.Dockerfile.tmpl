@@ -1,0 +1,75 @@
+# Role: k8s-cp
+FROM linpersist-lab/${distro}-base:latest
+
+RUN mkdir -p /usr/local/bin && \
+    for tool in kubelet kubectl kubeadm crictl containerd; do \
+        printf '#!/bin/sh\nexec sleep infinity\n' > /usr/local/bin/$$tool && \
+        chmod 0755 /usr/local/bin/$$tool ; \
+    done
+
+RUN mkdir -p /etc/systemd/system /etc/systemd/system/kubelet.service.d && \
+    printf '%s\n' \
+        '[Unit]' 'Description=kubelet: The Kubernetes Node Agent' 'After=containerd.service' \
+        '[Service]' \
+        'ExecStart=/usr/local/bin/kubelet \\\\' \
+        '    --kubeconfig=/etc/kubernetes/kubelet.conf \\\\' \
+        '    --config=/var/lib/kubelet/config.yaml' \
+        'Restart=always' \
+        '[Install]' 'WantedBy=multi-user.target' \
+        > /etc/systemd/system/kubelet.service && \
+    printf '%s\n' \
+        '[Service]' \
+        'Environment="KUBELET_KUBEADM_ARGS=--cgroup-driver=systemd"' \
+        > /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+
+RUN mkdir -p /etc/kubernetes/manifests /etc/kubernetes/pki /etc/kubernetes/audit && \
+    printf '%s\n' \
+        'apiVersion: v1' \
+        'kind: Pod' \
+        'metadata: { name: kube-apiserver, namespace: kube-system }' \
+        'spec:' \
+        '  hostNetwork: true' \
+        '  containers:' \
+        '  - name: kube-apiserver' \
+        '    image: registry.k8s.io/kube-apiserver:v1.30.0' \
+        '    command:' \
+        '    - kube-apiserver' \
+        '    - --advertise-address=10.0.10.10' \
+        '    - --audit-log-path=/var/log/kubernetes/audit.log' \
+        '    - --audit-policy-file=/etc/kubernetes/audit/policy.yaml' \
+        '    - --feature-gates=ContextualLogging=true' \
+        '    - --feature-gates=ServerSideApply=true' \
+        '    - --etcd-servers=https://127.0.0.1:2379' \
+        > /etc/kubernetes/manifests/kube-apiserver.yaml && \
+    printf '%s\n' \
+        'apiVersion: v1' 'kind: Pod' 'metadata: { name: etcd, namespace: kube-system }' \
+        'spec:' '  hostNetwork: true' \
+        '  containers:' \
+        '  - name: etcd' \
+        '    image: registry.k8s.io/etcd:3.5.12-0' \
+        '    command: [etcd, --data-dir=/var/lib/etcd]' \
+        > /etc/kubernetes/manifests/etcd.yaml && \
+    printf '%s\n' \
+        'apiVersion: v1' 'kind: Pod' 'metadata: { name: kube-scheduler, namespace: kube-system }' \
+        'spec:' '  hostNetwork: true' \
+        '  containers:' \
+        '  - name: kube-scheduler' \
+        '    image: registry.k8s.io/kube-scheduler:v1.30.0' \
+        '    command: [kube-scheduler, --kubeconfig=/etc/kubernetes/scheduler.conf]' \
+        > /etc/kubernetes/manifests/kube-scheduler.yaml && \
+    printf '%s\n' \
+        'apiVersion: audit.k8s.io/v1' 'kind: Policy' \
+        'rules:' \
+        '  - level: RequestResponse' \
+        '    resources: [{ group: "", resources: [secrets, configmaps] }]' \
+        '  - level: Metadata' \
+        '    omitStages: [RequestReceived]' \
+        > /etc/kubernetes/audit/policy.yaml && \
+    for f in apiserver apiserver-kubelet-client front-proxy-ca front-proxy-client; do \
+        echo "-----BEGIN CERTIFICATE-----" > /etc/kubernetes/pki/$$f.crt && \
+        echo "MIIDdzCCA..." >> /etc/kubernetes/pki/$$f.crt && \
+        echo "-----END CERTIFICATE-----" >> /etc/kubernetes/pki/$$f.crt ; \
+    done
+
+RUN echo "${provisioned_at_iso}" > /etc/lab.provisioned_at && \
+    echo "role=k8s-cp env=${env} datacenter=${datacenter}" > /etc/lab.role-metadata

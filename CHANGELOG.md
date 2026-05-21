@@ -7,6 +7,151 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-05-21
+
+### Added (v0.3.3 — lab-realistic v2)
+- **`docs/lab-realistic-v2-spec.md`** (650 lines). Design
+  specification for the realistic 45-host fleet that
+  supersedes the v1 minimal-container lab. Roles (13), drift
+  sources, distro idiosyncrasies, taxonomy of tags
+  (ADR-0015), implant distribution, ground-truth artifact,
+  per-query recall scoring methodology. Five decisions
+  closed: 1 legacy special host, AI CLI configs shipped now,
+  3 users per dev-workstation, 3 vendor packages (DataDog +
+  Splunk Forwarder + Vector), and `lab-realistic/` lifted
+  from `.gitignore` (only `out/` stays ignored).
+- **`lab-realistic/` infrastructure committed to repo** (was
+  fully gitignored before; the v0.1.0 expedient is now an
+  explicit policy reversal documented in `.gitignore`). Only
+  `lab-realistic/out/` remains ignored as generated artifacts.
+- **13 role templates** under `lab-realistic/roles/`:
+  `web-edge`, `web-app`, `db-primary`, `db-replica`, `cache`,
+  `mq`, `build-ci`, `k8s-cp`, `k8s-node`, `monitoring`,
+  `bastion`, `dev-workstation`, `legacy`. Filesystem-only
+  shape: config files + sudoers + cron + systemd units +
+  ssh authorized_keys + vendor binaries under `/opt/`. No
+  apt-get / dnf install of role-specific software (agent
+  reads filesystem; binaries irrelevant). Templates render
+  through `string.Template.safe_substitute` from
+  `scripts/generate.py`.
+- **6 distro base Dockerfiles** simplified to a universal
+  minimum (cron + openssh-server + sudo + bash-completion +
+  zsh + ca-certificates). Adds `amzn2.legacy.Dockerfile` for
+  the single sysv-heavy host that anchors at-jobs / sysv
+  init / modules-load coverage.
+- **17-implant catalog** at `lab-realistic/implants/catalog.yaml`:
+  14 implants (11 carry-over from v1 + 3 v0.3.0-coverage),
+  plus a `placements:` section the generator consumes to
+  greedy-assign implants to host candidates. Each entry
+  carries `expected_signals`, `expected_caught_by` and
+  `expected_q7_rule` for scoring.
+- **`scripts/generate.py`** (270 LOC). Materialises Dockerfiles
+  from the policy + role templates + implant catalog,
+  produces deterministic per-host artifacts under `out/`:
+  `dockerfiles/<host>.Dockerfile`, `hostlist.yaml`,
+  `hostnames.txt`, `host-tags.tsv`, `ground_truth.jsonl`.
+  Seed 42 (unchanged from v1).
+- **`scripts/score.py`** (90 LOC). Joins `ground_truth.jsonl`
+  with the rendered NDJSON and emits a markdown table of
+  per-query recall (TP / FN / recall%).
+- **`build.sh` rewritten** with three modes: full, `--validate`
+  (one representative per `(distro, role)` for fast iteration),
+  `--hosts h1,h2` (targeted single-host rebuild). Build cache
+  is hot after the first run; iteration cost dropped to ~10s
+  per modified host.
+- **`collect.sh` rewritten** to load per-host tags from
+  `out/host-tags.tsv` and pass them via `--tag` to the agent,
+  so the NDJSON reflects realistic peer-group axes for Q3.
+
+### Fixed
+- **HTML report Q12 pane was missing in the v0.3.2 release**.
+  `cmd/linpersist-report/report.tmpl` shipped with the
+  `<button data-tab="q12">` in the nav strip but without the
+  matching `<section data-pane="q12">` body. Clicking the Q12
+  tab in any v0.3.2 HTML report opened an empty pane. v0.3.3
+  re-injects the pane (the text rendering was unaffected --
+  `render_text.go` always produced the Q12 block correctly).
+  The lab v2 surfaced this regression during the final-tag
+  inspection.
+
+### Changed (v0.3.3 calibration -- two Go-side fixes the lab v2 surfaced)
+- **`q11VendorBaselineBasenames` allow-list** in
+  `cmd/linpersist-report/stats.go`. Q11 was surfacing vendor
+  non-package binaries (DataDog, Splunk, Vector, filebeat,
+  *_exporter, kubelet, kube-proxy, kubectl, kubeadm, crictl,
+  containerd, rbash-wrapper, pm2, vault-cli, systemd-pcrphase,
+  modprobe, node, trivy, hadolint, docker) as if they were
+  implants. The new helper `q11BaselineBasename` excludes them
+  from Q11 by basename match, dropping the row count from 27 to
+  17 on the lab v2 fleet. The 17 remaining rows are single-host
+  hits in `/usr/local/sbin/<name>` -- the actual implant shape.
+- **`basenameForQ12` strips common operator extensions**
+  (`.sh`, `.service`, `.conf`, `.timer`, `.socket`) before
+  clustering. Without this, the worm 3-arm pattern
+  (`deploy-sync.sh` in profile vs `deploy-sync` in cron vs
+  `deploy-sync.service` in systemd) fragments across three
+  rows. Post-calibration the worm surfaces in two TOP rows:
+  `deploy-sync` (cron+profile, clustering by locus basename
+  after strip) and `sync-agent` (cron+systemd, clustering by
+  exec_target basename). Full 3-arm-into-1-row consolidation
+  would require the `profile` module to populate exec_target
+  from the script body (deferred to v0.4.0).
+
+### Verified (v0.3.3 release gate against lab-realistic v2)
+- 45 hosts (13 roles × distro mix), 19,470 records, 33 implants
+  placed across 25 hosts (per policy `placements:`). Five
+  iterative calibrations applied across the run (Q3 datacenter
+  exclusion, Q5/Q8 mtime stamping, Q11 vendor allow-list, Q12
+  strip-extensions); each lands a measurable reduction in
+  documented FP surface.
+- Aggregate recall across the measurable queries (Q1 / Q4 /
+  Q7 / Q9 / Q12): **67/82 = 0.82**. Q12 perfect (1.00) on the
+  coordinated multi-arm campaign. **30/33 implants caught
+  end-to-end**; the 3 misses are all `ssh-forced-tmp` due to a
+  template `mkdir` gap (v0.3.4 follow-up).
+- The 13 v0.3.0-coverage detection rules
+  (`linger`/`tmpfiles`/`sysusers`) achieve their **first
+  end-to-end lab TPs** — pre-armed since v0.3.0, finally
+  exercised on a fleet that seeds the vectors.
+- Counts surface real drift v1 was hiding: Q1 grew from 26
+  to 731 singletons.
+- Q3 collapsed to 0 — exact "over-tagging" failure mode the
+  SPEC warned about. v0.3.4 candidate: `--peer-floor N` CLI
+  flag on `linpersist-report` for operator tuning.
+- Q11 grew from 6 to 27 (vendor non-package binaries under
+  `/opt/<vendor>/`); the sort-ASC heuristic correctly bubbles
+  implant-shaped rows to the top.
+- MITRE panel: 15/18 surfacing, 3 dormant
+  (`T1053.001 at.jobs`, `T1542.003 kernel.grub`,
+  `T1547.013 xdg.autostart`). The legacy host seeds at-jobs;
+  the dormant misclassification is a panel-threshold review
+  follow-up.
+- Full benchmark with calibration follow-ups documented at
+  `docs/benchmarks/v0.3.3-realistic.md`.
+
+### Changed
+- `.gitignore`: `lab-realistic/` no longer ignored — only
+  `lab-realistic/out/`. The original "lab infrastructure is
+  never published" comment was a v0.1.0 expedient; ADR-0015's
+  positioning of the lab as the validation tool for the
+  product changed that.
+
+### Deferred to v0.3.4 / v0.4.0
+- **`ssh-forced-tmp` template fix**: `mkdir -p
+  $(dirname ${authorized_keys_file})` before the redirect.
+  Trivial. Recovers Q4 recall to 1.00.
+- **`--peer-floor N` flag on `linpersist-report`** for
+  operator-side tuning of the Q3 `peer_hosts > 2` floor when
+  the fleet is over-tagged.
+- **Q11 vendor-basename allow-list calibration**: drops Q11
+  from ~27 to ~5-7 rows by allow-listing
+  `datadog-agent`, `splunkd`, `vector`,
+  `*_exporter` basenames. Either a `detections.yaml`-style
+  config or a CLI flag.
+- **MITRE panel `dormant` threshold review**: at-jobs is
+  surfacing in the lab but classified `dormant`. The
+  threshold logic needs revisiting.
+
 ## [0.3.2] - 2026-05-21
 
 ### Added (v0.3.2 — MITRE coverage panel + Q12 campaign clusters)

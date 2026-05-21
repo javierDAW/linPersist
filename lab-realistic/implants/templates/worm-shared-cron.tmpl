@@ -1,0 +1,34 @@
+# Implant template: worm-shared-cron (L5, armed)
+#
+# Part of the 3-host worm set. All 3 worm-shared-* templates create a
+# BYTE-IDENTICAL payload at /usr/local/sbin/sync-agent and invoke it
+# via a DIFFERENT vector (cron / systemd / profile). The shared bytes
+# produce the same exec_target_sha256, which is what Q6 catches.
+#
+# CRITICAL: the payload-creation block below MUST match exactly the
+# blocks in worm-shared-systemd.tmpl and worm-shared-profile.tmpl.
+# Any byte drift across the three breaks the Q6 measurement.
+#
+# Variables (from catalog.vars): ${cron_file}, ${schedule}
+
+# === SHARED PAYLOAD BODY (keep byte-identical across worm-shared-*) ===
+RUN mkdir -p /usr/local/sbin && \
+    printf '%s\n' \
+        '#!/bin/sh' \
+        '# INERT WORM PAYLOAD MARKER -- lab artifact, not real malware.' \
+        '# This script is byte-identical across all 3 worm-shared-* hosts.' \
+        '# Q6 catches: same exec_target_sha256 across hosts with different invocation vectors.' \
+        'echo "lab-worm host=$$(hostname) ts=$$(date -Is)" >> /tmp/.implant-trace' \
+        > /usr/local/sbin/sync-agent && \
+    chmod 0755 /usr/local/sbin/sync-agent
+
+# === Vector: cron drop ===
+RUN mkdir -p $$(dirname ${cron_file}) && \
+    printf '%s\n' \
+        '# Provisioned by deploy-sync (DO NOT EDIT)' \
+        'SHELL=/bin/sh' \
+        'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
+        '${schedule} root /usr/local/sbin/sync-agent' \
+        > ${cron_file} && \
+    chown root:root ${cron_file} && \
+    chmod 0644 ${cron_file}

@@ -1,0 +1,289 @@
+# Lab-realistic v2 implant catalog. 14 implants: 11 carry-over
+# from v1 plus 3 v0.3.0-coverage (linger, tmpfiles, sysusers).
+#
+# All implants are INERT -- the lab containers never invoke them.
+# If invoked, each writes a single trace line to /tmp/.implant-trace
+# so we can detect accidental execution during integration testing.
+#
+# Each entry fields:
+#   id                  -- unique identifier referenced from policy
+#   tier                -- difficulty tier (L1 easiest, L5 hardest)
+#   variant             -- armed | orphan (payload present vs dangling)
+#   module              -- which linpersist module surfaces it
+#   site_class          -- exact site_class
+#   description         -- one-line summary
+#   expected_signals    -- signals linpersist should emit
+#   expected_caught_by  -- which queries SHOULD surface it
+#   expected_q7_rule    -- which detection rule should fire (if any)
+#   template            -- file under templates/
+#   vars                -- per-instance substitution variables
+
+implants:
+
+  # ====================== L1 cron ==========================
+
+  - id: cron-tmp-payload
+    tier: L1
+    variant: armed
+    module: cron
+    site_class: cron.d
+    description: |
+      Cron entry pointing at /tmp/.cache/.sync/agent. Payload dropped
+      on disk -- the armed variant.
+    expected_signals: [interpreter_in_tmp, recent_mtime_7d]
+    expected_caught_by: [Q1, Q2, Q9]
+    expected_q7_rule: null
+    template: cron-tmp-payload.tmpl
+    vars:
+      cron_file: /etc/cron.d/sync-helper
+      schedule: "*/15 * * * *"
+      payload_path: /tmp/.cache/.sync/agent
+
+  - id: cron-tmp-dangling
+    tier: L1
+    variant: orphan
+    module: cron
+    site_class: cron.d
+    description: |
+      Cron entry pointing at /tmp/.x/agent without dropping the
+      payload. exec_target_orphan fires -> Q4 + Q7.
+    expected_signals: [interpreter_in_tmp, exec_target_orphan]
+    expected_caught_by: [Q1, Q2, Q4, Q7, Q9]
+    expected_q7_rule: payload_under_tmp_via_persistence
+    template: cron-tmp-dangling.tmpl
+    vars:
+      cron_file: /etc/cron.d/update-poll
+      schedule: "*/10 * * * *"
+      payload_path: /tmp/.x/agent
+
+  # ====================== L1 systemd =======================
+
+  - id: systemd-tmp-armed
+    tier: L1
+    variant: armed
+    module: systemd
+    site_class: systemd.unit
+    description: |
+      systemd .service with ExecStart under /tmp/.s/agent, payload
+      present.
+    expected_signals: [interpreter_in_tmp, recent_mtime_7d]
+    expected_caught_by: [Q1, Q2, Q9]
+    expected_q7_rule: null
+    template: systemd-tmp-armed.tmpl
+    vars:
+      unit_name: borg-helper.service
+      payload_path: /tmp/.s/agent
+      description: Borg backup helper service
+
+  - id: systemd-tmp-orphan
+    tier: L1
+    variant: orphan
+    module: systemd
+    site_class: systemd.unit
+    description: |
+      systemd .service pointing at /tmp/.s/cacher without dropping
+      the payload.
+    expected_signals: [interpreter_in_tmp, exec_target_orphan]
+    expected_caught_by: [Q1, Q2, Q4, Q7, Q9]
+    expected_q7_rule: payload_under_tmp_via_persistence
+    template: systemd-tmp-orphan.tmpl
+    vars:
+      unit_name: rsync-cache.service
+      payload_path: /tmp/.s/cacher
+      description: Rsync cache helper
+
+  # ====================== L2 ssh ===========================
+
+  - id: ssh-forced-tmp
+    tier: L2
+    variant: orphan
+    module: ssh
+    site_class: ssh.authkeys
+    description: |
+      SSH authorized_keys entry with command="/tmp/.b/persist".
+    expected_signals: [interpreter_in_tmp, exec_target_orphan]
+    expected_caught_by: [Q1, Q4, Q7, Q9]
+    expected_q7_rule: payload_under_tmp_via_persistence
+    template: ssh-forced-tmp.tmpl
+    vars:
+      authorized_keys_file: /root/.ssh/authorized_keys
+      forced_cmd_path: /tmp/.b/persist
+      key_blob: AAAAC3NzaC1lZDI1NTE5AAAA-lab-implant-ssh-forced-tmp
+
+  # ====================== L2 sudoers =======================
+
+  - id: sudoers-nopass-attacker
+    tier: L2
+    variant: armed
+    module: sudoers
+    site_class: sudoers
+    description: |
+      /etc/sudoers.d/zz_cibot with NOPASSWD + ALL command -- the
+      textbook backdoor. Note: legitimate CI tooling
+      (20-jenkins, 20-gitlab-runner) ships the same shape in
+      build-ci hosts; the FP channel motivates tag-based Q3.
+    expected_signals: [sudoers_nopasswd, sudoers_all_commands]
+    expected_caught_by: [Q1, Q2, Q7]
+    expected_q7_rule: sudoers_nopasswd_all_backdoor
+    template: sudoers-nopass-attacker.tmpl
+    vars:
+      sudoers_file: /etc/sudoers.d/zz_cibot
+      attacker_user: cibot
+
+  # ====================== L2 passwd ========================
+
+  - id: passwd-uid0-backdoor
+    tier: L2
+    variant: armed
+    module: passwd
+    site_class: passwd.user
+    description: |
+      A non-root user with uid=0 and a real shell -- a second
+      root account.
+    expected_signals: [passwd_uid_zero]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: second_uid_zero_account
+    template: passwd-uid0-backdoor.tmpl
+    vars:
+      attacker_user: sysmaint
+
+  # ====================== L3 kmod ==========================
+
+  - id: kmod-install-implant
+    tier: L3
+    variant: armed
+    module: kmod
+    site_class: kmod
+    description: |
+      modprobe.d install directive launching /bin/sh -- the
+      kernel-module hook variant.
+    expected_signals: [kmod_install_directive]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: kmod_install_directive_implant
+    template: kmod-install-implant.tmpl
+    vars:
+      modprobe_file: /etc/modprobe.d/zz_helper.conf
+      module_to_hook: zz_helper
+      payload_path: /opt/.kmod-impl/agent
+
+  # ====================== L5 worm (shared exec_target) =====
+  # The three worm arms target the same /usr/local/sbin/sync-agent
+  # across distinct persistence modules. Q6 (exec_target stacking)
+  # catches them; Q12 (basename clustering) also captures the
+  # pattern. Q1 misses because each arm stacks once per module.
+
+  - id: worm-shared-cron
+    tier: L5
+    variant: armed
+    module: cron
+    site_class: cron.d
+    description: |
+      Cron drop invoking /usr/local/sbin/sync-agent. Pair with
+      worm-shared-systemd and worm-shared-profile to activate
+      Q6 / Q12.
+    expected_signals: [recent_target_mtime_7d]
+    expected_caught_by: [Q6, Q12]
+    expected_q7_rule: null
+    template: worm-shared-cron.tmpl
+    vars:
+      cron_file: /etc/cron.d/deploy-sync
+      schedule: "*/30 * * * *"
+
+  - id: worm-shared-systemd
+    tier: L5
+    variant: armed
+    module: systemd
+    site_class: systemd.unit
+    description: |
+      systemd unit invoking /usr/local/sbin/sync-agent. Companion
+      to worm-shared-cron / worm-shared-profile.
+    expected_signals: [recent_target_mtime_7d]
+    expected_caught_by: [Q6, Q12]
+    expected_q7_rule: null
+    template: worm-shared-systemd.tmpl
+    vars:
+      unit_name: deploy-sync.service
+      description: Deploy synchroniser
+
+  - id: worm-shared-profile
+    tier: L5
+    variant: armed
+    module: profile
+    site_class: profile.system
+    description: |
+      /etc/profile.d/ drop invoking /usr/local/sbin/sync-agent on
+      every interactive shell.
+    expected_signals: [recent_target_mtime_7d]
+    expected_caught_by: [Q6, Q12]
+    expected_q7_rule: null
+    template: worm-shared-profile.tmpl
+    vars:
+      profile_file: /etc/profile.d/deploy-sync.sh
+
+  # ====================== L1 systemd structural (v0.3.0-coverage) ======
+
+  - id: linger-non-root-account
+    tier: L1
+    variant: armed
+    module: linger
+    site_class: systemd.linger
+    description: |
+      systemd user-linger marker for a non-root user.
+    expected_signals: [systemd_linger_non_root]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: systemd_linger_non_root_account
+    template: linger-non-root-account.tmpl
+    vars:
+      attacker_user: helper
+
+  - id: tmpfiles-payload-at-boot
+    tier: L1
+    variant: armed
+    module: tmpfiles
+    site_class: systemd.tmpfiles
+    description: |
+      tmpfiles.d directive recreating a payload file under /tmp on
+      every boot.
+    expected_signals: [tmpfiles_creates_under_tmp]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: tmpfiles_creates_payload_at_boot
+    template: tmpfiles-payload-at-boot.tmpl
+    vars:
+      tmpfiles_file: /etc/tmpfiles.d/zz-cache-init.conf
+      target_path: /tmp/.cache/agent
+      source_path: /opt/.impl/agent
+
+  - id: sysusers-second-uid-zero
+    tier: L1
+    variant: armed
+    module: sysusers
+    site_class: systemd.sysusers
+    description: |
+      sysusers.d directive declaring a second uid=0 account.
+    expected_signals: [sysusers_uid_zero]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: sysusers_second_uid_zero
+    template: sysusers-second-uid-zero.tmpl
+    vars:
+      sysusers_file: /etc/sysusers.d/zz-helper.conf
+      attacker_user: sysmaint
+      gecos: System Maintenance
+
+# ==========================================================================
+# Placement plan -- generator picks hosts per role to keep TPs measurable.
+
+placements:
+  cron-tmp-payload:        { count: 3, roles: [web-app, monitoring, k8s-node] }
+  cron-tmp-dangling:       { count: 3, roles: [web-app, db-replica, monitoring] }
+  systemd-tmp-armed:       { count: 3, roles: [db-primary, cache, web-edge] }
+  systemd-tmp-orphan:      { count: 3, roles: [k8s-cp, k8s-node, mq] }
+  ssh-forced-tmp:          { count: 3, roles: [bastion, build-ci, web-edge] }
+  sudoers-nopass-attacker: { count: 3, roles: [build-ci, web-app, monitoring] }
+  passwd-uid0-backdoor:    { count: 3, roles: [db-primary, dev-workstation, bastion] }
+  kmod-install-implant:    { count: 3, roles: [k8s-node, cache, legacy] }
+  worm-shared-cron:        { count: 1, roles: [web-app] }
+  worm-shared-systemd:     { count: 1, roles: [web-edge] }
+  worm-shared-profile:     { count: 1, roles: [dev-workstation] }
+  linger-non-root-account: { count: 2, roles: [dev-workstation, build-ci] }
+  tmpfiles-payload-at-boot: { count: 2, roles: [db-replica, k8s-node] }
+  sysusers-second-uid-zero: { count: 2, roles: [db-primary, monitoring] }

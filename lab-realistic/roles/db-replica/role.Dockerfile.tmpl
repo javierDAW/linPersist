@@ -1,0 +1,27 @@
+# Role: db-replica
+FROM linpersist-lab/${distro}-base:latest
+
+RUN if [ "${engine}" = "pg" ]; then \
+        mkdir -p /etc/postgresql/15/main && \
+        printf '%s\n' \
+            "primary_conninfo = 'host=10.0.1.10 port=5432 user=replicator'" \
+            "promote_trigger_file = '/var/lib/postgresql/15/main/promote'" \
+            "hot_standby = on" \
+            > /etc/postgresql/15/main/postgresql.conf ; \
+    fi
+
+RUN mkdir -p /opt/prometheus-exporters/bin && \
+    printf '#!/bin/sh\nexec sleep infinity\n' > /opt/prometheus-exporters/bin/postgres_exporter && \
+    chmod 0755 /opt/prometheus-exporters/bin/postgres_exporter
+
+RUN mkdir -p /etc/cron.d /usr/local/sbin && \
+    printf '%s\n' \
+        'SHELL=/bin/bash' \
+        '*/2 * * * * root /usr/local/sbin/db-replica-lag.sh' \
+        > /etc/cron.d/db-replica-lag && \
+    chmod 0644 /etc/cron.d/db-replica-lag && \
+    printf '#!/bin/sh\necho "lab-stub db-replica-lag"\n' > /usr/local/sbin/db-replica-lag.sh && \
+    chmod 0755 /usr/local/sbin/db-replica-lag.sh
+
+RUN echo "${provisioned_at_iso}" > /etc/lab.provisioned_at && \
+    echo "role=db-replica env=${env} datacenter=${datacenter} engine=${engine}" > /etc/lab.role-metadata

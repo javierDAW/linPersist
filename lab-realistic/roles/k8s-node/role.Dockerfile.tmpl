@@ -1,0 +1,32 @@
+# Role: k8s-node
+FROM linpersist-lab/${distro}-base:latest
+
+RUN mkdir -p /usr/local/bin && \
+    for tool in kubelet kube-proxy crictl containerd; do \
+        printf '#!/bin/sh\nexec sleep infinity\n' > /usr/local/bin/$$tool && \
+        chmod 0755 /usr/local/bin/$$tool ; \
+    done
+
+RUN mkdir -p /opt/cni/bin && \
+    for plugin in bridge host-local loopback portmap calico-ipam; do \
+        printf '#!/bin/sh\nexec /bin/true\n' > /opt/cni/bin/$$plugin && \
+        chmod 0755 /opt/cni/bin/$$plugin ; \
+    done
+
+RUN mkdir -p /etc/modules-load.d /etc/sysctl.d && \
+    printf '%s\n' 'overlay' 'br_netfilter' > /etc/modules-load.d/k8s.conf && \
+    printf '%s\n' \
+        '# 2024-Q1: enabled BBR for cluster-internal traffic.' \
+        'net.core.default_qdisc = fq' \
+        'net.ipv4.tcp_congestion_control = bbr' \
+        > /etc/sysctl.d/99-k8s-bbr.conf
+
+RUN mkdir -p /etc/systemd/system && \
+    printf '%s\n' \
+        '[Unit]' 'Description=kubelet' 'After=containerd.service' \
+        '[Service]' 'ExecStart=/usr/local/bin/kubelet --kubeconfig=/etc/kubernetes/kubelet.conf' 'Restart=always' \
+        '[Install]' 'WantedBy=multi-user.target' \
+        > /etc/systemd/system/kubelet.service
+
+RUN echo "${provisioned_at_iso}" > /etc/lab.provisioned_at && \
+    echo "role=k8s-node env=${env} datacenter=${datacenter}" > /etc/lab.role-metadata
