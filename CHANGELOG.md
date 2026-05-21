@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-21
+
+### Added (v0.3.0 release closure — coverage of v0.3.0-coverage modules)
+- **Golden test suites for the three v0.3.0-coverage modules**
+  (`linger`, `tmpfiles`, `sysusers`). Per-module:
+  - `internal/modules/<name>/<name>_test.go` follows the existing
+    `cron`-style harness: `TestGolden` walks
+    `internal/testdata/golden/<name>/<case>/rootfs/`, normalizes
+    perms, stamps mtimes to the project-wide `fixedMtime`
+    (`2026-04-01T00:00:00Z`), runs `Collect` with
+    `Now=2026-05-12T10:00:00Z`, redacts volatile fields
+    (`owner_uid`/`owner_gid` to 0, drops `ctime`/`atime`/
+    `non_root_owner`), sorts by `(locus, content_norm_sha256)`
+    and compares NDJSON byte-for-byte. `-update` flag (and
+    `LINPERSIST_UPDATE_GOLDEN=1`) regenerate frozen output.
+  - Fixture coverage: linger 5 cases (root-only, non-root-user,
+    multiple-users, with-subdir, numeric-username), sysusers 7
+    cases (happy, uid-zero-implant, quoted-gecos,
+    comments-and-blanks, empty-file-envelope, usr-lib-alt-loci,
+    non-conf-skip), tmpfiles 7 cases (happy, creates-payload-at-
+    boot, X11-allow-list, glob-template-skipped, non-create-
+    types, multi-loci, empty-file-envelope).
+  - Coverage results (`go test -race -coverprofile`): linger
+    90.4 %, sysusers 86.0 %, tmpfiles 85.7 % -- all comfortably
+    above the 70 % bar.
+  - Includes the ADR-base-mandated normalization equivalence
+    tests: two semantically-equivalent inputs produce identical
+    `content_norm_sha256` (whitespace collapse for tmpfiles /
+    sysusers; username identity for linger).
+- **Module reference docs** under `docs/modules/`:
+  `linger.md`, `tmpfiles.md`, `sysusers.md`. Each documents loci,
+  format, canonical form, ExecTarget category, signals (module-
+  specific + inherited), known false-positive patterns,
+  documented in-the-wild use, and what the module deliberately
+  does NOT do. Format mirrors the existing `docs/modules/systemd.md`.
+
+### Documented
+- **`docs/stacking-cookbook.md` Q9 section** now carries the
+  ADR-0014 calibration explicitly. New "Calibration: what
+  `exec_target` means" block under Q9 explains the three
+  categories (`run-the-binary` populate, `touch-this-path-but-
+  no-exec` skip, `marker-only` skip) and the heuristic question
+  for module authors.
+- **`cmd/linpersist-report/stats.go`** -- `ExecInTmpRow` struct
+  doc and `computeQ9` header comment now mirror the cookbook
+  text and cite ADR-0014. Operators reading the Go source land
+  on the same rule the SQL operator does.
+
+### Verified (v0.3.0 release gate against lab-realistic)
+- 75-host fleet round-trip with the v0.3.0 HEAD binary:
+  35,349 records (up 12.5 % from v0.2.0's 31,433), Q7 = 22
+  (13 critical + 9 high), Q4 = 6, Q9 = 17, Q11 = 6 -- all
+  byte-identical to the v0.2.0 baseline (the new modules emit
+  records but the lab does not seed implants in their shapes,
+  so no new rule fires; the lift is structural-coverage, not
+  detection-envelope).
+- Benchmark documented at `docs/benchmarks/v0.3.0-realistic.md`.
+- 25 packages green under `-race`; `linger`, `sysusers`,
+  `tmpfiles` no longer report `[no test files]`.
+- `make audit` clean: 32 implemented, 0 drift.
+- `make detgen-verify` clean: `tools/stack_demo.sql` matches
+  `detections.yaml`.
+
+
 ### Added (v0.3.0-coverage — orphan-signal rules + systemd structural family)
 - **10 new detection rules for previously-orphaned signals**. The
   catalog already emitted these signals from the agent side but no

@@ -304,6 +304,35 @@ Q9 set minus Q4 set = "currently armed implants". That's the
 analyst's worst-case list: persistence wired to a payload that
 exists on disk right now.
 
+**Calibration: what `exec_target` means** (ADR-0014). For Q9 to
+stay accurate, every module must agree on what populates the
+`exec_target` field. The binding rule is: `exec_target` is "the
+binary the persistence INVOKES", not "the path the directive
+touches". Three categories every module classifies into before
+populating:
+
+1. **run-the-binary** — populate `exec_target`. Cron commands,
+   systemd `ExecStart=`, PAM module paths, kmod install commands,
+   udev `RUN+=` targets, XDG `Exec=`, `ld.so.preload` library
+   paths.
+2. **touch-this-path-but-no-exec** — do NOT populate. The classic
+   trap is `systemd.tmpfiles`: a directive like
+   `f /tmp/.cache/payload 0755 root root - /opt/implant` touches
+   the target path at boot but does not invoke it. Treating the
+   target as `exec_target` polluted Q9 with hundreds of baseline
+   rows (X11 socket dirs, systemd-private sandboxes, dnf locks)
+   when this rule was violated in v0.3.0-pre.
+3. **marker-only** — do NOT populate. `systemd.linger` (presence
+   of a marker file enables user-mode systemd to survive
+   logout), `systemd.sysusers` (declarative user / group
+   creation). These are persistence vectors but do not invoke a
+   binary; their fingerprint is the directive itself, not an
+   exec.
+
+When in doubt, ask: "if I deleted the binary at this path, would
+the persistence stop working?" YES -> run-the-binary, populate.
+NO -> leave empty.
+
 ### Query 10 — Per-host collection health and coverage outliers
 
 A fleet-health and collection-validity check rather than a hunting

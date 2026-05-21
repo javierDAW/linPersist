@@ -189,6 +189,13 @@ type MtimeConcRow struct {
 // ExecInTmpRow is one row of Q9: exec_target in /tmp, /var/tmp,
 // /dev/shm, /run/shm. Complements Q4 by surfacing armed implants
 // whose payload IS currently on disk (no orphan signal).
+//
+// Calibration (ADR-0014): exec_target is "the binary the persistence
+// INVOKES", not "the path the directive touches". Modules whose
+// directives touch a path without executing it (systemd.tmpfiles)
+// or that act as marker-only enablement points (systemd.linger,
+// systemd.sysusers) MUST leave ExecTarget empty so Q9 does not get
+// polluted with the targets they merely manipulate.
 type ExecInTmpRow struct {
 	Host       string
 	Module     string
@@ -946,6 +953,15 @@ func computeQ8(records []core.Record) []MtimeConcRow {
 }
 
 // --- Q9: exec_target under tmp-class directories ----------------------
+//
+// Q9 surfaces every record whose exec_target lives under /tmp/,
+// /var/tmp/, /dev/shm/, or /run/shm/. Complements Q4 (which AND-s
+// orphan + tmp): Q9 \ Q4 = "armed implants on disk right now".
+//
+// The accuracy of Q9 depends on every module populating exec_target
+// only when its directive truly INVOKES a binary (run-the-binary
+// category). See ADR-0014 and docs/stacking-cookbook.md "Calibration:
+// what exec_target means".
 
 func computeQ9(records []core.Record) []ExecInTmpRow {
 	tmpPrefixes := []string{"/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"}

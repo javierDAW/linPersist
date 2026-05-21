@@ -31,9 +31,7 @@ lab/
 lab-large/
 lab-realistic/
 
-# Benchmark documents (privados hasta que v0.2.0 cierre). When v0.2.0
-# lands, remove the line below and commit the finalized benchmarks.
-docs/benchmarks/
+# Benchmark documents under docs/benchmarks/ are committed as of v0.3.0.
 
 # Generated reports (rendered locally, not versioned)
 report.html
