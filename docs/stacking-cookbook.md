@@ -133,16 +133,26 @@ cron line on the one compromised Ubuntu host still surfaces; a
 benign apt-listchanges line that all 4,000 Debian-family hosts
 share no longer does.
 
-The `peer_hosts > 2` floor in the query exists because a peer group
-of one or two hosts cannot meaningfully establish a baseline. Tune
-the floor to your fleet shape: at 50,000 hosts you may want
-`peer_hosts > 20` instead.
+The peer-group floor in the query exists because a cohort of one
+or two hosts cannot meaningfully establish a baseline. By default
+`linpersist-report` requires `peer_hosts >= 3`; the v0.3.4
+`--peer-floor N` flag lets the operator tune it. Lower the floor
+in sparse fleets (under-populated labs, or when intentional
+fine-grained tagging puts most hosts in tiny cohorts) to keep Q3
+producing rows; raise it in large fleets to keep precision high.
+The v0.3.3 lab-realistic v2 run is the canonical regression: with
+seven tag dimensions populated per host, most `(os_id, tag_set)`
+tuples carried only 1-2 hosts and Q3 collapsed to zero rows under
+the default floor of 3. `--peer-floor 2` (or even `1`) recovers
+visibility for those fleets at the cost of weaker baseline
+discrimination.
 
 `os_id` is the simplest peer key. More sophisticated deployments
 might combine `(os_id, role)`, `(os_id, os_version)`, or
-`(os_id, fleet_tag)`. The agent already exposes `host_meta.tags`;
-populate it via the planned `--tag KEY=VALUE` flag (deuda explícita
-del ADR-0006).
+`(os_id, fleet_tag)`. Since v0.3.1 the agent's `--tag KEY=VALUE`
+flag (ADR-0006, ADR-0015) populates `host_meta.tags` and Q3
+incorporates the canonical tag set into the peer-group key
+automatically.
 
 ### Query 4 — Cross-module obvious-implant signature
 

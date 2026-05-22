@@ -154,14 +154,20 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		fmt.Fprintln(out)
 	} else {
 		fmt.Fprintln(out, "Techniques declared in matrix.yaml cross-referenced with live records.")
-		fmt.Fprintln(out, "surfacing = at least one record carries the technique ID;")
-		fmt.Fprintln(out, "dormant   = declared as covered but no record observed yet.")
+		fmt.Fprintln(out, "surfacing             = at least one record carries the technique ID.")
+		fmt.Fprintln(out, "dormant_coverage_gap  = a covering module is active in the dataset but no")
+		fmt.Fprintln(out, "                        record carries this technique -- the operationally")
+		fmt.Fprintln(out, "                        interesting case (review module MITRE tagging or")
+		fmt.Fprintln(out, "                        the fleet sample).")
+		fmt.Fprintln(out, "dormant_module_silent = no covering module emitted any record fleet-wide,")
+		fmt.Fprintln(out, "                        so the site_class does not apply to this fleet")
+		fmt.Fprintln(out, "                        shape (e.g. grub/xdg in container fleets).")
 		fmt.Fprintln(out)
 		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  technique\tstatus\trecords\thosts\tsite_classes")
 		for _, row := range report.MITRECoverage.Rows {
 			status := row.Status
-			if status == "dormant" {
+			if status != statusSurfacing {
 				status = a.orange(status)
 			}
 			fmt.Fprintf(tw, "  %s\t%s\t%d\t%d\t%s\n",

@@ -96,19 +96,27 @@ implants:
 
   - id: ssh-forced-tmp
     tier: L2
-    variant: orphan
+    variant: armed
     module: ssh
     site_class: ssh.authkeys
     description: |
       SSH authorized_keys entry with command="/tmp/.b/persist".
-    expected_signals: [interpreter_in_tmp, exec_target_orphan]
+    expected_signals: [interpreter_in_tmp, non_package_path]
     expected_caught_by: [Q1, Q4, Q7, Q9]
     expected_q7_rule: payload_under_tmp_via_persistence
     template: ssh-forced-tmp.tmpl
     vars:
       authorized_keys_file: /root/.ssh/authorized_keys
       forced_cmd_path: /tmp/.b/persist
-      key_blob: AAAAC3NzaC1lZDI1NTE5AAAA-lab-implant-ssh-forced-tmp
+      # Wire-format ed25519 pubkey blob (51B decoded):
+      #   <u32:11> "ssh-ed25519" <u32:32> "linpersistLabImplantForcedTmpV3a"
+      # The 32B key body is base64-valid ASCII (no hyphens) so the agent's
+      # ssh module accepts the line under strict base64.StdEncoding.
+      # Pre-v0.3.4 this string carried ASCII hyphens, parseAuthKeyLine
+      # silently dropped it, and the implant missed across all placements.
+      # Any future ssh-key implant fixture MUST round-trip through
+      # `base64 -d` before commit.
+      key_blob: AAAAC3NzaC1lZDI1NTE5AAAAIGxpbnBlcnNpc3RMYWJJbXBsYW50Rm9yY2VkVG1wVjNh
 
   # ====================== L2 sudoers =======================
 

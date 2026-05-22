@@ -300,7 +300,13 @@ func snippetTrim(s string, _ int) string {
 }
 
 // build assembles a Report from a flat slice of records.
-func build(records []core.Record, sources []string, skipped int, agentVersion string) *Report {
+//
+// peerFloor sets the minimum number of hosts required in a peer-group
+// for Q3 to consider its rows; values <= 2 reproduce the os_id-only
+// era's permissiveness, the default 3 reproduces the v0.3.1 behavior,
+// values >= 4 are operator knobs for over-tagged fleets that surface
+// many tiny peer-groups (see docs/stacking-cookbook.md, Query 3).
+func build(records []core.Record, sources []string, skipped int, agentVersion string, peerFloor int) *Report {
 	r := &Report{
 		Generated:    time.Now().UTC(),
 		AgentVersion: agentVersion,
@@ -310,7 +316,7 @@ func build(records []core.Record, sources []string, skipped int, agentVersion st
 	r.Overview = computeOverview(records)
 	r.Q1Singletons = computeQ1(records)
 	r.Q2LocusSingletons = computeQ2(records)
-	r.Q3PeerGroupSingletons = computeQ3(records)
+	r.Q3PeerGroupSingletons = computeQ3(records, peerFloor)
 	r.Q4ImplantFingerprint = computeQ4(records)
 	r.Q5SignalDistribution = computeQ5(records)
 	r.Q6ExecTargetStacking = computeQ6(records)
@@ -536,9 +542,11 @@ func computeQ2(records []core.Record) []LocusSingletonRow {
 // ADR-0015: the peer-group key is now (os_id, canonical_tag_set). Hosts
 // with byte-identical canonical tag sets form one peer-group; hosts with
 // any difference form a separate peer-group. Hosts with zero tags form
-// the "untagged" peer-group within their os_id family. The floor
-// peer_hosts > 2 is preserved from the os_id-only era; revisit per
-// fleet shape.
+// the "untagged" peer-group within their os_id family. The default
+// floor of 3 (rows surface only when their peer-group has >= 3 hosts)
+// is preserved from the os_id-only era; the v0.3.4 --peer-floor flag
+// lets the operator tune it for over-tagged fleets where most
+// peer-groups have 1-2 hosts.
 
 type q3Key struct{ osID, tagKey, module, siteClass, contentNorm string }
 type q3Agg struct {
@@ -551,7 +559,10 @@ type q3Agg struct {
 // q3PeerKey is the (os_id, tagKey) tuple used to size peer-groups.
 type q3PeerKey struct{ osID, tagKey string }
 
-func computeQ3(records []core.Record) []PeerGroupRow {
+// computeQ3 surfaces (os_id, tagKey, module, site_class, content_norm)
+// groups whose record is a singleton inside a peer-group of at least
+// peerFloor hosts. peerFloor <= 1 effectively disables the floor.
+func computeQ3(records []core.Record, peerFloor int) []PeerGroupRow {
 	// peer-group size per (os_id, tagKey). One host appears once even if
 	// it has many records: peer-group cardinality is in hosts, not rows.
 	peers := map[q3PeerKey]map[string]struct{}{}
@@ -590,7 +601,7 @@ func computeQ3(records []core.Record) []PeerGroupRow {
 	var out []PeerGroupRow
 	for k, a := range agg {
 		peerSize := len(peers[q3PeerKey{k.osID, k.tagKey}])
-		if peerSize <= 2 {
+		if peerSize < peerFloor {
 			continue
 		}
 		if len(a.hosts) != 1 {

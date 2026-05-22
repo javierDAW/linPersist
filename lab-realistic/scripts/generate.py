@@ -210,7 +210,7 @@ def main():
         # carrying recent_mtime_7d, drowning Q8.
         body += (
             "\n# Stamp every operator-shaped config to provisioned_at.\n"
-            "RUN find /etc /opt /home /usr/local -type f 2>/dev/null "
+            "RUN find /etc /home -type f 2>/dev/null "
             f"| xargs -r -I{{}} touch -d \"{h['provisioned_at_iso']}\" {{}} 2>/dev/null ; true\n"
         )
         # Write Dockerfile.

@@ -7,6 +7,155 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-05-22
+
+### Fixed (v0.3.4 — ssh-forced-tmp end-to-end + lab fixture audit)
+- **`lab-realistic/implants/catalog.yaml`: ssh-forced-tmp key_blob
+  was not valid base64.** The pre-v0.3.4 value
+  `AAAAC3NzaC1lZDI1NTE5AAAA-lab-implant-ssh-forced-tmp` carried ASCII
+  hyphens, outside the strict base64 alphabet. The agent's ssh module
+  decodes the blob via `base64.StdEncoding.DecodeString`
+  (`internal/modules/ssh/normalize.go:139`), correctly rejected the
+  line, `parseAuthKeyLine` returned false, and `processAuthkeysFile`
+  silently dropped the implant. Across all three `ssh-forced-tmp`
+  placements (bastion / build-ci / web-edge) the agent emitted zero
+  `ssh.authkeys` records — exactly the v0.3.3 audit-doc MISSED count.
+  Module behavior is DFIR-positive (a real attacker key from
+  `ssh-keygen` is always valid base64); the bug was in the fixture.
+  Fix replaces the blob with a wire-format ed25519 pubkey
+  (`AAAAC3NzaC1lZDI1NTE5AAAAIGxpbnBlcnNpc3RMYWJJbXBsYW50Rm9yY2VkVG1wVjNh`,
+  decodes to `<u32:11> "ssh-ed25519" <u32:32> "linpersistLabImplantForcedTmpV3a"`).
+  Live-container repro from `r-build-ci-amzn-04` confirms the agent
+  now emits a `ssh.authkeys` record with the expected signals
+  (`interpreter_in_tmp`, `ssh_forced_command`, `non_package_path`,
+  `recent_mtime_7d`, `recent_target_mtime_7d`).
+- **`lab-realistic/implants/catalog.yaml`: ssh-forced-tmp variant
+  metadata was inconsistent.** Catalog declared
+  `variant: orphan` with `expected_signals: [..., exec_target_orphan]`
+  but the `ssh-forced-tmp.tmpl` template explicitly creates the
+  payload file (`The payload file IS created (armed).`). The two
+  signal names mean different things in `internal/core/signals.go`:
+  `exec_target_orphan` = exec_target path missing on disk;
+  `non_package_path` = exec_target present but not package-managed.
+  Fix flips `variant: armed` and `expected_signals` to
+  `[interpreter_in_tmp, non_package_path]`, aligned with what the
+  module actually emits.
+- **`docs/benchmarks/v0.3.3-realistic.md`: Detection envelope section
+  attributed the ssh-forced-tmp MISSED to a "template gap: writes to
+  /root/.ssh/authorized_keys without mkdir -p $(dirname) first".**
+  The template already had the mkdir; the live-container investigation
+  traced the miss to the base64-invalid blob (above). Section
+  rewritten with the real root cause and a note recording that the
+  original hypothesis was wrong.
+- **`lab-realistic/scripts/generate.py`: aggressive mtime stamping
+  suppressed `recent_target_mtime_7d` for worm-shared-{cron,systemd}.**
+  The v0.3.3 backdating pass `find /etc /opt /home /usr/local -type f
+  -exec touch -d ${provisioned_at}` also stamped the worm's
+  exec_target binary at `/usr/local/sbin/sync-agent`, so the agent's
+  `recent_target_mtime_7d` signal could not fire. Drop `/opt` and
+  `/usr/local` from the stamping pass: keep `/etc` and `/home`
+  (operator-shaped configs and dotfiles) backdated, but leave
+  binaries under `/opt` and `/usr/local` with their build-time mtime
+  so worm payloads retain their `recent` flag. The `chmod 0700`
+  step in the ssh-forced-tmp template was unaffected.
+
+### Added (v0.3.4 — operator escape hatches)
+- **`--peer-floor N` flag on `linpersist-report`.** Tunes the Q3
+  minimum peer-group size. Default 3 (reproduces v0.3.1 behavior).
+  Sparse fleets (under-populated labs, fine-grained tagging that
+  splits the fleet into many 1-2-host cohorts) collapse Q3 to zero
+  rows under the default; the flag lets the operator drop the floor
+  to 2 or 1 to recover visibility. Smoke-tested against the lab v2
+  NDJSON: Q3 row count scales 4 (floor=3) → 54 (floor=2) → 6848
+  (floor=1). New `TestQ3_PeerFloorTunable` plus existing
+  `TestQ3_PeerSizeFloor` cover the four canonical values (1/2/3/4).
+  Documented in `docs/stacking-cookbook.md` Query 3.
+- **MITRE coverage panel: dormant sub-categorization.** A dormant
+  technique was previously a single bucket ("declared but no
+  records observed"). v0.3.4 splits it into two operationally
+  distinct cases:
+  - `dormant_coverage_gap` — at least one covering module is active
+    elsewhere in the dataset, yet no record carries this MITRE ID.
+    Operationally interesting: review the module's MITRE tagging
+    or the fleet sample.
+  - `dormant_module_silent` — no covering module emitted any record
+    fleet-wide. The site_class does not apply to this fleet shape
+    (typical for `grub` / `xdg` / `polkit` in container-only labs).
+    Not a coverage gap, just an environment artifact.
+  
+  Panel header in the lab v2 dataset shows
+  `15/18 surfacing, 3 dormant (0 gap, 3 silent)` — the three dormant
+  techniques (T1542.003 grub, T1547.013 xdg, T1548 polkit) all sit on
+  modules that emit zero records fleet-wide, so the new classification
+  correctly flags the absence as environmental, not a coverage gap.
+  Pre-v0.3.4 the panel reported the lossy `15/18 surfacing, 3 dormant`. HTML row colors
+  use `--tail` (orange) for coverage_gap and `--muted` (grey) for
+  module_silent, leaving surfacing in bold. Sort order: surfacing
+  before coverage_gap before module_silent.
+- **`lab-realistic/implants/catalog.yaml`: future-fixture rule.**
+  YAML comment now documents the base64-round-trip rule for any
+  future ssh-key implant blob, so the v0.3.3 regression is hard
+  to reintroduce.
+
+### Changed
+- **`score.py` docstring corrected.** The script's heuristic was
+  PRESENCE-based (any signal at the `(host, module, site_class)`
+  key counts as TP), not signal-exact as the docstring claimed.
+  Documentation updated to match; the lax matching is intentional
+  given the catalog ↔ agent signal-name overlap (e.g. catalog
+  `exec_target_orphan` vs agent `non_package_path` for armed
+  implants). Behavior unchanged.
+
+### Verified (v0.3.4 release gate)
+- `make all` clean: lint + test + audit + detgen-verify +
+  matrix-sync-verify + build.
+- Q3 tests: 8/8 pass including new `TestQ3_PeerFloorTunable`.
+- MITRE tests: 4/4 pass — empty dataset all module_silent;
+  coverage_gap vs module_silent split correctly; surfacing
+  record promotion; summary string format.
+- ssh-forced-tmp live-container repro on `r-build-ci-amzn-04`:
+  agent emits one `ssh.authkeys` record with all expected signals.
+- Full lab-realistic v2 re-bench against the freshly-built
+  v0.3.4 agent (`dist/linpersist-linux-amd64`):
+  - 45/45 hosts collected, 19,473 records (+3 vs v0.3.3 — the
+    3 ssh.authkeys records that were silently dropped before).
+  - score.py recall: **Q1 1.00, Q4 1.00, Q7 1.00, Q9 1.00**
+    (vs v0.3.3 aggregate 0.82). Q12 is 0.67 (2/3); the
+    remaining miss is the worm `profile` arm whose 3-arm
+    clustering depends on exec_target population (deferred
+    to v0.4.0 — pre-existing, not regression).
+  - Module ssh now emits **3 ssh.authkeys records** for the
+    bastion/build-ci/web-edge ssh-forced-tmp placements (the
+    v0.3.3 MISSED batch). Each carries the expected signals
+    `interpreter_in_tmp`, `ssh_forced_command`,
+    `ssh_options_present`, `non_package_path`,
+    `recent_mtime_7d`, and `recent_target_mtime_7d`.
+  - Worm exec_target `/usr/local/sbin/sync-agent` retains a
+    fresh build-time mtime on the 2 worm-shared-{cron,systemd}
+    placements, so the `recent_target_mtime_7d` signal fires
+    (2/2 — also previously zero).
+  - MITRE panel header: `15/18 surfacing, 3 dormant
+    (0 gap, 3 silent)`. The three dormants
+    (`T1542.003` grub, `T1547.013` xdg, `T1548` polkit) all
+    sit on modules emitting zero records in this
+    container-only lab — classification confirms environmental
+    absence, not a coverage gap.
+  - Q3 with default `--peer-floor 3`: 4 rows (vs v0.3.3's
+    zero-row collapse — over-tagging effect partially
+    relieved by the new mtime / signal recoveries).
+    Operator can tune to `2` (54 rows) or `1` (6848 rows)
+    for sparse fleets.
+
+### Deferred to v0.4.0
+- Aligning catalog `expected_signals` vocabulary with
+  `internal/core/signals.go` literals across all implants
+  (only ssh-forced-tmp normalized in v0.3.4).
+- Stricter `score.py`: actual signal-set intersection check
+  instead of presence-based heuristic. Requires the catalog
+  vocabulary alignment above.
+- ssh-forced-tmp greedy placement bias toward build-ci/web-edge
+  (zero placements on bastion under current policy weights).
+
 ## [0.3.3] - 2026-05-21
 
 ### Added (v0.3.3 — lab-realistic v2)

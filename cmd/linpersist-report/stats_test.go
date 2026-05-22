@@ -46,7 +46,7 @@ func TestQ3_NoTags_BehavesLikeOSIDOnly(t *testing.T) {
 	singleton := makeRec("h5", "ubuntu", nil, "singleton-hash")
 	records := append(common, singleton)
 
-	rows := computeQ3(records)
+	rows := computeQ3(records, 3)
 
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 Q3 row, got %d: %+v", len(rows), rows)
@@ -76,7 +76,7 @@ func TestQ3_SameTags_SamePeerGroup(t *testing.T) {
 	singleton := makeRec("build5", "ubuntu", tags, "singleton-hash")
 	records := append(common, singleton)
 
-	rows := computeQ3(records)
+	rows := computeQ3(records, 3)
 
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 Q3 row, got %d: %+v", len(rows), rows)
@@ -118,7 +118,7 @@ func TestQ3_DifferentTags_SeparatePeerGroups(t *testing.T) {
 	records := append(buildCommon, ciCommon...)
 	records = append(records, buildSingleton, ciSingleton)
 
-	rows := computeQ3(records)
+	rows := computeQ3(records, 3)
 
 	// Expect exactly two Q3 rows: one singleton per peer-group.
 	if len(rows) != 2 {
@@ -155,7 +155,7 @@ func TestQ3_TagOrderIndependent(t *testing.T) {
 	singleton := makeRec("h4", "ubuntu", orderA, "singleton-hash")
 	records := append(common, singleton)
 
-	rows := computeQ3(records)
+	rows := computeQ3(records, 3)
 
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 Q3 row, got %d: %+v", len(rows), rows)
@@ -169,32 +169,62 @@ func TestQ3_TagOrderIndependent(t *testing.T) {
 	}
 }
 
-// TestQ3_PeerSizeFloor verifies the peer_hosts > 2 floor.
+// TestQ3_PeerSizeFloor verifies the default peerFloor=3 behavior.
 // A peer-group of two hosts is too small to learn a baseline from
 // (n=2, every record is by definition either common-to-both or
 // singleton-on-one), so the entire peer-group is suppressed.
 func TestQ3_PeerSizeFloor(t *testing.T) {
-	// Peer-group of size 2: too small.
+	// Peer-group of size 2: too small under floor=3.
 	records := []core.Record{
 		makeRec("h1", "alpine", nil, "common"),
 		makeRec("h2", "alpine", nil, "common"),
 		makeRec("h1", "alpine", nil, "singleton"),
 	}
-	rows := computeQ3(records)
+	rows := computeQ3(records, 3)
 	if len(rows) != 0 {
-		t.Fatalf("peer-group of 2 must be suppressed, got %d rows: %+v",
+		t.Fatalf("peer-group of 2 must be suppressed under floor=3, got %d rows: %+v",
 			len(rows), rows)
 	}
 
-	// Peer-group of size 3: floor is "> 2", so 3 passes.
+	// Peer-group of size 3: floor=3 means peerSize >= 3, so 3 passes.
 	records = append(records, makeRec("h3", "alpine", nil, "common"))
-	rows = computeQ3(records)
+	rows = computeQ3(records, 3)
 	if len(rows) != 1 {
 		t.Fatalf("peer-group of 3 should surface 1 singleton, got %d rows: %+v",
 			len(rows), rows)
 	}
 	if rows[0].PeerSize != 3 {
 		t.Errorf("PeerSize: got %d, want 3", rows[0].PeerSize)
+	}
+}
+
+// TestQ3_PeerFloorTunable verifies that the --peer-floor knob lets
+// operators tighten or relax the cohort-size requirement. ADR-0015
+// plus the v0.3.3 lab showed that over-tagged fleets collapse Q3 to
+// zero rows; the flag is the v0.3.4 escape hatch.
+func TestQ3_PeerFloorTunable(t *testing.T) {
+	// Peer-group of exactly 2 hosts with one singleton across them.
+	records := []core.Record{
+		makeRec("h1", "alpine", nil, "common"),
+		makeRec("h2", "alpine", nil, "common"),
+		makeRec("h1", "alpine", nil, "singleton"),
+	}
+
+	// peerFloor=3 -> suppressed (the default).
+	if got := len(computeQ3(records, 3)); got != 0 {
+		t.Errorf("floor=3 on peer-of-2: want 0 rows, got %d", got)
+	}
+	// peerFloor=2 -> the same dataset now surfaces.
+	if got := len(computeQ3(records, 2)); got != 1 {
+		t.Errorf("floor=2 on peer-of-2: want 1 row, got %d", got)
+	}
+	// peerFloor=1 -> any peer-group qualifies (used for sparse fleets).
+	if got := len(computeQ3(records, 1)); got != 1 {
+		t.Errorf("floor=1 on peer-of-2: want 1 row, got %d", got)
+	}
+	// peerFloor=4 -> stricter than the data: nothing surfaces.
+	if got := len(computeQ3(records, 4)); got != 0 {
+		t.Errorf("floor=4 on peer-of-2: want 0 rows, got %d", got)
 	}
 }
 
@@ -216,7 +246,7 @@ func TestQ3_UntaggedSeparateFromTagged(t *testing.T) {
 	records := append(tagged, untagged...)
 	records = append(records, taggedSingleton, untaggedSingleton)
 
-	rows := computeQ3(records)
+	rows := computeQ3(records, 3)
 
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 Q3 rows (one per peer-group), got %d: %+v",
@@ -259,7 +289,7 @@ func TestQ3_RecordCommonAcrossPeerGroups(t *testing.T) {
 		[]string{"u1", "u2", "u3"}, "fleet-wide")
 	records := append(tagged, untagged...)
 
-	rows := computeQ3(records)
+	rows := computeQ3(records, 3)
 	if len(rows) != 0 {
 		t.Fatalf("fleet-wide line must surface in no peer-group, got %d rows: %+v",
 			len(rows), rows)

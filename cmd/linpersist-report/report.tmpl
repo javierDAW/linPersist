@@ -119,7 +119,7 @@
     </div>
 
     <h2>MITRE ATT&amp;CK coverage</h2>
-    <p class="hint">Techniques declared in <code>matrix.yaml</code> cross-referenced with live records. <b>surfacing</b> = at least one record carries the technique ID. <b>dormant</b> = declared as covered but no record observed yet (the rule is pre-armed; the dataset has not exercised the vector).</p>
+    <p class="hint">Techniques declared in <code>matrix.yaml</code> cross-referenced with live records. <b>surfacing</b> = at least one record carries the technique ID. <b>dormant_coverage_gap</b> = a covering module is active in the dataset but no record carries this technique (the operationally interesting case — review module MITRE tagging or the fleet sample). <b>dormant_module_silent</b> = no covering module emitted any record fleet-wide, so the site_class does not apply to this fleet shape (e.g. <code>grub</code>/<code>xdg</code> in container fleets).</p>
     {{if eq .Report.MITRECoverage.TotalTechniques 0}}
     <p class="hint"><em>matrix.yaml unavailable -- panel suppressed.</em></p>
     {{else}}
@@ -136,7 +136,7 @@
         {{range .Report.MITRECoverage.Rows}}
           <tr>
             <td><code>{{.TechniqueID}}</code></td>
-            <td>{{if eq .Status "dormant"}}<span style="color:var(--muted)">{{.Status}}</span>{{else}}<b>{{.Status}}</b>{{end}}</td>
+            <td>{{if eq .Status "surfacing"}}<b>{{.Status}}</b>{{else if eq .Status "dormant_coverage_gap"}}<span style="color:var(--tail)">{{.Status}}</span>{{else}}<span style="color:var(--muted)">{{.Status}}</span>{{end}}</td>
             <td class="num">{{.Records}}</td>
             <td class="num">{{.Hosts}}</td>
             <td>{{range $i, $s := .SiteClasses}}{{if $i}}, {{end}}<code>{{$s}}</code>{{end}}</td>

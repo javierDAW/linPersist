@@ -65,14 +65,15 @@ var (
 
 func main() {
 	var (
-		input    string
-		output   string
-		format   string
-		host     string
-		diffPath string
-		colorM   string
-		title    string
-		showVer  bool
+		input     string
+		output    string
+		format    string
+		host      string
+		diffPath  string
+		colorM    string
+		title     string
+		showVer   bool
+		peerFloor int
 	)
 	flag.StringVar(&input, "i", "", "input: directory of *.ndjson files OR a single .ndjson file")
 	flag.StringVar(&input, "input", "", "alias for -i")
@@ -84,6 +85,7 @@ func main() {
 	flag.StringVar(&colorM, "color", "auto", "ANSI color in text mode: auto | on | off")
 	flag.StringVar(&title, "title", "linpersist report", "title shown in the report header")
 	flag.BoolVar(&showVer, "version", false, "print version and exit")
+	flag.IntVar(&peerFloor, "peer-floor", 3, "Q3 minimum peer-group size; rows surface only when their (os_id, tag_set) cohort has at least this many hosts. Default 3 reproduces the v0.3.1 behavior; lower it for sparse fleets (under-populated labs), raise it for over-tagged fleets where most peer-groups have 1-2 hosts.")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "linpersist-report %s — turn linpersist NDJSON into a report.\n\n", version)
 		fmt.Fprintln(os.Stderr, "Usage:")
@@ -188,7 +190,7 @@ func main() {
 		}
 		dossier = d
 	} else {
-		report = build(res.Records, res.Files, res.Skipped, agentVersion)
+		report = build(res.Records, res.Files, res.Skipped, agentVersion, peerFloor)
 	}
 
 	var out io.Writer = os.Stdout
