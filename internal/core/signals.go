@@ -322,4 +322,20 @@ const (
 	SignalGroupAdmMembership    = "group_adm_membership"
 	SignalGroupLxdMembership    = "group_lxd_membership"
 	SignalGroupRootMembership   = "group_root_membership"
+
+	// SignalSuidBitSet and SignalSgidBitSet set on suidbits records
+	// when the file carries the corresponding mode bit (04000 / 02000).
+	// MITRE T1548.001 (Abuse Elevation Control Mechanism: Setuid and
+	// Setgid): an attacker who can write a binary and chmod u+s it
+	// leaves a privilege-escalation pivot that survives reboot and
+	// leaves no trace in /etc/passwd or /etc/sudoers. Both bits CAN
+	// be set on the same file; both signals fire in that case. The
+	// fleet-wide noise from legitimate package-managed suid binaries
+	// (passwd, sudo, mount, ping, ...) is filtered downstream by
+	// pairing with non_package_path: a suid binary under /usr/bin
+	// shipped by the package manager looks identical across hosts
+	// and stacks in Q1; a suid binary under /tmp owned by root is
+	// the unmistakable implant shape.
+	SignalSuidBitSet = "suid_bit_set"
+	SignalSgidBitSet = "sgid_bit_set"
 )

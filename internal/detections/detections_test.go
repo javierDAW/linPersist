@@ -234,6 +234,37 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			},
 			want: []string{"grub_init_override"},
 		},
+		// v0.4.0 — T1548.001 suidbits implant rule.
+		{
+			name: "suid bit + non-package path -> T1548.001 implant",
+			rec: core.Record{
+				Module: "suidbits",
+				Signals: []string{
+					core.SignalSuidBitSet,
+					core.SignalNonPackagePath,
+				},
+			},
+			want: []string{"suid_binary_outside_package_path"},
+		},
+		{
+			name: "sgid bit + non-package path -> same T1548.001 rule",
+			rec: core.Record{
+				Module: "suidbits",
+				Signals: []string{
+					core.SignalSgidBitSet,
+					core.SignalNonPackagePath,
+				},
+			},
+			want: []string{"suid_binary_outside_package_path"},
+		},
+		{
+			name: "suid bit on package-managed path -> rule suppressed",
+			rec: core.Record{
+				Module:  "suidbits",
+				Signals: []string{core.SignalSuidBitSet},
+			},
+			want: nil,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

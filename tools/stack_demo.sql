@@ -367,6 +367,7 @@ WHERE
   OR /* tmpfiles_creates_payload_at_boot */ list_contains(signals, 'tmpfiles_creates_under_tmp')
   OR /* sysusers_second_uid_zero */ list_contains(signals, 'sysusers_uid_zero')
   OR /* systemd_linger_non_root_account */ list_contains(signals, 'systemd_linger_non_root')
+  OR /* suid_binary_outside_package_path */ (list_contains(signals, 'non_package_path') AND (list_contains(signals, 'suid_bit_set') OR list_contains(signals, 'sgid_bit_set')))
   -- END GENERATED
 ORDER BY host, module, locus;
 

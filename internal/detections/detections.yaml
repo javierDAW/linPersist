@@ -238,3 +238,13 @@ detections:
     mitre: [T1546]
     when:
       signals_any: [systemd_linger_non_root]
+
+  # ---------- v0.4.0: setuid/setgid escalation surface ------------
+
+  - id: suid_binary_outside_package_path
+    description: Suid or sgid binary at a path not owned by any installed package (T1548.001 implant shape)
+    severity: critical
+    mitre: [T1548.001]
+    when:
+      signals_all: [non_package_path]
+      signals_any: [suid_bit_set, sgid_bit_set]

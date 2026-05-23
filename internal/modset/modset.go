@@ -30,6 +30,7 @@ import (
 	"github.com/jarmidaw/linpersist/internal/modules/ssh"
 	"github.com/jarmidaw/linpersist/internal/modules/sshd"
 	"github.com/jarmidaw/linpersist/internal/modules/sudoers"
+	"github.com/jarmidaw/linpersist/internal/modules/suidbits"
 	"github.com/jarmidaw/linpersist/internal/modules/systemd"
 	"github.com/jarmidaw/linpersist/internal/modules/sysusers"
 	"github.com/jarmidaw/linpersist/internal/modules/sysv"
@@ -66,6 +67,7 @@ func All(prov core.Provenance, liveProcs core.LiveProcessSet) []core.Module {
 		ssh.New(ssh.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		sshd.New(sshd.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		sudoers.New(sudoers.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		suidbits.New(suidbits.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		systemd.New(systemd.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		sysusers.New(sysusers.Options{}),
 		sysv.New(sysv.Options{Provenance: prov, LiveProcessSet: liveProcs}),
