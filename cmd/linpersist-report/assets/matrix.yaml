@@ -343,6 +343,73 @@ site_classes:
       (peer-grouped by role tag so build hosts that legitimately
       expose docker do not poison the signal).
 
+  - site_class: suid.system
+    module: suidbits
+    mitre: [T1548.001]
+    loci:
+      - /usr/bin/
+      - /usr/sbin/
+      - /usr/local/bin/
+      - /usr/local/sbin/
+      - /opt/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      One record per regular file with the setuid bit (04000) under a
+      system-side root. Most matches are package-managed legitimate
+      suid binaries (passwd, sudo, mount, ping, su, chsh, gpasswd,
+      newgrp, pkexec). Provenance annotates them with pkg_status
+      so Q11 (orphan exec_target outside tmp) filters the
+      non_package_path subset — the actual implant surface.
+
+  - site_class: sgid.system
+    module: suidbits
+    mitre: [T1548.001]
+    loci:
+      - /usr/bin/
+      - /usr/sbin/
+      - /usr/local/bin/
+      - /usr/local/sbin/
+      - /opt/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      Setgid sibling of suid.system. sgid alone (no suid) is less
+      dangerous but still grants the binary's group privileges to
+      its invokers; the textbook example is /usr/bin/wall sgid tty.
+      A non-package sgid binary outside /tmp is a quieter pivot
+      than the suid variant and worth surfacing distinctly.
+
+  - site_class: suid.user
+    module: suidbits
+    mitre: [T1548.001]
+    loci:
+      - /home/
+      - /tmp/
+      - /var/tmp/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      Suid binary under a user-writable root. /tmp/.x mode 4755
+      owned by root is the canonical T1548.001 implant — almost
+      never legitimate. Pair with the suid_bit_set signal plus
+      the standard non_package_path / recent_mtime_7d cluster to
+      drive Q4 (implant fingerprint) and Q7 (roll-call).
+
+  - site_class: sgid.user
+    module: suidbits
+    mitre: [T1548.001]
+    loci:
+      - /home/
+      - /tmp/
+      - /var/tmp/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      Setgid-only sibling of suid.user. Rare in practice; included
+      for completeness so the four-quadrant suid/sgid × system/user
+      matrix is symmetric.
+
   - site_class: passwd.gshadow
     module: passwd
     mitre: [T1136.001]

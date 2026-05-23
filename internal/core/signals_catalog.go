@@ -59,7 +59,7 @@ var Signals = []SignalDef{
 		EmittedBy: []string{
 			"atjobs", "cron", "grub", "kmod", "ldso", "motd", "netdispatch",
 			"pam", "passwd", "polkit", "profile", "ssh", "sshd", "sudoers",
-			"systemd", "sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
+			"suidbits", "systemd", "sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
 		},
 	},
 	{
@@ -68,7 +68,7 @@ var Signals = []SignalDef{
 		EmittedBy: []string{
 			"atjobs", "cron", "grub", "kmod", "ldso", "motd", "netdispatch",
 			"pam", "passwd", "polkit", "profile", "ssh", "sshd", "sudoers",
-			"systemd", "sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
+			"suidbits", "systemd", "sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
 		},
 	},
 	{
@@ -84,7 +84,7 @@ var Signals = []SignalDef{
 		EmittedBy: []string{
 			"atjobs", "cron", "grub", "kmod", "ldso", "motd", "netdispatch",
 			"pam", "passwd", "polkit", "profile", "ssh", "sshd", "sudoers",
-			"systemd", "sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
+			"suidbits", "systemd", "sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
 		},
 	},
 
@@ -150,8 +150,8 @@ var Signals = []SignalDef{
 		Description: "artifact under /etc, /usr, /lib, /bin, /sbin is owned by uid != 0",
 		EmittedBy: []string{
 			"cron", "grub", "kmod", "ldso", "motd", "netdispatch", "pam",
-			"passwd", "polkit", "profile", "ssh", "sshd", "sudoers", "systemd",
-			"sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
+			"passwd", "polkit", "profile", "ssh", "sshd", "sudoers", "suidbits",
+			"systemd", "sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
 		},
 	},
 	{
@@ -365,6 +365,16 @@ var Signals = []SignalDef{
 		Name:        SignalGroupRootMembership,
 		Description: "non-root user is a member of the root group — unlocks numerous setgid binaries (T1098.007)",
 		EmittedBy:   []string{"passwd"},
+	},
+	{
+		Name:        SignalSuidBitSet,
+		Description: "file has the setuid bit (04000); pair with non_package_path for the T1548.001 implant shape",
+		EmittedBy:   []string{"suidbits"},
+	},
+	{
+		Name:        SignalSgidBitSet,
+		Description: "file has the setgid bit (02000); pair with non_package_path for the T1548.001 implant shape",
+		EmittedBy:   []string{"suidbits"},
 	},
 }
 

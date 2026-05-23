@@ -276,7 +276,7 @@ footer a { color: var(--accent); }
       <div class="card"><div class="k">Q7 roll-call</div><div class="v" style="color:var(--tail)">0</div></div>
       <div class="card"><div class="k">Q8 mtime spikes</div><div class="v">0</div></div>
       <div class="card"><div class="k">Q11 orphan outside /tmp</div><div class="v" style="color:var(--tail)">2</div></div>
-      <div class="card"><div class="k">MITRE techniques</div><div class="v">1/20<span style="color:var(--muted);font-size:0.7em"> surfacing</span></div></div>
+      <div class="card"><div class="k">MITRE techniques</div><div class="v">1/21<span style="color:var(--muted);font-size:0.7em"> surfacing</span></div></div>
     </div>
 
     <h2>LFA stacking histogram</h2>
@@ -528,6 +528,14 @@ footer a { color: var(--accent); }
             <td class="num">0</td>
             <td class="num">0</td>
             <td><code>polkit.rules</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1548.001</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>sgid.system</code>, <code>sgid.user</code>, <code>suid.system</code>, <code>suid.user</code></td>
           </tr>
         
           <tr>
