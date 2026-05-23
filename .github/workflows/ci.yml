@@ -1,0 +1,92 @@
+name: ci
+
+# Runs the same release gate sequence that `make all` enforces locally:
+#   lint -> test -> audit -> detgen-verify -> matrix-sync-verify -> build
+# Plus -race tests and the static-link gate against the linux/amd64 build.
+#
+# This closes the discourse/praxis gap documented in docs/SPRINT-HANDOFF.md:
+# every gate ADR claims to enforce must also enforce on PRs, not only on
+# Jarmi's laptop.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: make all
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Cache modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum', '**/go.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: go mod download
+        run: go mod download
+
+      - name: make all
+        run: make all
+
+      - name: make test-race
+        run: make test-race
+
+      - name: Static-link gate (linux/amd64)
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -buildvcs=false -tags=osusergo,netgo \
+            -ldflags="-s -w" \
+            -o dist/linpersist-linux-amd64 ./cmd/linpersist
+          ./tools/verify_static.sh dist/linpersist-linux-amd64
+
+      - name: Upload dist artifacts
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: linpersist-bins
+          path: dist/
+          retention-days: 14
+
+  duckdb-equiv:
+    name: Go ↔ SQL equivalence (DuckDB)
+    runs-on: ubuntu-latest
+    needs: gate
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Install DuckDB CLI
+        run: |
+          set -eux
+          curl -fsSL -o /tmp/duckdb.zip \
+            https://github.com/duckdb/duckdb/releases/download/v1.1.3/duckdb_cli-linux-amd64.zip
+          unzip -d "$RUNNER_TEMP/duckdb" /tmp/duckdb.zip
+          "$RUNNER_TEMP/duckdb/duckdb" -version
+          echo "DUCKDB_BIN=$RUNNER_TEMP/duckdb/duckdb" >> "$GITHUB_ENV"
+
+      - name: Go ↔ SQL equivalence
+        run: go test -tags=duckdb ./tools/...

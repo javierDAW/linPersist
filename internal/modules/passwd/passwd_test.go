@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -283,5 +284,96 @@ func TestParseGshadowLine_HashNotInCanon(t *testing.T) {
 	}
 	if ge.status != "set" {
 		t.Fatalf("status: %q", ge.status)
+	}
+}
+
+// TestNonRootMembers covers the T1098.007 membership predicate. Every
+// branch the recordFromGroup reclassification relies on is exercised:
+// empty CSV, root-only, single non-root, multiple non-root.
+func TestNonRootMembers(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"", false},
+		{"root", false},
+		{"alice", true},
+		{"root,alice", true},
+		{"alice,bob", true},
+		{",root,", false},
+		{",alice,", true},
+	}
+	for _, c := range cases {
+		if got := nonRootMembers(c.in); got != c.want {
+			t.Errorf("nonRootMembers(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+// TestRecordFromGroup_PrivilegedReclassification verifies that every
+// privileged group with non-root members lands in
+// passwd.group.privileged with the correct signal and MITRE pair,
+// while non-privileged groups or root-only privileged groups stay
+// under passwd.group. Uses a temp /etc/group file rather than a fake
+// FileInfo so the baseSignals timestamp path (recent_mtime_*) is
+// exercised end-to-end.
+func TestRecordFromGroup_PrivilegedReclassification(t *testing.T) {
+	tmp := t.TempDir()
+	groupPath := filepath.Join(tmp, "group")
+	if err := os.WriteFile(groupPath, []byte("placeholder:x:0:\n"), 0o644); err != nil {
+		t.Fatalf("write group fixture: %v", err)
+	}
+	info, err := os.Lstat(groupPath)
+	if err != nil {
+		t.Fatalf("lstat: %v", err)
+	}
+	m := New(Options{Now: func() time.Time { return time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC) }})
+
+	cases := []struct {
+		raw           string
+		wantSiteClass string
+		wantSignal    string
+		wantMITRE     int
+	}{
+		{"wheel:x:10:alice", "passwd.group.privileged", core.SignalGroupWheelMembership, 2},
+		{"sudo:x:27:bob,alice", "passwd.group.privileged", core.SignalGroupSudoMembership, 2},
+		{"docker:x:999:eve", "passwd.group.privileged", core.SignalGroupDockerMembership, 2},
+		{"adm:x:4:alice,bob", "passwd.group.privileged", core.SignalGroupAdmMembership, 2},
+		{"lxd:x:108:alice", "passwd.group.privileged", core.SignalGroupLxdMembership, 2},
+		{"root:x:0:alice", "passwd.group.privileged", core.SignalGroupRootMembership, 2},
+		{"wheel:x:10:", "passwd.group", "", 1},
+		{"sudo:x:27:root", "passwd.group", "", 1},
+		{"users:x:100:alice,bob", "passwd.group", "", 1},
+	}
+	for _, c := range cases {
+		ge, ok := parseGroupLine(c.raw)
+		if !ok {
+			t.Fatalf("parse %q failed", c.raw)
+		}
+		rec := m.recordFromGroup("/etc/group", info, ge)
+		if rec.SiteClass != c.wantSiteClass {
+			t.Errorf("%q: SiteClass=%q want %q", c.raw, rec.SiteClass, c.wantSiteClass)
+		}
+		if len(rec.MITRE) != c.wantMITRE {
+			t.Errorf("%q: len(MITRE)=%d want %d (got=%v)", c.raw, len(rec.MITRE), c.wantMITRE, rec.MITRE)
+		}
+		if c.wantSignal == "" {
+			for _, s := range rec.Signals {
+				if strings.HasPrefix(s, "group_") && strings.HasSuffix(s, "_membership") {
+					t.Errorf("%q: unexpected privileged signal %q", c.raw, s)
+				}
+			}
+			continue
+		}
+		found := false
+		for _, s := range rec.Signals {
+			if s == c.wantSignal {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("%q: missing signal %q (got=%v)", c.raw, c.wantSignal, rec.Signals)
+		}
 	}
 }

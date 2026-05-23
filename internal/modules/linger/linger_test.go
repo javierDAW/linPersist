@@ -284,31 +284,6 @@ func TestNormalize_EquivalentUsernames(t *testing.T) {
 
 // --- Helpers ---
 
-// TestDedupSignals_RemovesDuplicates exercises the dedup helper to
-// catch regressions where two code paths add the same signal.
-func TestDedupSignals_RemovesDuplicates(t *testing.T) {
-	in := []string{"a", "b", "a", "c", "b"}
-	got := dedupSignals(in)
-	want := []string{"a", "b", "c"}
-	if len(got) != len(want) {
-		t.Fatalf("len: got %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("idx %d: got %q, want %q (full got=%v)", i, got[i], want[i], got)
-		}
-	}
-}
-
-func TestDedupSignals_NilOnEmpty(t *testing.T) {
-	if got := dedupSignals(nil); got != nil {
-		t.Fatalf("nil input must return nil, got %v", got)
-	}
-	if got := dedupSignals([]string{}); got != nil {
-		t.Fatalf("empty input must return nil, got %v", got)
-	}
-}
-
 // --- Collect-level robustness ---
 
 // TestCollect_NonExistentDir verifies that a host without

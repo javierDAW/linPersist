@@ -193,7 +193,7 @@ func (m *Module) recordFromLine(logical string, info os.FileInfo, pl parsedLine)
 		ContentNormSHA256: core.HashHexString(pl.canon),
 		ContentSnippet:    snippet(pl.canon),
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 
 	signals := m.baseSignals(info, logical)
 	switch pl.kind {
@@ -207,7 +207,7 @@ func (m *Module) recordFromLine(logical string, info os.FileInfo, pl parsedLine)
 			signals = append(signals, core.SignalSudoersAllCommands)
 		}
 	}
-	rec.Signals = dedupSignals(signals)
+	rec.Signals = core.DedupSignals(signals)
 	return rec
 }
 
@@ -220,31 +220,10 @@ func (m *Module) envelopeRecord(logical string, info os.FileInfo, errs []core.Re
 		Errors:    errs,
 	}
 	if info != nil {
-		fillFileMeta(&rec, info)
-		rec.Signals = dedupSignals(m.baseSignals(info, logical))
+		core.FillFileMeta(&rec, info)
+		rec.Signals = core.DedupSignals(m.baseSignals(info, logical))
 	}
 	return rec
-}
-
-// fillFileMeta mirrors the other modules' implementation.
-func fillFileMeta(rec *core.Record, info os.FileInfo) {
-	size := info.Size()
-	rec.Size = &size
-	mt := info.ModTime().UTC()
-	rec.MTime = &mt
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		uid := uint32(st.Uid)
-		gid := uint32(st.Gid)
-		rec.OwnerUID = &uid
-		rec.OwnerGID = &gid
-		rec.Mode = core.FormatMode(uint32(st.Mode) & 0o7777)
-		atime := time.Unix(int64(st.Atim.Sec), int64(st.Atim.Nsec)).UTC()
-		ctime := time.Unix(int64(st.Ctim.Sec), int64(st.Ctim.Nsec)).UTC()
-		rec.ATime = &atime
-		rec.CTime = &ctime
-	} else {
-		rec.Mode = core.FormatMode(uint32(info.Mode().Perm()))
-	}
 }
 
 // baseSignals returns per-file signals independent of line content.
@@ -301,23 +280,6 @@ func snippet(s string) string {
 	}
 	return s[:max]
 }
-
-func dedupSignals(in []string) []string {
-	if len(in) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(in))
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		out = append(out, s)
-	}
-	return out
-}
-
 func errnoCode(err error) string {
 	if errors.Is(err, fs.ErrNotExist) {
 		return "ENOENT"

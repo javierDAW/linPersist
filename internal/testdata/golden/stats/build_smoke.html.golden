@@ -1,0 +1,1155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Test report</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>/*
+ * linpersist-report inline stylesheet.
+ *
+ * Goals:
+ *   - one ~6 KB file, zero external assets, zero CDN fetches;
+ *   - readable on any terminal-adjacent monitor;
+ *   - dark/light auto via prefers-color-scheme;
+ *   - sticky tab nav so the analyst can scroll within a large table
+ *     and still jump tabs;
+ *   - monospace cells for hashes, locus paths, exec_target values.
+ */
+
+:root {
+  --bg: #ffffff;
+  --bg-alt: #f6f7f9;
+  --fg: #14181f;
+  --fg-mute: #5a6472;
+  --border: #d8dde6;
+  --accent: #2858c2;
+  --accent-soft: #e3edff;
+  --tail: #b14820;
+  --tail-soft: #fdecdf;
+  --good: #266c3a;
+  --warn: #a3690a;
+  --code-bg: #f1f2f4;
+  --shadow: 0 1px 2px rgba(20, 24, 31, 0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1116;
+    --bg-alt: #161b22;
+    --fg: #e6edf3;
+    --fg-mute: #8b96a4;
+    --border: #2a3140;
+    --accent: #6ea8ff;
+    --accent-soft: #1c2940;
+    --tail: #e08562;
+    --tail-soft: #3a261c;
+    --good: #5fb87a;
+    --warn: #d8a44a;
+    --code-bg: #1a2030;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--bg);
+}
+code, pre, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono",
+  Menlo, Consolas, "Liberation Mono", monospace; font-size: 12.5px; }
+
+header.top {
+  padding: 20px 28px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+  position: sticky; top: 0; z-index: 9;
+}
+header.top h1 {
+  margin: 0 0 4px 0;
+  font-size: 18px; font-weight: 600;
+}
+header.top .meta {
+  color: var(--fg-mute); font-size: 12px;
+}
+header.top .meta b { color: var(--fg); font-weight: 600; }
+
+nav.tabs {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  padding: 8px 28px;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 64px; z-index: 8;
+}
+nav.tabs button {
+  background: transparent; color: var(--fg-mute);
+  border: 1px solid transparent;
+  padding: 6px 12px; border-radius: 6px;
+  font-size: 13px; cursor: pointer; font-family: inherit;
+}
+nav.tabs button:hover { background: var(--accent-soft); color: var(--fg); }
+nav.tabs button.active {
+  background: var(--accent-soft); color: var(--accent);
+  border-color: var(--accent);
+}
+
+main { padding: 18px 28px 60px; max-width: 1400px; margin: 0 auto; }
+section.pane { display: none; }
+section.pane.active { display: block; }
+
+h2 { font-size: 16px; margin: 14px 0 6px; }
+p { margin: 0 0 12px; }
+p.lede { color: var(--fg-mute); margin-top: 0; }
+.hint { color: var(--fg-mute); font-size: 12px; margin: 6px 0 18px; }
+
+/* Card grid (overview) */
+.cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px; margin: 8px 0 22px;
+}
+.card {
+  background: var(--bg-alt); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px 14px; box-shadow: var(--shadow);
+}
+.card .k { font-size: 11px; color: var(--fg-mute); text-transform: uppercase; letter-spacing: 0.04em; }
+.card .v { font-size: 22px; font-weight: 600; color: var(--fg); margin-top: 2px; }
+
+/* Tables */
+.tbl-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+table {
+  border-collapse: collapse; width: 100%; min-width: 600px;
+  background: var(--bg);
+}
+th, td {
+  padding: 7px 10px; text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+thead th {
+  background: var(--bg-alt); color: var(--fg-mute);
+  font-weight: 600; font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.03em;
+  cursor: pointer; user-select: none;
+  /* No `position: sticky` here. A sticky thead inside a wrapper with
+     `overflow-x: auto` becomes its own scroll container and the
+     headers detach mid-table -- visible as data rows above the
+     header row. The trade-off: when an analyst scrolls a long
+     table the column labels scroll off the top. Acceptable for v1;
+     v2 could move the scroll container to the table itself. */
+  border-bottom: 2px solid var(--border);
+}
+thead th:hover { color: var(--fg); }
+thead th.sort-asc::after { content: " ▲"; color: var(--accent); }
+thead th.sort-desc::after { content: " ▼"; color: var(--accent); }
+tbody tr:nth-child(even) { background: var(--bg-alt); }
+tbody tr:hover { background: var(--accent-soft); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.hash, td.path, td.target, td.snippet { font-family: ui-monospace, monospace; font-size: 12px; }
+td.snippet { color: var(--fg-mute); }
+
+/* Search */
+input.search {
+  width: 100%; max-width: 320px; padding: 6px 10px;
+  border: 1px solid var(--border); border-radius: 6px;
+  font-size: 13px; background: var(--bg); color: var(--fg);
+  margin: 8px 0;
+}
+
+/* Signal pills */
+.sig {
+  display: inline-block; padding: 1px 6px; margin: 1px 2px;
+  border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+  font-family: ui-monospace, monospace; font-size: 11px;
+}
+.sig.warn { background: var(--tail-soft); color: var(--tail); }
+.sig-list { white-space: normal; }
+
+/* Severity pills (Q7 row + Overview counts). Critical/high get the
+   tail-class palette so they read alongside the LFA-tail histogram
+   colouring; medium/low/info are progressively softer. */
+.sev {
+  display: inline-block; padding: 1px 8px; border-radius: 999px;
+  font-family: ui-monospace, monospace; font-size: 11px;
+  font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.sev.critical { background: var(--tail-soft); color: var(--tail); }
+.sev.high     { background: var(--tail-soft); color: var(--tail); opacity: 0.85; }
+.sev.medium   { background: var(--accent-soft); color: var(--warn); }
+.sev.low      { background: var(--bg-alt); color: var(--fg-mute); }
+.sev.info     { background: var(--bg-alt); color: var(--fg-mute); }
+.sev.unspec   { background: var(--bg-alt); color: var(--fg-mute); }
+
+/* Severity-summary list in the Overview card. */
+.sev-summary { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px 0; }
+.sev-summary .item { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.sev-summary .item .count { font-weight: 600; }
+
+/* Histogram (LFA stacking) */
+.hist {
+  display: flex; align-items: flex-end; gap: 14px;
+  background: var(--bg-alt); border: 1px solid var(--border);
+  border-radius: 8px; padding: 16px; margin-bottom: 20px;
+}
+.hist .bar {
+  display: flex; flex-direction: column; align-items: center;
+  flex: 1 1 80px; min-width: 80px;
+}
+.hist .bar .bar-fill {
+  width: 100%; background: var(--accent);
+  border-radius: 3px 3px 0 0;
+  transition: opacity .2s;
+}
+.hist .bar.tail .bar-fill { background: var(--tail); }
+.hist .bar .lbl { font-size: 11px; color: var(--fg-mute); margin-top: 4px; }
+.hist .bar .val { font-size: 13px; font-weight: 600; margin-top: 2px; }
+.hist .bar.tail .val { color: var(--tail); }
+
+/* Bar chart (signals) */
+.bars { display: flex; flex-direction: column; gap: 3px; margin: 8px 0 20px; }
+.bars .row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.bars .row .name { width: 220px; color: var(--fg-mute); font-family: ui-monospace, monospace; font-size: 11.5px; }
+.bars .row .bar { flex: 1; background: var(--bg-alt); border-radius: 3px; height: 14px; position: relative; border: 1px solid var(--border); }
+.bars .row .fill { background: var(--accent); height: 100%; border-radius: 2px; }
+.bars .row .n { width: 70px; text-align: right; font-variant-numeric: tabular-nums; }
+
+footer {
+  margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--border);
+  font-size: 11.5px; color: var(--fg-mute); text-align: center;
+}
+footer a { color: var(--accent); }
+
+@media (max-width: 720px) {
+  header.top, nav.tabs, main { padding-left: 14px; padding-right: 14px; }
+  thead th { position: static; }
+  .bars .row .name { width: 140px; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>Test report</h1>
+  <div class="meta">
+    generated <b>2026-05-22 12:00 UTC</b>
+    · <b>6</b> hosts
+    · <b>13</b> records
+    · <b>4</b> modules
+    · <b>5</b> site_classes
+    
+    · agent <b>linpersist-test</b>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button data-tab="overview">Overview</button>
+  <button data-tab="q1">Q1 · LFA singletons</button>
+  <button data-tab="q2">Q2 · per-locus singletons</button>
+  <button data-tab="q3">Q3 · peer-group LFA</button>
+  <button data-tab="q4">Q4 · implant fingerprint</button>
+  <button data-tab="q5">Q5 · signal distribution</button>
+  <button data-tab="q6">Q6 · worm pattern</button>
+  <button data-tab="q7">Q7 · implant roll-call</button>
+  <button data-tab="q8">Q8 · mtime concentration</button>
+  <button data-tab="q9">Q9 · exec in /tmp</button>
+  <button data-tab="q10">Q10 · host coverage</button>
+  <button data-tab="q11">Q11 · orphan outside /tmp</button>
+  <button data-tab="q12">Q12 · campaign clusters</button>
+</nav>
+
+<main>
+
+  
+  <section class="pane" data-pane="overview">
+    <h2>Fleet overview</h2>
+    <p class="lede">High-level shape of the dataset. Use this to spot fleet-level anomalies (sudden mtime spike, signal explosion, OS imbalance) before drilling into the per-query tabs.</p>
+
+    <div class="cards">
+      <div class="card"><div class="k">Hosts</div><div class="v">6</div></div>
+      <div class="card"><div class="k">Records</div><div class="v">13</div></div>
+      <div class="card"><div class="k">Modules</div><div class="v">4</div></div>
+      <div class="card"><div class="k">Site_classes</div><div class="v">5</div></div>
+      <div class="card"><div class="k">Q1 singletons</div><div class="v">5</div></div>
+      <div class="card"><div class="k">Q4 implant hits</div><div class="v" style="color:var(--tail)">0</div></div>
+      <div class="card"><div class="k">Q7 roll-call</div><div class="v" style="color:var(--tail)">0</div></div>
+      <div class="card"><div class="k">Q8 mtime spikes</div><div class="v">0</div></div>
+      <div class="card"><div class="k">Q11 orphan outside /tmp</div><div class="v" style="color:var(--tail)">2</div></div>
+      <div class="card"><div class="k">MITRE techniques</div><div class="v">1/20<span style="color:var(--muted);font-size:0.7em"> surfacing</span></div></div>
+    </div>
+
+    <h2>LFA stacking histogram</h2>
+    <p class="hint">Number of distinct <code>(module, content_norm_sha256)</code> groups that appear on N hosts. The singletons bucket is where attacker artefacts live; the right tail is the package-managed baseline.</p>
+    <div class="hist">
+      
+      
+        <div class="bar tail">
+          <div class="bar-fill" style="height:160px"></div>
+          <div class="val">5</div>
+          <div class="lbl">1 (singletons)</div>
+        </div>
+      
+        <div class="bar">
+          <div class="bar-fill" style="height:32px"></div>
+          <div class="val">1</div>
+          <div class="lbl">2–4</div>
+        </div>
+      
+        <div class="bar">
+          <div class="bar-fill" style="height:32px"></div>
+          <div class="val">1</div>
+          <div class="lbl">5–9</div>
+        </div>
+      
+        <div class="bar">
+          <div class="bar-fill" style="height:2px"></div>
+          <div class="val">0</div>
+          <div class="lbl">10–49</div>
+        </div>
+      
+        <div class="bar">
+          <div class="bar-fill" style="height:2px"></div>
+          <div class="val">0</div>
+          <div class="lbl">50–99</div>
+        </div>
+      
+        <div class="bar">
+          <div class="bar-fill" style="height:2px"></div>
+          <div class="val">0</div>
+          <div class="lbl">≥100</div>
+        </div>
+      
+    </div>
+
+    <h2>Modules</h2>
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-modules">
+        <thead><tr>
+          <th>module</th>
+          <th data-sort-type="num">records</th>
+          <th data-sort-type="num">hosts</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr><td>cron</td><td class="num">4</td><td class="num">4</td></tr>
+        
+          <tr><td>passwd</td><td class="num">6</td><td class="num">6</td></tr>
+        
+          <tr><td>profile</td><td class="num">1</td><td class="num">1</td></tr>
+        
+          <tr><td>systemd</td><td class="num">2</td><td class="num">2</td></tr>
+        
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Site classes</h2>
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-siteclasses">
+        <thead><tr>
+          <th>site_class</th>
+          <th data-sort-type="num">records</th>
+          <th data-sort-type="num">hosts</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr><td>passwd.users</td><td class="num">6</td><td class="num">6</td></tr>
+        
+          <tr><td>cron.d</td><td class="num">3</td><td class="num">3</td></tr>
+        
+          <tr><td>systemd.unit</td><td class="num">2</td><td class="num">2</td></tr>
+        
+          <tr><td>cron.daily</td><td class="num">1</td><td class="num">1</td></tr>
+        
+          <tr><td>profile.d</td><td class="num">1</td><td class="num">1</td></tr>
+        
+        </tbody>
+      </table>
+    </div>
+
+    <h2>OS distribution</h2>
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-os">
+        <thead><tr>
+          <th>os_id</th>
+          <th data-sort-type="num">hosts</th>
+          <th data-sort-type="num">records</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr><td>rhel</td><td class="num">3</td><td class="num">4</td></tr>
+        
+          <tr><td>ubuntu</td><td class="num">3</td><td class="num">6</td></tr>
+        
+          <tr><td>debian</td><td class="num">1</td><td class="num">3</td></tr>
+        
+        </tbody>
+      </table>
+    </div>
+
+    <h2>MITRE ATT&amp;CK coverage</h2>
+    <p class="hint">Techniques declared in <code>matrix.yaml</code> cross-referenced with live records. <b>surfacing</b> = at least one record carries the technique ID. <b>dormant_coverage_gap</b> = a covering module is active in the dataset but no record carries this technique (the operationally interesting case — review module MITRE tagging or the fleet sample). <b>dormant_module_silent</b> = no covering module emitted any record fleet-wide, so the site_class does not apply to this fleet shape (e.g. <code>grub</code>/<code>xdg</code> in container fleets).</p>
+    
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-mitre">
+        <thead><tr>
+          <th>technique</th>
+          <th>status</th>
+          <th data-sort-type="num">records</th>
+          <th data-sort-type="num">hosts</th>
+          <th>site_classes</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr>
+            <td><code>T1053.003</code></td>
+            <td><b>surfacing</b></td>
+            <td class="num">13</td>
+            <td class="num">6</td>
+            <td><code>cron.anacron</code>, <code>cron.d</code>, <code>cron.periodic</code>, <code>cron.user</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1053.006</code></td>
+            <td><span style="color:var(--tail)">dormant_coverage_gap</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>systemd.timer</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1098.007</code></td>
+            <td><span style="color:var(--tail)">dormant_coverage_gap</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>passwd.group.privileged</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1136.001</code></td>
+            <td><span style="color:var(--tail)">dormant_coverage_gap</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>passwd.group</code>, <code>passwd.group.privileged</code>, <code>passwd.gshadow</code>, <code>passwd.shadow</code>, <code>passwd.user</code>, <code>systemd.sysusers</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1543.002</code></td>
+            <td><span style="color:var(--tail)">dormant_coverage_gap</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>systemd.tmpfiles</code>, <code>systemd.unit</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1546.004</code></td>
+            <td><span style="color:var(--tail)">dormant_coverage_gap</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>profile.system</code>, <code>profile.user</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1546.005</code></td>
+            <td><span style="color:var(--tail)">dormant_coverage_gap</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>profile.trap.system</code>, <code>profile.trap.user</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1037</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>motd</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1037.004</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>sysv.init</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1053.001</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>at.jobs</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1098.004</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>ssh.authkeys</code>, <code>sshd.config</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1542.003</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>kernel.grub.config</code>, <code>kernel.grub.dropin</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1546</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>network.dispatchers</code>, <code>systemd.linger</code>, <code>udev</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1547.006</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>kmod</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1547.013</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>xdg.autostart</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1548</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>polkit.rules</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1548.003</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>sudoers</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1556</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>sshd.config</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1556.003</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>pam</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1574.006</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>ldso.conf</code>, <code>ldso.confd</code>, <code>ldso.preload</code></td>
+          </tr>
+        
+        </tbody>
+      </table>
+    </div>
+    
+
+    <h2>Signal distribution (fleet-wide)</h2>
+    <p class="hint">Signals fired least often are the most analytically interesting (rare events). Bars represent host count.</p>
+    
+    <div class="bars">
+      
+        <div class="row">
+          <span class="name">exec_target_orphan</span>
+          <span class="bar"><span class="fill" style="width:40%"></span></span>
+          <span class="n">2 / 2</span>
+        </div>
+      
+        <div class="row">
+          <span class="name">interpreter_in_tmp</span>
+          <span class="bar"><span class="fill" style="width:40%"></span></span>
+          <span class="n">2 / 2</span>
+        </div>
+      
+        <div class="row">
+          <span class="name">non_package_path</span>
+          <span class="bar"><span class="fill" style="width:100%"></span></span>
+          <span class="n">5 / 7</span>
+        </div>
+      
+    </div>
+  </section>
+
+  
+  <section class="pane" data-pane="q1">
+    <h2>Q1 · Pure LFA singletons</h2>
+    <p class="lede">Records whose <code>content_norm_sha256</code> appears on exactly one host in the fleet. This is the load-bearing query: an attacker who appends a malicious line to <code>/etc/crontab</code> on one host produces a digest no other host has, and it surfaces here.</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q1">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q1">
+        <thead><tr>
+          <th>module</th><th>site_class</th>
+          <th>content_norm</th><th>sample_host</th>
+          <th>sample_locus</th><th>sample_snippet</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr>
+            <td>cron</td><td>cron.d</td>
+            <td class="hash">cron-singlet</td>
+            <td>h1</td>
+            <td class="path">/etc/cron.d/singleton-impl</td>
+            <td class="snippet">cron-singleton-norm</td>
+          </tr>
+        
+          <tr>
+            <td>cron</td><td>cron.daily</td>
+            <td class="hash">sync-cron-no</td>
+            <td>h5</td>
+            <td class="path">/etc/cron.daily/sync</td>
+            <td class="snippet">sync-cron-norm</td>
+          </tr>
+        
+          <tr>
+            <td>profile</td><td>profile.d</td>
+            <td class="hash">sync-profile</td>
+            <td>h5</td>
+            <td class="path">/etc/profile.d/sync.sh</td>
+            <td class="snippet">sync-profile-norm</td>
+          </tr>
+        
+          <tr>
+            <td>systemd</td><td>systemd.unit</td>
+            <td class="hash">beacon-svc-n</td>
+            <td>h4</td>
+            <td class="path">/etc/systemd/system/beacon.service</td>
+            <td class="snippet">beacon-svc-norm</td>
+          </tr>
+        
+          <tr>
+            <td>systemd</td><td>systemd.unit</td>
+            <td class="hash">sync-svc-nor</td>
+            <td>h5</td>
+            <td class="path">/etc/systemd/system/sync.service</td>
+            <td class="snippet">sync-svc-norm</td>
+          </tr>
+        
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  
+  <section class="pane" data-pane="q2">
+    <h2>Q2 · Per-locus LFA singletons</h2>
+    <p class="lede">Like Q1 but also groups by <code>locus</code>. Catches the case where the same content is universal but appears at an unusual path on one host (renamed copy, look-alike location).</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q2">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q2">
+        <thead><tr>
+          <th>module</th><th>site_class</th><th>locus</th>
+          <th>content_norm</th><th>sample_host</th><th>sample_snippet</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr>
+            <td>cron</td><td>cron.d</td>
+            <td class="path">/etc/cron.d/singleton-impl</td>
+            <td class="hash">cron-singlet</td>
+            <td>h1</td>
+            <td class="snippet">cron-singleton-norm</td>
+          </tr>
+        
+          <tr>
+            <td>cron</td><td>cron.daily</td>
+            <td class="path">/etc/cron.daily/sync</td>
+            <td class="hash">sync-cron-no</td>
+            <td>h5</td>
+            <td class="snippet">sync-cron-norm</td>
+          </tr>
+        
+          <tr>
+            <td>profile</td><td>profile.d</td>
+            <td class="path">/etc/profile.d/sync.sh</td>
+            <td class="hash">sync-profile</td>
+            <td>h5</td>
+            <td class="snippet">sync-profile-norm</td>
+          </tr>
+        
+          <tr>
+            <td>systemd</td><td>systemd.unit</td>
+            <td class="path">/etc/systemd/system/beacon.service</td>
+            <td class="hash">beacon-svc-n</td>
+            <td>h4</td>
+            <td class="snippet">beacon-svc-norm</td>
+          </tr>
+        
+          <tr>
+            <td>systemd</td><td>systemd.unit</td>
+            <td class="path">/etc/systemd/system/sync.service</td>
+            <td class="hash">sync-svc-nor</td>
+            <td>h5</td>
+            <td class="snippet">sync-svc-norm</td>
+          </tr>
+        
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  
+  <section class="pane" data-pane="q3">
+    <h2>Q3 · Peer-group LFA by (os_id, tags)</h2>
+    <p class="lede">Singletons inside their own OS bucket. Fixes Q1's fragmentation: a Debian-only baseline does not look like a singleton in a mixed Debian/RHEL fleet. Only peer groups with &gt;2 hosts are included (smaller groups have no baseline to compare against).</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q3">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q3">
+        <thead><tr>
+          <th>os_id</th><th>module</th><th>site_class</th>
+          <th>content_norm</th>
+          <th data-sort-type="num">peer_size</th>
+          <th>sample_host</th>
+          <th>sample_locus</th>
+          <th>sample_snippet</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr>
+            <td>rhel</td><td>systemd</td><td>systemd.unit</td>
+            <td class="hash">beacon-svc-n</td>
+            <td class="num">3</td>
+            <td>h4</td>
+            <td class="path">/etc/systemd/system/beacon.service</td>
+            <td class="snippet">beacon-svc-norm</td>
+          </tr>
+        
+          <tr>
+            <td>ubuntu</td><td>cron</td><td>cron.d</td>
+            <td class="hash">cron-singlet</td>
+            <td class="num">3</td>
+            <td>h1</td>
+            <td class="path">/etc/cron.d/singleton-impl</td>
+            <td class="snippet">cron-singleton-norm</td>
+          </tr>
+        
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  
+  <section class="pane" data-pane="q4">
+    <h2>Q4 · Implant fingerprint (orphan + tmp)</h2>
+    <p class="lede">Records carrying <em>both</em> <code class="sig warn">exec_target_orphan</code> and <code class="sig warn">interpreter_in_tmp</code>. The conjunction is very rare in legitimate configuration; singletons here deserve immediate triage even before correlating with the LFA queries.</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q4">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q4">
+        <thead><tr>
+          <th>host</th><th>module</th><th>site_class</th>
+          <th>locus</th><th>exec_target</th><th>signals</th><th>snippet</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr><td colspan="7" style="text-align:center;color:var(--fg-mute)">no records match the implant fingerprint — clean fleet</td></tr>
+        
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  
+  <section class="pane" data-pane="q5">
+    <h2>Q5 · Signal distribution by module</h2>
+    <p class="lede">For each <code>(module, signal)</code> pair: how many hosts fire it, how many records carry it. Signals that fire on few hosts are inherently interesting; signals that fire on most hosts are baselines used to <em>calibrate</em> other queries.</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q5">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q5">
+        <thead><tr>
+          <th>module</th><th>signal</th>
+          <th data-sort-type="num">hosts</th>
+          <th data-sort-type="num">records</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr>
+            <td>cron</td>
+            <td><span class="sig warn">exec_target_orphan</span></td>
+            <td class="num">1</td>
+            <td class="num">1</td>
+          </tr>
+        
+          <tr>
+            <td>cron</td>
+            <td><span class="sig warn">interpreter_in_tmp</span></td>
+            <td class="num">2</td>
+            <td class="num">2</td>
+          </tr>
+        
+          <tr>
+            <td>cron</td>
+            <td><span class="sig warn">non_package_path</span></td>
+            <td class="num">4</td>
+            <td class="num">4</td>
+          </tr>
+        
+          <tr>
+            <td>profile</td>
+            <td><span class="sig warn">non_package_path</span></td>
+            <td class="num">1</td>
+            <td class="num">1</td>
+          </tr>
+        
+          <tr>
+            <td>systemd</td>
+            <td><span class="sig warn">exec_target_orphan</span></td>
+            <td class="num">1</td>
+            <td class="num">1</td>
+          </tr>
+        
+          <tr>
+            <td>systemd</td>
+            <td><span class="sig warn">non_package_path</span></td>
+            <td class="num">2</td>
+            <td class="num">2</td>
+          </tr>
+        
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  
+  <section class="pane" data-pane="q6">
+    <h2>Q6 · Cross-host exec_target stacking (worm pattern)</h2>
+    <p class="lede">Records on different hosts whose persistence text differs but whose <code>exec_target_sha256</code> matches: identical payload, polymorphic persistence. Filtered to <code>2 ≤ hosts &lt; 10% of fleet</code> to skip both singletons (Q1 turf) and baseline binaries.</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q6">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q6">
+        <thead><tr>
+          <th>exec_target_sha256</th>
+          <th data-sort-type="num">hosts</th>
+          <th data-sort-type="num">records</th>
+          <th data-sort-type="num">modules</th>
+          <th>sample_target</th>
+          <th>spread</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr><td colspan="6" style="text-align:center;color:var(--fg-mute)">no cross-host worm pattern detected</td></tr>
+        
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  
+  <section class="pane" data-pane="q7">
+    <h2>Q7 · Implant roll-call (cross-cutting union)</h2>
+    <p class="lede">The single highest-signal query in the cookbook. One row per record that matches <em>any</em> of the canonical implant patterns: orphan+tmp, sudoers backdoors, uid=0 backdoors, kmod install replacements, profile/motd curl|wget content, sysv scripts referencing /tmp. The clauses are deliberately disjoint — every implant lands on exactly one row.</p>
+    <div class="sev-summary">
+      <span class="item"><span class="sev critical">critical</span> <span class="count">0</span></span>
+      <span class="item"><span class="sev high">high</span> <span class="count">0</span></span>
+      <span class="item"><span class="sev medium">medium</span> <span class="count">0</span></span>
+      <span class="item"><span class="sev low">low</span> <span class="count">0</span></span>
+      <span class="item"><span class="sev info">info</span> <span class="count">0</span></span>
+    </div>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q7">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q7">
+        <thead><tr>
+          <th>severity</th>
+          <th>host</th><th>module</th><th>site_class</th>
+          <th>locus</th><th>exec_target</th><th>matched_detections</th><th>triage_signals</th><th>snippet</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr><td colspan="9" style="text-align:center;color:var(--fg-mute)">no implant patterns detected — clean fleet</td></tr>
+        
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  
+  <section class="pane" data-pane="q8">
+    <h2>Q8 · Recent-mtime concentration per host × module</h2>
+    <p class="lede">Hosts × modules where five or more persistence records carry <code class="sig">recent_mtime_7d</code>. Spikes are either a config-management push (legitimate, correlatable with the orchestration tool's change log) or a post-compromise sweep (attacker hardening persistence after initial access). Zero rows on a quiet fleet is the expected state.</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q8">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q8">
+        <thead><tr>
+          <th>host</th><th>module</th>
+          <th data-sort-type="num">recent_records</th>
+          <th data-sort-type="num">recent_loci</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr><td colspan="4" style="text-align:center;color:var(--fg-mute)">no concentrated mtime activity in the last 7 days</td></tr>
+        
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  
+  <section class="pane" data-pane="q9">
+    <h2>Q9 · Exec targets under /tmp, /var/tmp, /dev/shm, /run/shm</h2>
+    <p class="lede">Q4 requires <em>both</em> orphan and interpreter_in_tmp; this query is the open half. Records whose <code>exec_target</code> lives in a tmp-class directory, orphan or not. The <code>is_orphan</code> column tells the analyst whether the payload is currently armed (false = armed and on disk; true = dormant or post-execution). Q9 set minus Q4 = "currently armed implants".</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q9">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q9">
+        <thead><tr>
+          <th>host</th><th>module</th><th>site_class</th>
+          <th>locus</th><th>exec_target</th>
+          <th>is_orphan</th><th>snippet</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr>
+            <td>h1</td><td>cron</td><td>cron.d</td>
+            <td class="path">/etc/cron.d/singleton-impl</td>
+            <td class="target">/tmp/beacon.sh</td>
+            <td>yes</td>
+            <td class="snippet">cron-singleton-norm</td>
+          </tr>
+        
+          <tr>
+            <td>h2</td><td>cron</td><td>cron.d</td>
+            <td class="path">/etc/cron.d/implant</td>
+            <td class="target">/tmp/payload.sh</td>
+            <td>no</td>
+            <td class="snippet">implant-norm</td>
+          </tr>
+        
+          <tr>
+            <td>h3</td><td>cron</td><td>cron.d</td>
+            <td class="path">/etc/cron.d/implant</td>
+            <td class="target">/tmp/payload.sh</td>
+            <td>no</td>
+            <td class="snippet">implant-norm</td>
+          </tr>
+        
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  
+  <section class="pane" data-pane="q10">
+    <h2>Q10 · Per-host collection health and coverage outliers</h2>
+    <p class="lede">For each host: records emitted, distinct modules, distinct site_classes. Sort descending by records to find anomaly hosts (3× their peers); ascending to find collection failures (zero or near-zero). Run this query first when investigating a new dataset — it catches silent collection breakage before any threat-hunting query can.</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q10">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q10">
+        <thead><tr>
+          <th>host</th><th>os_id</th>
+          <th data-sort-type="num">records</th>
+          <th data-sort-type="num">modules</th>
+          <th data-sort-type="num">site_classes</th>
+          <th data-sort-type="num">recent_records</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr>
+            <td>h5</td><td>debian</td>
+            <td class="num">4</td>
+            <td class="num">4</td>
+            <td class="num">4</td>
+            <td class="num">0</td>
+          </tr>
+        
+          <tr>
+            <td>h1</td><td>ubuntu</td>
+            <td class="num">2</td>
+            <td class="num">2</td>
+            <td class="num">2</td>
+            <td class="num">0</td>
+          </tr>
+        
+          <tr>
+            <td>h2</td><td>ubuntu</td>
+            <td class="num">2</td>
+            <td class="num">2</td>
+            <td class="num">2</td>
+            <td class="num">0</td>
+          </tr>
+        
+          <tr>
+            <td>h3</td><td>ubuntu</td>
+            <td class="num">2</td>
+            <td class="num">2</td>
+            <td class="num">2</td>
+            <td class="num">0</td>
+          </tr>
+        
+          <tr>
+            <td>h4</td><td>rhel</td>
+            <td class="num">2</td>
+            <td class="num">2</td>
+            <td class="num">2</td>
+            <td class="num">0</td>
+          </tr>
+        
+          <tr>
+            <td>h6</td><td>rhel</td>
+            <td class="num">1</td>
+            <td class="num">1</td>
+            <td class="num">1</td>
+            <td class="num">0</td>
+          </tr>
+        
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  
+  <section class="pane" data-pane="q11">
+    <h2>Q11 · Orphan exec_target OUTSIDE tmp-class directories</h2>
+    <p class="lede">The implant pattern Q4 and Q9 miss entirely: the attacker drops the payload under a long-lived but unmanaged path (<code>/opt/</code>, <code>/var/lib/</code>, <code>/srv/</code>, <code>/usr/local/</code>) and wires persistence to it. The payload is not in <code>/tmp</code> so <code>interpreter_in_tmp</code> does not fire; the payload exists on disk so <code>exec_target_orphan</code> does not fire either. The only signal that catches it is <code>non_package_path</code> from the provenance resolver. LFA-sorted (hosts ascending): singletons are the highest-precision hits.</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q11">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q11">
+        <thead><tr>
+          <th>exec_target</th>
+          <th data-sort-type="num">hosts</th>
+          <th data-sort-type="num">records</th>
+          <th>module</th>
+          <th>site_class</th>
+          <th>sample_host</th>
+          <th>sample_locus</th>
+          <th>sample_snippet</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr>
+            <td><code>/usr/local/bin/sync</code></td>
+            <td class="num">1</td>
+            <td class="num">3</td>
+            <td>cron</td>
+            <td>cron.daily</td>
+            <td>h5</td>
+            <td class="path">/etc/cron.daily/sync</td>
+            <td class="snippet">sync-cron-norm</td>
+          </tr>
+        
+          <tr>
+            <td><code>/opt/notthere/agent</code></td>
+            <td class="num">1</td>
+            <td class="num">1</td>
+            <td>systemd</td>
+            <td>systemd.unit</td>
+            <td>h4</td>
+            <td class="path">/etc/systemd/system/beacon.service</td>
+            <td class="snippet">beacon-svc-norm</td>
+          </tr>
+        
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  
+  <section class="pane" data-pane="q12">
+    <h2>Q12 · Campaign basename clusters</h2>
+    <p class="lede">Same basename of <code>exec_target</code> (or <code>locus</code> when exec_target is empty) appearing in two or more modules across two or more hosts. Surfaces multi-arm campaigns whose individual arms each look like Q1 singletons in their own module (the v0.2.0 deploy-sync pattern). Sorted ascending by host count.</p>
+    <p class="hint">Expect FPs from vendor baselines shipping the same name in <code>systemd.unit</code> and <code>sysv.init</code> (nginx, redis-server, prometheus, cron). Triage from the top -- rare cross-module pairs are the interesting ones.</p>
+    
+    <p class="hint">No rows. Either the fleet contains no cross-module basename overlaps, or every overlap landed on a single host.</p>
+    
+  </section>
+
+
+</main>
+
+<script>// linpersist-report inline JavaScript.
+//
+// Vanilla, ~80 LOC. Three features:
+//   1. Tab navigation: click a <button data-tab="..."> shows the
+//      matching <section data-pane="...">.
+//   2. Column sort: click <th> toggles asc/desc on the column. Uses
+//      data-sort-type="num" for numeric columns, default lexicographic.
+//   3. Live filter: <input class="search" data-target="#table-id">
+//      filters rows by substring against the row's text content.
+(function () {
+  function $(sel, scope) { return (scope || document).querySelector(sel); }
+  function $$(sel, scope) { return Array.from((scope || document).querySelectorAll(sel)); }
+
+  // --- Tabs ---
+  function activatePane(name) {
+    $$('section.pane').forEach(function (p) {
+      p.classList.toggle('active', p.dataset.pane === name);
+    });
+    $$('nav.tabs button').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.tab === name);
+    });
+    if (history.replaceState) {
+      history.replaceState(null, '', '#' + name);
+    }
+  }
+  $$('nav.tabs button').forEach(function (b) {
+    b.addEventListener('click', function () { activatePane(b.dataset.tab); });
+  });
+  var initial = (location.hash || '#overview').slice(1);
+  activatePane(initial);
+
+  // --- Sortable tables ---
+  function compare(a, b, type) {
+    if (type === 'num') {
+      var na = parseFloat(a), nb = parseFloat(b);
+      if (isNaN(na)) na = -Infinity;
+      if (isNaN(nb)) nb = -Infinity;
+      return na - nb;
+    }
+    return a.localeCompare(b);
+  }
+  $$('table.sortable').forEach(function (table) {
+    var ths = $$('th', table);
+    ths.forEach(function (th, idx) {
+      th.addEventListener('click', function () {
+        var asc = !th.classList.contains('sort-asc');
+        ths.forEach(function (x) { x.classList.remove('sort-asc', 'sort-desc'); });
+        th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+        var type = th.dataset.sortType || '';
+        var tbody = $('tbody', table);
+        var rows = $$('tr', tbody);
+        rows.sort(function (r1, r2) {
+          var c1 = r1.children[idx] ? r1.children[idx].textContent.trim() : '';
+          var c2 = r2.children[idx] ? r2.children[idx].textContent.trim() : '';
+          var v = compare(c1, c2, type);
+          return asc ? v : -v;
+        });
+        rows.forEach(function (r) { tbody.appendChild(r); });
+      });
+    });
+  });
+
+  // --- Live filters ---
+  $$('input.search').forEach(function (inp) {
+    inp.addEventListener('input', function () {
+      var q = inp.value.trim().toLowerCase();
+      var table = $(inp.dataset.target);
+      if (!table) return;
+      $$('tbody tr', table).forEach(function (r) {
+        var text = r.textContent.toLowerCase();
+        r.style.display = (q === '' || text.indexOf(q) !== -1) ? '' : 'none';
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

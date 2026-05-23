@@ -7,6 +7,8 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/jarmidaw/linpersist/internal/core"
 )
 
 //go:embed assets/style.css
@@ -20,26 +22,28 @@ var tmplBlob string
 
 // warningSignals are signals the analyst should see at a glance as
 // "interesting", not necessarily verdicts. The pill rendering switches
-// from accent (informational) to warn (red-orange) for these.
+// from accent (informational) to warn (red-orange) for these. Keys are
+// sourced from core.Signal* constants so a typo or rename fails at
+// compile time rather than silently demoting a warning back to accent.
 var warningSignals = map[string]struct{}{
-	"exec_target_orphan":             {},
-	"interpreter_in_tmp":             {},
-	"world_writable":                 {},
-	"non_package_path":               {},
-	"systemd_external_unit_symlink":  {},
-	"systemd_install_alias_external": {},
-	"sysv_external_init_symlink":     {},
-	"udev_run_directive":             {},
-	"kmod_install_directive":         {},
-	"ssh_forced_command":             {},
-	"sudoers_nopasswd":               {},
-	"sudoers_all_commands":           {},
-	"sshd_permit_root_login_yes":     {},
-	"passwd_uid_zero":                {},
-	"passwd_no_password":             {},
-	"ld_preload_set":                 {},
-	"shell_indirect":                 {},
-	"non_root_owner":                 {},
+	core.SignalExecTargetOrphan:            {},
+	core.SignalInterpreterInTmp:            {},
+	core.SignalWorldWritable:               {},
+	core.SignalNonPackagePath:              {},
+	core.SignalSystemdExternalUnitSymlink:  {},
+	core.SignalSystemdInstallAliasExternal: {},
+	core.SignalSysvExternalInitSymlink:     {},
+	core.SignalUdevRunDirective:            {},
+	core.SignalKmodInstallDirective:        {},
+	core.SignalSSHForcedCommand:            {},
+	core.SignalSudoersNoPasswd:             {},
+	core.SignalSudoersAllCommands:          {},
+	core.SignalSSHDPermitRootLoginYes:      {},
+	core.SignalPasswdUIDZero:               {},
+	core.SignalPasswdNoPassword:            {},
+	core.SignalLDPreloadSet:                {},
+	core.SignalShellIndirect:               {},
+	core.SignalNonRootOwner:                {},
 }
 
 // commaInt formats an integer with thousands separators.

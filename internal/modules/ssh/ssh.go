@@ -38,11 +38,6 @@ import (
 // MITRE ATT&CK technique applied to every record this module emits.
 const mitreSSHAuthKeys = "T1098.004"
 
-// tmpDirs mirrors the cron/ldso convention for the interpreter_in_tmp
-// signal. Kept private to this package; promotes to core when a
-// third module needs it (will happen with sudoers or systemd).
-var tmpDirs = []string{"/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"}
-
 // Options configures a Module instance.
 type Options struct {
 	Root        string
@@ -295,7 +290,7 @@ func (m *Module) recordFromAuthKey(logical string, info os.FileInfo, siteClass s
 	if pk.command != "" {
 		rec.ExecTarget = firstCommandToken(pk.command)
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 
 	signals := m.baseSignals(info, logical)
 	if pk.rawOpts != "" {
@@ -308,7 +303,7 @@ func (m *Module) recordFromAuthKey(logical string, info os.FileInfo, siteClass s
 	if m.targetMtimeRecent(rec.ExecTarget) {
 		signals = append(signals, core.SignalRecentTargetMtime7d)
 	}
-	rec.Signals = dedupSignals(signals)
+	rec.Signals = core.DedupSignals(signals)
 	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
 	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	return rec
@@ -352,33 +347,10 @@ func (m *Module) envelopeRecord(logical string, info os.FileInfo, errs []core.Re
 		Errors:    errs,
 	}
 	if info != nil {
-		fillFileMeta(&rec, info)
-		rec.Signals = dedupSignals(m.baseSignals(info, logical))
+		core.FillFileMeta(&rec, info)
+		rec.Signals = core.DedupSignals(m.baseSignals(info, logical))
 	}
 	return rec
-}
-
-// fillFileMeta mirrors the cron and ldso modules' implementations.
-// Kept private; promotion into core/ happens once a third module
-// needs the same code (likely with sudoers).
-func fillFileMeta(rec *core.Record, info os.FileInfo) {
-	size := info.Size()
-	rec.Size = &size
-	mt := info.ModTime().UTC()
-	rec.MTime = &mt
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		uid := uint32(st.Uid)
-		gid := uint32(st.Gid)
-		rec.OwnerUID = &uid
-		rec.OwnerGID = &gid
-		rec.Mode = core.FormatMode(uint32(st.Mode) & 0o7777)
-		atime := time.Unix(int64(st.Atim.Sec), int64(st.Atim.Nsec)).UTC()
-		ctime := time.Unix(int64(st.Ctim.Sec), int64(st.Ctim.Nsec)).UTC()
-		rec.ATime = &atime
-		rec.CTime = &ctime
-	} else {
-		rec.Mode = core.FormatMode(uint32(info.Mode().Perm()))
-	}
 }
 
 // baseSignals returns the per-file signals.
@@ -412,7 +384,7 @@ func (m *Module) execTargetSignals(target string) []string {
 	if target == "" {
 		return out
 	}
-	for _, prefix := range tmpDirs {
+	for _, prefix := range core.TmpDirs {
 		if strings.HasPrefix(target, prefix) {
 			out = append(out, core.SignalInterpreterInTmp)
 			break
@@ -469,23 +441,6 @@ func skipDirEntry(name string) bool {
 		}
 	}
 	return false
-}
-
-// dedupSignals stable-deduplicates while preserving first occurrence.
-func dedupSignals(in []string) []string {
-	if len(in) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(in))
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		out = append(out, s)
-	}
-	return out
 }
 
 // errnoCode maps an os error to a short code for Record.Errors.

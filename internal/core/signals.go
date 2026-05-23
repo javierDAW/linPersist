@@ -300,4 +300,26 @@ const (
 	// root account" implant routed through the declarative path
 	// (T1136.001) rather than through direct edits to /etc/passwd.
 	SignalSysusersUIDZero = "sysusers_uid_zero"
+
+	// SignalGroupWheelMembership through SignalGroupRootMembership set
+	// on passwd.group.privileged records when a non-root user is a
+	// member of a privileged Linux group. MITRE T1098.007 (Account
+	// Manipulation: Additional Local or Domain Groups): adding a
+	// previously-compromised low-privilege account to wheel/sudo/
+	// docker/adm/lxd/root is a quiet privilege-escalation pivot that
+	// leaves no trace in /etc/passwd or /etc/shadow but grants
+	// equivalent capability (docker = root via socket; adm = read
+	// every log; root group ≠ uid 0 but unlocks many setgid binaries).
+	//
+	// One signal per group keeps Q5/Q7 fleet stacking honest: an
+	// operator-blessed `docker` group with the engineering team in it
+	// is a baseline; a `wheel` group on a debian box where wheel is
+	// not normally used is a singleton anomaly. Mixing them under one
+	// "group_privileged_membership" signal would lose that resolution.
+	SignalGroupWheelMembership  = "group_wheel_membership"
+	SignalGroupSudoMembership   = "group_sudo_membership"
+	SignalGroupDockerMembership = "group_docker_membership"
+	SignalGroupAdmMembership    = "group_adm_membership"
+	SignalGroupLxdMembership    = "group_lxd_membership"
+	SignalGroupRootMembership   = "group_root_membership"
 )

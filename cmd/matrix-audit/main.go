@@ -43,27 +43,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/jarmidaw/linpersist/internal/core"
-	"github.com/jarmidaw/linpersist/internal/modules/atjobs"
-	"github.com/jarmidaw/linpersist/internal/modules/cron"
-	"github.com/jarmidaw/linpersist/internal/modules/grub"
-	"github.com/jarmidaw/linpersist/internal/modules/kmod"
-	"github.com/jarmidaw/linpersist/internal/modules/ldso"
-	"github.com/jarmidaw/linpersist/internal/modules/linger"
-	"github.com/jarmidaw/linpersist/internal/modules/motd"
-	"github.com/jarmidaw/linpersist/internal/modules/netdispatch"
-	"github.com/jarmidaw/linpersist/internal/modules/pam"
-	"github.com/jarmidaw/linpersist/internal/modules/passwd"
-	"github.com/jarmidaw/linpersist/internal/modules/polkit"
-	"github.com/jarmidaw/linpersist/internal/modules/profile"
-	"github.com/jarmidaw/linpersist/internal/modules/ssh"
-	"github.com/jarmidaw/linpersist/internal/modules/sshd"
-	"github.com/jarmidaw/linpersist/internal/modules/sudoers"
-	"github.com/jarmidaw/linpersist/internal/modules/systemd"
-	"github.com/jarmidaw/linpersist/internal/modules/sysusers"
-	"github.com/jarmidaw/linpersist/internal/modules/sysv"
-	"github.com/jarmidaw/linpersist/internal/modules/tmpfiles"
-	"github.com/jarmidaw/linpersist/internal/modules/udev"
-	"github.com/jarmidaw/linpersist/internal/modules/xdg"
+	"github.com/jarmidaw/linpersist/internal/modset"
 )
 
 // matrixEntry is the subset of a matrix.yaml site_class row this tool
@@ -131,34 +111,13 @@ func main() {
 		s.implemented, s.planned, s.wip, s.tested, 0)
 }
 
-// registeredModules returns the set of modules that cmd/linpersist
-// actually wires into its runner. Keeping this list in sync with the
-// linpersist binary is part of what matrix-audit guards against; the
-// two lists must be edited together when a new module is added.
+// registeredModules returns the canonical module set shared with
+// cmd/linpersist. The shared source of truth lives in
+// internal/modset/modset.go; matrix-audit only consumes Name() and
+// SiteClasses(), so the deps are passed as nil and constructors
+// substitute noop implementations.
 func registeredModules() []core.Module {
-	return []core.Module{
-		atjobs.New(atjobs.Options{}),
-		cron.New(cron.Options{}),
-		ldso.New(ldso.Options{}),
-		linger.New(linger.Options{}),
-		tmpfiles.New(tmpfiles.Options{}),
-		sysusers.New(sysusers.Options{}),
-		ssh.New(ssh.Options{}),
-		sudoers.New(sudoers.Options{}),
-		sshd.New(sshd.Options{}),
-		passwd.New(passwd.Options{}),
-		pam.New(pam.Options{}),
-		profile.New(profile.Options{}),
-		systemd.New(systemd.Options{}),
-		sysv.New(sysv.Options{}),
-		motd.New(motd.Options{}),
-		kmod.New(kmod.Options{}),
-		udev.New(udev.Options{}),
-		polkit.New(polkit.Options{}),
-		netdispatch.New(netdispatch.Options{}),
-		grub.New(grub.Options{}),
-		xdg.New(xdg.Options{}),
-	}
+	return modset.All(nil, nil)
 }
 
 // parseMatrix decodes matrix.yaml bytes into a matrixFile.

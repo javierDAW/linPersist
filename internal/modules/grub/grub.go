@@ -187,7 +187,7 @@ func (m *Module) recordFromConfigEntry(logical string, info os.FileInfo, e Confi
 		ContentNormSHA256: core.HashHexString(e.Canon),
 		ContentSnippet:    snippet(e.Canon),
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 	rec.Signals = m.baseSignals(info)
 	if strings.HasPrefix(e.Key, "GRUB_CMDLINE_LINUX") && HasInitOverride(e.Value) {
 		rec.Signals = appendUnique(rec.Signals, core.SignalGrubCmdlineInit)
@@ -201,7 +201,7 @@ func (m *Module) recordFromConfigEntry(logical string, info os.FileInfo, e Confi
 			}
 		}
 	}
-	rec.Signals = dedupSignals(rec.Signals)
+	rec.Signals = core.DedupSignalsSorted(rec.Signals)
 	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
 	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	return rec
@@ -290,7 +290,7 @@ func (m *Module) baseConfigRecord(logical string, info os.FileInfo) core.Record 
 		MITRE:     []string{mitreGrubConfig},
 		Locus:     logical,
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 	rec.Signals = m.baseSignals(info)
 	return rec
 }
@@ -308,7 +308,7 @@ func (m *Module) baseDropinRecord(logical string, info os.FileInfo) core.Record 
 		MITRE:     []string{mitreGrubDropin},
 		Locus:     logical,
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 	rec.Signals = m.baseSignals(info)
 	return rec
 }
@@ -353,39 +353,14 @@ func (m *Module) targetExists(target string) bool {
 	return err == nil
 }
 
-// tmpDirs mirrors the cron/ldso/etc convention for the
-// interpreter_in_tmp signal.
-var tmpDirs = []string{"/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"}
-
 func isInterpreterInTmp(target string) bool {
-	for _, p := range tmpDirs {
+	for _, p := range core.TmpDirs {
 		if strings.HasPrefix(target, p) {
 			return true
 		}
 	}
 	return false
 }
-
-func fillFileMeta(rec *core.Record, info os.FileInfo) {
-	size := info.Size()
-	rec.Size = &size
-	mt := info.ModTime().UTC()
-	rec.MTime = &mt
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		uid := uint32(st.Uid)
-		gid := uint32(st.Gid)
-		rec.OwnerUID = &uid
-		rec.OwnerGID = &gid
-		rec.Mode = core.FormatMode(uint32(st.Mode) & 0o7777)
-		atime := time.Unix(int64(st.Atim.Sec), int64(st.Atim.Nsec)).UTC()
-		ctime := time.Unix(int64(st.Ctim.Sec), int64(st.Ctim.Nsec)).UTC()
-		rec.ATime = &atime
-		rec.CTime = &ctime
-	} else {
-		rec.Mode = core.FormatMode(uint32(info.Mode().Perm()))
-	}
-}
-
 func skipName(name string) bool {
 	if strings.HasPrefix(name, ".") {
 		return true
@@ -427,21 +402,4 @@ func appendUnique(sigs []string, name string) []string {
 		}
 	}
 	return append(sigs, name)
-}
-
-func dedupSignals(in []string) []string {
-	if len(in) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(in))
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		out = append(out, s)
-	}
-	sort.Strings(out)
-	return out
 }

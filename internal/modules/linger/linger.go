@@ -111,31 +111,10 @@ func (m *Module) record(logical, username string, info os.FileInfo) core.Record 
 		ContentNormSHA256: core.HashHexString(canon),
 		ContentSnippet:    username,
 	}
-	fillFileMeta(&rec, info)
-	rec.Signals = dedupSignals(append(m.baseSignals(info, logical), perUserSignals(username)...))
+	core.FillFileMeta(&rec, info)
+	rec.Signals = core.DedupSignals(append(m.baseSignals(info, logical), perUserSignals(username)...))
 	return rec
 }
-
-func fillFileMeta(rec *core.Record, info os.FileInfo) {
-	size := info.Size()
-	rec.Size = &size
-	mt := info.ModTime().UTC()
-	rec.MTime = &mt
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		uid := uint32(st.Uid)
-		gid := uint32(st.Gid)
-		rec.OwnerUID = &uid
-		rec.OwnerGID = &gid
-		rec.Mode = core.FormatMode(uint32(st.Mode) & 0o7777)
-		atime := time.Unix(int64(st.Atim.Sec), int64(st.Atim.Nsec)).UTC()
-		ctime := time.Unix(int64(st.Ctim.Sec), int64(st.Ctim.Nsec)).UTC()
-		rec.ATime = &atime
-		rec.CTime = &ctime
-	} else {
-		rec.Mode = core.FormatMode(uint32(info.Mode().Perm()))
-	}
-}
-
 func (m *Module) baseSignals(info os.FileInfo, logical string) []string {
 	var out []string
 	mt := info.ModTime().UTC()
@@ -169,20 +148,4 @@ func perUserSignals(username string) []string {
 		return nil
 	}
 	return []string{core.SignalSystemdLingerNonRoot}
-}
-
-func dedupSignals(in []string) []string {
-	if len(in) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(in))
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		out = append(out, s)
-	}
-	return out
 }

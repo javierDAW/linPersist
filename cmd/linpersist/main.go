@@ -19,27 +19,7 @@ import (
 	"time"
 
 	"github.com/jarmidaw/linpersist/internal/core"
-	"github.com/jarmidaw/linpersist/internal/modules/atjobs"
-	"github.com/jarmidaw/linpersist/internal/modules/cron"
-	"github.com/jarmidaw/linpersist/internal/modules/grub"
-	"github.com/jarmidaw/linpersist/internal/modules/kmod"
-	"github.com/jarmidaw/linpersist/internal/modules/ldso"
-	"github.com/jarmidaw/linpersist/internal/modules/linger"
-	"github.com/jarmidaw/linpersist/internal/modules/motd"
-	"github.com/jarmidaw/linpersist/internal/modules/netdispatch"
-	"github.com/jarmidaw/linpersist/internal/modules/pam"
-	"github.com/jarmidaw/linpersist/internal/modules/passwd"
-	"github.com/jarmidaw/linpersist/internal/modules/polkit"
-	"github.com/jarmidaw/linpersist/internal/modules/profile"
-	"github.com/jarmidaw/linpersist/internal/modules/ssh"
-	"github.com/jarmidaw/linpersist/internal/modules/sshd"
-	"github.com/jarmidaw/linpersist/internal/modules/sudoers"
-	"github.com/jarmidaw/linpersist/internal/modules/systemd"
-	"github.com/jarmidaw/linpersist/internal/modules/sysusers"
-	"github.com/jarmidaw/linpersist/internal/modules/sysv"
-	"github.com/jarmidaw/linpersist/internal/modules/tmpfiles"
-	"github.com/jarmidaw/linpersist/internal/modules/udev"
-	"github.com/jarmidaw/linpersist/internal/modules/xdg"
+	"github.com/jarmidaw/linpersist/internal/modset"
 )
 
 // version and commit are stamped at link time via -ldflags.
@@ -171,32 +151,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		liveProcs = scanner
 	}
 
-	// Modules registered with the runner. Adding a module is a
-	// one-line change here plus the new package under
-	// internal/modules/<name>/.
-	runner := core.NewRunner(
-		atjobs.New(atjobs.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		cron.New(cron.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		ldso.New(ldso.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		linger.New(linger.Options{}),
-		tmpfiles.New(tmpfiles.Options{}),
-		sysusers.New(sysusers.Options{}),
-		ssh.New(ssh.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		sudoers.New(sudoers.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		sshd.New(sshd.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		passwd.New(passwd.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		pam.New(pam.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		profile.New(profile.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		systemd.New(systemd.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		sysv.New(sysv.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		motd.New(motd.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		kmod.New(kmod.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		udev.New(udev.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		polkit.New(polkit.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		netdispatch.New(netdispatch.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		grub.New(grub.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-		xdg.New(xdg.Options{Provenance: prov, LiveProcessSet: liveProcs}),
-	)
+	// Modules registered with the runner come from internal/modset,
+	// which is the single source of truth shared with cmd/matrix-audit.
+	// Adding a new module is one edit in modset/modset.go.
+	runner := core.NewRunner(modset.All(prov, liveProcs)...)
 
 	agentVersion := fmt.Sprintf("linpersist-%s", version)
 	sink := func(rec core.Record) {

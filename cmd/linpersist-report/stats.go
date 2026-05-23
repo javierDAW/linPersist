@@ -158,6 +158,19 @@ var severityRank = map[string]int{
 	"critical": 5,
 }
 
+// severityByDetectionID is precomputed at package init() from the
+// loaded rule set so worstSeverity is O(N) over its input list of IDs
+// rather than O(N×M) over (input IDs × all known detections). The map
+// is read-only after init and safe to share across goroutines.
+var severityByDetectionID = func() map[string]string {
+	out := make(map[string]string, len(detectionRules.Detections))
+	for i := range detectionRules.Detections {
+		d := &detectionRules.Detections[i]
+		out[d.ID] = d.Severity
+	}
+	return out
+}()
+
 // worstSeverity returns the highest-ranked severity in ids by looking
 // each id up in the loaded rule set. Returns "" if no id has a
 // recognised severity (treated as "unspecified" by callers).
@@ -165,16 +178,13 @@ func worstSeverity(ids []string) string {
 	best := ""
 	bestRank := 0
 	for _, id := range ids {
-		for i := range detectionRules.Detections {
-			d := &detectionRules.Detections[i]
-			if d.ID != id {
-				continue
-			}
-			if r, ok := severityRank[d.Severity]; ok && r > bestRank {
-				best = d.Severity
-				bestRank = r
-			}
-			break
+		sev, ok := severityByDetectionID[id]
+		if !ok {
+			continue
+		}
+		if r, ok := severityRank[sev]; ok && r > bestRank {
+			best = sev
+			bestRank = r
 		}
 	}
 	return best
@@ -416,11 +426,25 @@ func computeOverview(records []core.Record) Overview {
 	for name, c := range siteClassCount {
 		ov.BySiteClass = append(ov.BySiteClass, NamedCount{Name: name, Records: c.records, Hosts: len(c.hosts)})
 	}
-	sort.Slice(ov.BySiteClass, func(i, j int) bool { return ov.BySiteClass[i].Records > ov.BySiteClass[j].Records })
+	sort.Slice(ov.BySiteClass, func(i, j int) bool {
+		if ov.BySiteClass[i].Records != ov.BySiteClass[j].Records {
+			return ov.BySiteClass[i].Records > ov.BySiteClass[j].Records
+		}
+		// Tiebreaker by Name keeps the ordering deterministic when
+		// multiple site_classes have equal record counts — otherwise
+		// sort.Slice is unstable and the report would shuffle the tied
+		// rows between runs on the same input.
+		return ov.BySiteClass[i].Name < ov.BySiteClass[j].Name
+	})
 	for name, c := range osIDCount {
 		ov.ByOSID = append(ov.ByOSID, NamedCount{Name: name, Records: c.records, Hosts: len(c.hosts)})
 	}
-	sort.Slice(ov.ByOSID, func(i, j int) bool { return ov.ByOSID[i].Hosts > ov.ByOSID[j].Hosts })
+	sort.Slice(ov.ByOSID, func(i, j int) bool {
+		if ov.ByOSID[i].Hosts != ov.ByOSID[j].Hosts {
+			return ov.ByOSID[i].Hosts > ov.ByOSID[j].Hosts
+		}
+		return ov.ByOSID[i].Name < ov.ByOSID[j].Name
+	})
 	for name, c := range signalCount {
 		ov.BySignal = append(ov.BySignal, NamedCount{Name: name, Records: c.records, Hosts: len(c.hosts)})
 	}
@@ -563,35 +587,33 @@ type q3PeerKey struct{ osID, tagKey string }
 // groups whose record is a singleton inside a peer-group of at least
 // peerFloor hosts. peerFloor <= 1 effectively disables the floor.
 func computeQ3(records []core.Record, peerFloor int) []PeerGroupRow {
-	// peer-group size per (os_id, tagKey). One host appears once even if
-	// it has many records: peer-group cardinality is in hosts, not rows.
+	// Single pass builds both the peer-group host sets and the per-key
+	// aggregation. CanonicalTagKey is non-trivial (sort + dedup), so
+	// caching the result per record avoids hashing the same tag slice
+	// twice when both maps need it.
 	peers := map[q3PeerKey]map[string]struct{}{}
+	agg := map[q3Key]*q3Agg{}
 	for _, r := range records {
 		osid := r.HostMeta.OSID
 		if osid == "" {
 			continue
 		}
-		pk := q3PeerKey{osid, core.CanonicalTagKey(r.HostMeta.Tags)}
+		tagKey := core.CanonicalTagKey(r.HostMeta.Tags)
+		hk := hostKey(r)
+		pk := q3PeerKey{osid, tagKey}
 		if peers[pk] == nil {
 			peers[pk] = map[string]struct{}{}
 		}
-		peers[pk][hostKey(r)] = struct{}{}
-	}
-
-	agg := map[q3Key]*q3Agg{}
-	for _, r := range records {
-		osid := r.HostMeta.OSID
-		if osid == "" || r.ContentNormSHA256 == "" {
+		peers[pk][hk] = struct{}{}
+		if r.ContentNormSHA256 == "" {
 			continue
 		}
-		tagKey := core.CanonicalTagKey(r.HostMeta.Tags)
 		k := q3Key{osid, tagKey, r.Module, r.SiteClass, r.ContentNormSHA256}
 		a := agg[k]
 		if a == nil {
 			a = &q3Agg{hosts: map[string]struct{}{}, sampleLocus: r.Locus, sampleSnippet: r.ContentSnippet}
 			agg[k] = a
 		}
-		hk := hostKey(r)
 		a.hosts[hk] = struct{}{}
 		if a.sampleHost == "" {
 			a.sampleHost = hk
@@ -934,13 +956,30 @@ func computeQ7(records []core.Record) []RollCallRow {
 }
 
 // sigSet returns a presence map of signals on a record. Used by
-// rollCallMatches for O(1) lookups.
+// rollCallMatches for O(1) lookups across a fixed needle list.
+//
+// For single-signal probes inside a hot per-record loop, prefer
+// hasSignal: building a map per record is wasted allocation when the
+// caller will only do one or two lookups against it.
 func sigSet(sigs []string) map[string]struct{} {
 	m := make(map[string]struct{}, len(sigs))
 	for _, s := range sigs {
 		m[s] = struct{}{}
 	}
 	return m
+}
+
+// hasSignal reports whether name appears in sigs via linear scan. For
+// the typical Signals slice (2–5 entries) this is faster than building
+// a temporary map per record, and it avoids the GC pressure that the
+// per-record sigSet(...) pattern caused inside Q9, Q10 and Q11 hot loops.
+func hasSignal(sigs []string, name string) bool {
+	for _, s := range sigs {
+		if s == name {
+			return true
+		}
+	}
+	return false
 }
 
 // filterSignals returns the subset of `actual` that appears in `pick`,
@@ -967,7 +1006,7 @@ func computeQ8(records []core.Record) []MtimeConcRow {
 	}
 	m := map[k]*agg{}
 	for _, r := range records {
-		if !containsAll(r.Signals, "recent_mtime_7d") {
+		if !hasSignal(r.Signals, core.SignalRecentMtime7d) {
 			continue
 		}
 		key := k{hostKey(r), r.Module}
@@ -1015,14 +1054,13 @@ func computeQ8(records []core.Record) []MtimeConcRow {
 // what exec_target means".
 
 func computeQ9(records []core.Record) []ExecInTmpRow {
-	tmpPrefixes := []string{"/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"}
 	var out []ExecInTmpRow
 	for _, r := range records {
 		if r.ExecTarget == "" {
 			continue
 		}
 		matched := false
-		for _, p := range tmpPrefixes {
+		for _, p := range core.TmpDirs {
 			if strings.HasPrefix(r.ExecTarget, p) {
 				matched = true
 				break
@@ -1031,8 +1069,7 @@ func computeQ9(records []core.Record) []ExecInTmpRow {
 		if !matched {
 			continue
 		}
-		sigs := sigSet(r.Signals)
-		_, isOrphan := sigs[core.SignalExecTargetOrphan]
+		isOrphan := hasSignal(r.Signals, core.SignalExecTargetOrphan)
 		out = append(out, ExecInTmpRow{
 			Host:       hostKey(r),
 			Module:     r.Module,
@@ -1082,7 +1119,7 @@ func computeQ10(records []core.Record) []HostCoverageRow {
 		a.records++
 		a.modules[r.Module] = struct{}{}
 		a.siteClasses[r.SiteClass] = struct{}{}
-		if _, ok := sigSet(r.Signals)["recent_mtime_7d"]; ok {
+		if hasSignal(r.Signals, core.SignalRecentMtime7d) {
 			a.recentRecords++
 		}
 	}
@@ -1115,46 +1152,6 @@ func computeQ10(records []core.Record) []HostCoverageRow {
 //
 // Aggregation: group by exec_target, count distinct hosts and total
 // records. LFA-sorted (hosts ASC) so singletons surface first.
-// q11VendorBaselineBasenames lists basenames of vendor-shipped
-// binaries that legitimately install outside the package manager
-// (under /opt/<vendor>/ or /usr/local/bin/). They surface as
-// non_package_path records on every host that runs them; the
-// analyst-side triage hides them so the implant shapes stand out.
-// Calibration deferred from operator config; ship a curated
-// default set covering the most common enterprise telemetry and
-// container-runtime binaries.
-var q11VendorBaselineBasenames = map[string]struct{}{
-	"datadog-agent":     {},
-	"datadog-agent-cli": {},
-	"splunkd":           {},
-	"vector":            {},
-	"filebeat":          {},
-	"node_exporter":     {},
-	"redis_exporter":    {},
-	"postgres_exporter": {},
-	"mysqld_exporter":   {},
-	"blackbox_exporter": {},
-	"prometheus":        {},
-	"alertmanager":      {},
-	"grafana-server":    {},
-	"kubelet":           {},
-	"kube-proxy":        {},
-	"kubectl":           {},
-	"kubeadm":           {},
-	"crictl":            {},
-	"containerd":        {},
-	"rbash-wrapper":     {},
-	"pm2":               {},
-	"vault-cli":         {},
-	"ssh-keys":          {},
-	"systemd-pcrphase":  {},
-	"modprobe":          {},
-	"node":              {},
-	"trivy":             {},
-	"hadolint":          {},
-	"docker":            {},
-}
-
 // q11BaselineBasename returns true if exec_target's basename is on
 // the vendor-baseline allow-list. v0.3.3 introduced this filter so
 // Q11 stops surfacing legitimate vendor binaries as orphans; the
@@ -1200,7 +1197,7 @@ func computeQ11(records []core.Record) []OrphanOutsideTmpRow {
 		if inTmp {
 			continue
 		}
-		if _, ok := sigSet(r.Signals)[core.SignalNonPackagePath]; !ok {
+		if !hasSignal(r.Signals, core.SignalNonPackagePath) {
 			continue
 		}
 		if q11BaselineBasename(r.ExecTarget) {
@@ -1367,7 +1364,9 @@ func basenameForQ12(r core.Record) string {
 	// differ (cron drops a file named <name>, profile.d demands
 	// <name>.sh, systemd demands <name>.service). Without this,
 	// the worm-shared 3-arm pattern fragments by extension.
-	for _, ext := range []string{".sh", ".service", ".conf", ".timer", ".socket"} {
+	// Source list lives in assets/script_extensions.yaml so operators
+	// can tune it without recompiling.
+	for _, ext := range q12StripExtensions {
 		if strings.HasSuffix(s, ext) {
 			s = s[:len(s)-len(ext)]
 			break

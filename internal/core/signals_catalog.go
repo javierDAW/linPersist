@@ -336,6 +336,36 @@ var Signals = []SignalDef{
 		Description: "systemd.linger record for a non-root account (user-mode units survive logout)",
 		EmittedBy:   []string{"linger"},
 	},
+	{
+		Name:        SignalGroupWheelMembership,
+		Description: "non-root user is a member of the wheel group (T1098.007)",
+		EmittedBy:   []string{"passwd"},
+	},
+	{
+		Name:        SignalGroupSudoMembership,
+		Description: "non-root user is a member of the sudo group (T1098.007)",
+		EmittedBy:   []string{"passwd"},
+	},
+	{
+		Name:        SignalGroupDockerMembership,
+		Description: "non-root user is a member of the docker group — equivalent to uid 0 via the docker socket (T1098.007)",
+		EmittedBy:   []string{"passwd"},
+	},
+	{
+		Name:        SignalGroupAdmMembership,
+		Description: "non-root user is a member of the adm group — read access to every log file (T1098.007)",
+		EmittedBy:   []string{"passwd"},
+	},
+	{
+		Name:        SignalGroupLxdMembership,
+		Description: "non-root user is a member of the lxd group — container-mediated host root (T1098.007)",
+		EmittedBy:   []string{"passwd"},
+	},
+	{
+		Name:        SignalGroupRootMembership,
+		Description: "non-root user is a member of the root group — unlocks numerous setgid binaries (T1098.007)",
+		EmittedBy:   []string{"passwd"},
+	},
 }
 
 // signalsByName is a presence-and-lookup index built once from Signals.
