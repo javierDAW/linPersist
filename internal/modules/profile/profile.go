@@ -32,7 +32,15 @@ import (
 	"github.com/jarmidaw/linpersist/internal/core"
 )
 
-const mitreProfile = "T1546.004"
+const (
+	mitreProfile = "T1546.004"
+	mitreTrap    = "T1546.005"
+
+	siteClassProfileSystem = "profile.system"
+	siteClassProfileUser   = "profile.user"
+	siteClassTrapSystem    = "profile.trap.system"
+	siteClassTrapUser      = "profile.trap.user"
+)
 
 // systemFiles is the fixed set of system-wide profile loci. The
 // /etc/profile.d/ directory is handled separately by the walker.
@@ -96,7 +104,12 @@ var _ core.Module = (*Module)(nil)
 func (m *Module) Name() string { return "profile" }
 
 func (m *Module) SiteClasses() []string {
-	return []string{"profile.system", "profile.user"}
+	return []string{
+		siteClassProfileSystem,
+		siteClassProfileUser,
+		siteClassTrapSystem,
+		siteClassTrapUser,
+	}
 }
 
 func (m *Module) Collect(ctx context.Context, emit func(core.Record)) error {
@@ -252,6 +265,11 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 	fillFileMeta(&rec, info)
 	rec.Signals = dedupSignals(m.baseSignals(info, logical))
 	emit(rec)
+
+	// Walk the raw content for `trap CMD SIGNAL...` directives. Each
+	// real trap (non-noop) emits its own record with site_class
+	// profile.trap.{system,user} and MITRE T1546.005.
+	m.emitTrapsFromContent(logical, raw, info, siteClass, emit)
 }
 
 func (m *Module) envelopeRecord(logical string, info os.FileInfo, siteClass string, errs []core.RecordError) core.Record {
@@ -286,6 +304,50 @@ func fillFileMeta(rec *core.Record, info os.FileInfo) {
 		rec.CTime = &ctime
 	} else {
 		rec.Mode = core.FormatMode(uint32(info.Mode().Perm()))
+	}
+}
+
+// emitTrapsFromContent scans the file for `trap CMD SIGNAL...` lines
+// and emits one Record per real trap hit. The site_class is derived
+// from the parent siteClass: profile.system -> profile.trap.system,
+// profile.user -> profile.trap.user. The base file-level signals
+// (recent_mtime_*, world_writable, non_root_owner) are reused so a
+// trap inside a freshly-written /etc/profile.d/ dropin carries
+// recent_mtime_7d the same way the per-file record does.
+func (m *Module) emitTrapsFromContent(logical string, raw []byte, info os.FileInfo, parentSiteClass string, emit func(core.Record)) {
+	hits := scanTraps(raw)
+	if len(hits) == 0 {
+		return
+	}
+	var trapSiteClass string
+	switch parentSiteClass {
+	case siteClassProfileSystem:
+		trapSiteClass = siteClassTrapSystem
+	case siteClassProfileUser:
+		trapSiteClass = siteClassTrapUser
+	default:
+		// Unknown parent site_class -- skip rather than guess.
+		return
+	}
+	base := m.baseSignals(info, logical)
+	for _, h := range hits {
+		rec := core.Record{
+			Module:            m.Name(),
+			SiteClass:         trapSiteClass,
+			MITRE:             []string{mitreTrap},
+			Locus:             logical,
+			ContentSHA256:     core.HashHex([]byte(h.raw)),
+			ContentNormSHA256: core.HashHex([]byte(h.raw)),
+			ContentSnippet:    h.raw,
+		}
+		if et := execTargetFromTrap(h); et != "" {
+			rec.ExecTarget = et
+		}
+		fillFileMeta(&rec, info)
+		sigs := append([]string{}, base...)
+		sigs = append(sigs, signalsForTrapHit(h)...)
+		rec.Signals = dedupSignals(sigs)
+		emit(rec)
 	}
 }
 

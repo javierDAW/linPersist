@@ -88,7 +88,7 @@ func runGolden(t *testing.T, caseDir string) {
 		}
 	}
 	expectedPath := filepath.Join(caseDir, "expected.ndjson")
-	if *updateGolden {
+	if shouldUpdateGolden() {
 		if err := os.WriteFile(expectedPath, got.Bytes(), 0o644); err != nil {
 			t.Fatalf("write expected: %v", err)
 		}

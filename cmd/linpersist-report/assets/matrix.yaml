@@ -378,6 +378,62 @@ site_classes:
       no record. Order across files within a host is NOT recorded
       -- each file is independent for LFA purposes.
 
+  - site_class: profile.trap.system
+    module: profile
+    mitre: [T1546.005]
+    loci:
+      - /etc/profile
+      - /etc/profile.d/
+      - /etc/bash.bashrc
+      - /etc/zsh/zshenv
+      - /etc/zsh/zprofile
+      - /etc/environment
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      Detects `trap CMD SIGNAL` directives in system-wide shell
+      init scripts. MITRE T1546.005 (Event Triggered Execution:
+      Trap). Sibling site_class to profile.system: the per-file
+      record carries T1546.004 (Unix Shell Configuration
+      Modification), the per-trap record carries T1546.005.
+      No-op patterns are excluded: `trap '' SIGNAL` (ignore),
+      `trap - SIGNAL` (reset to default), `trap` alone (list),
+      and comment lines starting with `#`. Multi-line
+      continuations (line ending in backslash) are joined before
+      scanning. Signals emitted: `trap_command` always,
+      `trap_exit_handler` when EXIT/DEBUG/RETURN/ERR is in the
+      signal list, `trap_command_in_tmp` when the command's
+      argv[0] resolves under /tmp/.
+
+  - site_class: profile.trap.user
+    module: profile
+    mitre: [T1546.005]
+    loci:
+      - /root/.bashrc
+      - /root/.bash_profile
+      - /root/.bash_login
+      - /root/.profile
+      - /root/.zshrc
+      - /root/.zshenv
+      - /home/*/.bashrc
+      - /home/*/.bash_profile
+      - /home/*/.bash_login
+      - /home/*/.profile
+      - /home/*/.zshrc
+      - /home/*/.zshenv
+    status: implemented
+    test_coverage: golden+unit
+    notes: |
+      User-level trap detector. Same parser and signal logic as
+      profile.trap.system, different loci (root's home and every
+      /home/<user>/). MITRE T1546.005. Pre-v0.4.0 the profile
+      module emitted only the per-file profile.user record; with
+      this site_class a /home/alice/.bashrc containing
+      `trap "/tmp/.b/persist" EXIT` produces BOTH a profile.user
+      record (T1546.004) AND a profile.trap.user record
+      (T1546.005), letting the operator stack and rank traps
+      independently.
+
   - site_class: motd
     module: motd
     mitre: [T1037]

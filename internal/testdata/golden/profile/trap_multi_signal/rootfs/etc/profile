@@ -1,0 +1,3 @@
+# /etc/profile -- system-wide profile.
+trap "cleanup_runtime_dirs" INT TERM EXIT
+umask 022

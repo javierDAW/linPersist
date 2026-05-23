@@ -1,0 +1,4 @@
+# /etc/profile -- with line continuation
+trap "cmd1; \
+      cmd2" EXIT
+umask 022

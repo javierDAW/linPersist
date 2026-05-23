@@ -6,7 +6,8 @@
 > developer), start here. It is intentionally dense: everything that
 > is non-obvious from the code lives in this doc.
 >
-> Last updated: 2026-05-21 after the v0.3.2 release.
+> Last updated: 2026-05-22 after the v0.3.4 release and at the start
+> of the v0.4.0 sprint ("close the Linux MITRE bridge").
 >
 > The body of this doc (architectural canon, lessons learned,
 > known gotchas, conventions, iterate-fast cookbook, debug map)
@@ -21,7 +22,7 @@
 
 ## TL;DR — what landed in main since the original handoff
 
-The repo is now **three tagged releases** past the original
+The repo is now **five tagged releases** past the original
 handoff snapshot, all by `Jarmi <jarmidaw@gmail.com>`.
 
 - **`v0.3.0`** (2026-05-21) — golden coverage, module docs, Q9
@@ -50,24 +51,52 @@ handoff snapshot, all by `Jarmi <jarmidaw@gmail.com>`.
   deployments) against live records, showing surfacing vs
   dormant techniques per ATT&CK ID. Q12 surfaces multi-arm
   campaigns whose individual arms each look like Q1 singletons
-  in their own module (the v0.2.0 deploy-sync case is exactly
-  what it catches; lab-realistic confirms the first row is
-  `sync-agent, 2 hosts, cron + systemd`). CHANGELOG split into
-  proper `[0.2.0]` + `[0.3.0]` + `[0.3.1]` + `[0.3.2]`
-  sections (the original `[Unreleased]` mega-blob is gone).
-  New release gate `matrix-sync-verify` keeps the embedded
-  `matrix.yaml` in sync with the repo root copy.
+  in their own module. New release gate `matrix-sync-verify`
+  keeps the embedded `matrix.yaml` in sync with the repo root
+  copy.
+
+- **`v0.3.3`** (2026-05-21) — lab-realistic v2 + Q11/Q12
+  calibrations + HTML Q12 pane fix. 45-host fleet (13 roles ×
+  distro mix), 19,470 records, 33 implants placed across 25
+  hosts. Aggregate recall 0.82. Lab v2 is now committed to the
+  repo (only `lab-realistic/out/` ignored). Q11 vendor allow-list
+  + Q12 strip-extensions calibrations land in
+  `cmd/linpersist-report/stats.go`. HTML Q12 pane bug from v0.3.2
+  fixed.
+
+- **`v0.3.4`** (2026-05-22) — ssh-forced-tmp end-to-end +
+  `--peer-floor` flag + MITRE dormant sub-categorization. Live-
+  container investigation traced the v0.3.3 ssh-forced-tmp MISSED
+  count (3/26 implants) to a base64-invalid `key_blob` in the lab
+  catalog (ASCII hyphens). Module behaviour is DFIR-positive
+  (rejects malformed lines); the bug was in the fixture. Sibling
+  fixes: `variant: orphan` was inconsistent with the template
+  (which IS armed); `expected_signals` realigned to use
+  `non_package_path` (what the agent actually emits) instead of
+  `exec_target_orphan`. Worm-shared `recent_target_mtime_7d`
+  signal recovered by dropping `/opt` and `/usr/local` from the
+  aggressive mtime stamping pass in `generate.py`. `--peer-floor N`
+  flag on `linpersist-report` lets operators tune the Q3 minimum
+  peer-group size (default 3, lower for sparse fleets, raise for
+  over-tagged ones). MITRE panel dormant splits into
+  `dormant_coverage_gap` (module active, technique not emitted)
+  vs `dormant_module_silent` (no covering module fleet-wide);
+  lab v2 shows `15/18 surfacing, 3 dormant (0 gap, 3 silent)`.
+  Lab v2 re-bench: Q1/Q4/Q7/Q9 all at 1.00 recall, Q12 at 0.67
+  (worm-profile-arm consolidation deferred). 19,473 records.
 
 **Tag history now**: `v0.1.0-alpha` → `v0.2.0` → `v0.3.0` →
-`v0.3.1` → `v0.3.2`. Only `v0.3.0` and `v0.3.1` are pushed to
-`origin` as of this writing; the older tags are local-only by
-explicit operator decision. `v0.3.2` push is pending.
+`v0.3.1` → `v0.3.2` → `v0.3.3` → `v0.3.4`. v0.3.4 commit/tag/push
+to be confirmed by Jarmi via the FINAL 1-5 command sequence handed
+off at sprint close.
 
 ## Inventory delta since the original handoff
 
-- **+ 4 new top-level files**: `docs/adr/0015-host-tags.md`,
+- **+ 6 new top-level docs**: `docs/adr/0015-host-tags.md`,
   `docs/deployment.md`, `docs/benchmarks/v0.3.0-realistic.md`,
-  `cmd/linpersist-report/diff.go` (+ companion render).
+  `docs/benchmarks/v0.3.3-realistic.md`,
+  `docs/lab-realistic-v2-spec.md`,
+  `cmd/linpersist-report/diff.go` (+ companion renderers).
 - **+ 3 new module docs** under `docs/modules/`: `linger.md`,
   `tmpfiles.md`, `sysusers.md`.
 - **+ 3 new module test packages** with 19 golden cases total
@@ -80,66 +109,147 @@ explicit operator decision. `v0.3.2` push is pending.
   section), and cookbook (`docs/stacking-cookbook.md` section).
 - **+ 1 new report panel** MITRE coverage (text + HTML +
   Overview card) in `cmd/linpersist-report/mitre_coverage.go`,
-  with embedded `matrix.yaml` via `go:embed`.
-- **+ 1 release gate** `matrix-sync-verify` in `Makefile` `all`.
+  with embedded `matrix.yaml` via `go:embed`, and v0.3.4
+  dormant sub-categorization (`dormant_coverage_gap` /
+  `dormant_module_silent`).
+- **+ 1 new CLI flag** `--peer-floor N` on `linpersist-report`
+  (v0.3.4), with new `TestQ3_PeerFloorTunable` covering four
+  canonical values.
+- **+ 2 release gates** `matrix-sync-verify` (v0.3.2),
+  `detgen-verify` (v0.3.x).
 - **+ 1 ADR** ADR-0015 (host tags).
-- **+ 56 unit tests** total across the three releases (golden
+- **+ 60+ unit tests** total across the five releases (golden
   cases excluded): linger 11, sysusers 16, tmpfiles 16, tags 8,
-  Q3 peer-group 7, diff 10. All race-clean.
+  Q3 peer-group 8, diff 10, MITRE coverage 4. All race-clean.
+- **+ Lab-realistic v2 in-repo**: 13 role templates, 6 distro
+  bases, 14-implant catalog, 33 placements, scoring kit.
 
-## What is OPEN after v0.3.2
+## What is OPEN after v0.3.4
 
-- **Lab implant fixtures** for `linger`/`tmpfiles`/`sysusers`
-  (v0.3.0-coverage rules ship pre-armed; lab-realistic does not
-  yet seed those vectors so the 13 new detection rules show
-  zero TPs). Deferred from v0.3.2 because `lab-realistic/` is
-  gitignored and rebuilding the Docker fleet is sprint-of-its-
-  own work. Suggested for **v0.3.3** as the "lab quality"
-  sprint: three new implant templates + catalog entries +
-  hostlist assignments + a benchmark `v0.3.3-realistic.md`
-  documenting the TPs.
-- **Q12 calibration**: the v0.3.2 implementation has no
-  allow-list for vendor baseline basenames (nginx, redis-server,
-  prometheus, sshd_config, etc.) that legitimately cross
-  `systemd.unit` + `sysv.init`. Analyst-side triage works
-  (ASC sort, ignore tail) but a calibrated rule for Q7
-  promotion would be nicer. v0.3.x candidate.
-- **Q3 SQL drift gate**: `tools/stack_demo.sql` Q3 is
-  hand-edited to mirror Go; there is no automated
-  detgen-equivalent. v0.3.x candidate (mirror `detgen-verify`
-  on Q3 if Q3 diverges further).
-- **MITRE panel "no coverage declared" view**: panel currently
-  only shows technique IDs that matrix.yaml declares. ATT&CK
-  Linux Matrix has more techniques than matrix.yaml claims; a
-  panel variant showing "technique declared in ATT&CK but no
-  module covers it" would help prioritise the v0.4.0 module
-  backlog. Minor.
+- **Q12 worm-profile-arm consolidation** (deferred from v0.3.3,
+  reconfirmed in v0.3.4). The profile module does not populate
+  `exec_target` from the script body, so the 3-arm worm campaign
+  (`cron` + `systemd` + `profile`) splits into two Q12 rows
+  instead of one. Brings Q12 recall from 0.67 to 1.00 when fixed.
+  Tracked as v0.4.0 task #14.
+- **ssh-forced-tmp greedy placement bias** (v0.3.4). The greedy
+  `assign_implants` in `generate.py` places all 3 ssh-forced-tmp
+  instances on build-ci + web-edge, zero on bastion despite the
+  `placements: roles: [bastion, build-ci, web-edge]` declaration.
+  Cosmetic for now; bench passes. Worth revisiting if more
+  implants land with similar role triplets.
+- **score.py heuristic is presence-based, not signal-exact**
+  despite the docstring's original claim. v0.3.4 corrected the
+  docstring. A future revision could tighten the matching once
+  the catalog vocabulary is aligned with
+  `internal/core/signals.go` literals.
+- **Catalog `expected_signals` vocabulary alignment** (v0.3.4
+  normalized `ssh-forced-tmp` from `exec_target_orphan` to
+  `non_package_path`; other implants may have similar drift).
+  Audit-and-normalize sprint candidate.
+- **MITRE Linux Matrix gaps** (driver of v0.4.0). The current
+  18 distinct technique IDs cover 11 parent techniques. The
+  highest-impact unclaimed Linux-relevant techniques are
+  T1548.001 (setuid/sgid), T1546.005 (trap), T1098.007
+  (privileged group membership), and T1053.007 (container
+  orchestration job) — the first three are scheduled for v0.4.0,
+  the fourth lifted to v0.5.0 (cloud-native sprint).
 
-## Next sprint (v0.4.0 cloud-native) — proposed scope
+## Next sprint (v0.4.0 — "close the Linux MITRE bridge")
 
-The cloud-native vector backlog (from the original handoff,
-unchanged):
+**Theme**: depth over breadth. Cover the three highest-impact
+Linux persistence techniques that the current 18-ID matrix
+misses, plus close the Q12 worm-profile-arm deferred item from
+v0.3.4. Estimated 1-2 days. Three other paths (cloud-native /
+container orchestration; eBPF state inspection; webshell walk +
+supply chain) were considered for v0.4.0 and lifted to v0.5.0+
+because they each require new infra (k8s YAML parsing, cilium/ebpf
+dependency vetting, hash catalogs respectively) — v0.4.0 stays
+artifact-walk-on-disk like the existing modules.
 
-- `docker.daemon` (`/etc/docker/daemon.json`) — T1543.005.
-- `k8s.static-pods` (`/etc/kubernetes/manifests/`) — T1053.007.
-- `cloud-init` (`/etc/cloud/cloud.cfg{,.d/}`,
-  `/var/lib/cloud/scripts/per-boot/`) — T1543/T1547 hybrid.
-- `dbus.services` (`/usr/share/dbus-1/system-services/*.service`)
-  — T1543 family.
-- Supply-chain dotfiles: `npm.global` (`~/.npmrc` global,
-  `/usr/lib/node_modules/`), `pip.user` (`~/.config/pip/`),
-  `ai-cli.configs` (Claude Code / Copilot / Cursor rules files
-  -- emerging vector that no mainstream collector covers yet).
+### 1. T1546.005 Trap detection — extend `profile` module
+- MITRE: T1546.005 (Event Triggered Execution: Trap).
+- Loci: `/etc/profile.d/*.sh`, `/etc/bashrc`, `/etc/zshrc`,
+  `/etc/profile`, `~/.bashrc`, `~/.profile`, `~/.bash_profile`,
+  `~/.zshrc`.
+- Implementation: line-level scanner for
+  `^[[:space:]]*trap[[:space:]]+` matching `trap CMD SIGNAL...`.
+- Site_classes: `profile.trap.system`, `profile.trap.user`.
+- Signals: `trap_command_in_profile`,
+  `trap_command_under_tmp` (when CMD path resolves under /tmp).
+- Golden tests: happy path, EXIT-only, multi-signal, commented-out
+  (must not fire), nested in conditionals.
+- Tracked as task #11.
 
-Plus the v0.3.x deferreds folded in:
+### 2. T1548.001 Setuid/Setgid module — new `suidbits`
+- MITRE: T1548.001 (Abuse Elevation Control Mechanism: Setuid
+  and Setgid).
+- Loci (configurable, defaults): `/usr/bin`, `/usr/sbin`,
+  `/usr/local/bin`, `/usr/local/sbin`, `/opt`, `/tmp`, `/home`.
+- Implementation: walk each root, filter `mode & 04000` (suid)
+  or `mode & 02000` (sgid). Skip `/proc`, `/sys`, `/dev`,
+  `/run` (pseudofs).
+- Site_classes: `suid.system`, `sgid.system`, `suid.user`,
+  `sgid.user`.
+- Signals: `suid_bit_set`, `sgid_bit_set`, `non_package_path`
+  (via provenance helper — already exists), `world_writable`.
+- Care: many suid binaries are legitimate (passwd, sudo, mount,
+  ping, su...). The provenance helper will filter them as
+  package-managed; only `non_package_path` ones bubble up
+  to Q11.
+- Tracked as task #12.
 
-- Lab implant fixtures for the v0.3.0-coverage rules.
-- Q12 baseline allow-list calibration.
+### 3. T1098.007 Privileged group signals — extend `passwd`
+- MITRE: T1098.007 (Account Manipulation: Additional Local or
+  Domain Groups).
+- The `passwd` module already parses `/etc/group` and emits
+  one record per group entry. v0.4.0 adds detection-oriented
+  signals tagging membership of privileged groups: `wheel`,
+  `sudo`, `docker`, `adm`, `lxd`, `root` (when non-root user
+  is a member).
+- New signal names: `group_wheel_membership`,
+  `group_sudo_membership`, `group_docker_membership`,
+  `group_adm_membership`, `group_lxd_membership`,
+  `group_root_membership`.
+- matrix.yaml: new `passwd.group.privileged` site_class entry.
+- Tracked as task #13.
 
-Estimated ~6-8h. The first conversation should close ADR
-decisions (one new module = one ADR if the canonical-form is
-non-trivial; ai-cli.configs warrants its own ADR because it's
-a new class of artifact).
+### 4. Q12 worm-profile-arm consolidation
+- See "What is OPEN" above. The profile module learns to
+  populate `exec_target` from the script body (look for the
+  primary command being sourced or executed), so the 3-arm
+  worm clusters in a single Q12 row instead of two.
+- Tracked as task #14.
+
+### 5. Lab v2 fixtures for the 3 new techniques
+- Three new implant templates + catalog entries + placements:
+  `trap-bashrc-payload` (T1546.005, armed),
+  `suid-rooted-binary` (T1548.001, armed),
+  `group-wheel-attacker` (T1098.007, armed).
+- Ground truth grows from 33 to 36 placements.
+- Tracked as task #15.
+
+### 6. Release gate v0.4.0
+- `make all` clean + lab v2 re-bench + CHANGELOG + commit +
+  tag + push, same shape as v0.3.4. Tracked as task #16.
+
+### Sprint composition
+- Order of attack: #11 (trap, smallest), #13 (group signals,
+  small), #12 (suidbits, medium new module), #14 (Q12
+  profile-arm, requires careful parsing), #15 (fixtures), #16
+  (release gate).
+- Validation: each task must pass its own golden tests + the
+  full repo `go test -race ./...` before moving to the next.
+- Tooling lesson from v0.3.4: **prefer Write + Python over
+  Edit tool for any change touching files > 100 lines on the
+  Windows-mounted filesystem** — the Edit tool truncated the
+  EOF of stats.go, main.go, stats_test.go, and catalog.yaml
+  during v0.3.4, all recoverable but costly to chase. Recovery
+  pattern: `git show HEAD:<path>` → in-memory edit → Write the
+  whole file. The git-related ops (status / diff / commit / tag /
+  push) must run from Jarmi's WSL because the sandbox's mount
+  cache shows a phantom `.git/index.lock` plus zombie `./`
+  index entries that block `git restore --staged`.
 
 ---
 
