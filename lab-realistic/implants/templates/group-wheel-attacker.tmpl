@@ -1,0 +1,24 @@
+# Implant template: group-wheel-attacker (L2, armed)
+#
+# T1098.007 (Account Manipulation: Additional Local or Domain Groups).
+# Creates a non-root user and adds them to a privileged Linux group
+# (wheel, sudo, docker, etc.). linpersist's passwd module
+# reclassifies the corresponding /etc/group line to
+# passwd.group.privileged and emits group_${group_name}_membership;
+# the record gets MITRE [T1136.001, T1098.007] and naturally
+# surfaces as a Q1 singleton because the attacker name is unique to
+# the compromised host.
+#
+# Variables: ${attacker_user}, ${group_name}
+#
+# Note: `useradd -M` skips home-dir creation so /home/<user> does
+# not show up as an outlier under the passwd.user walker. The
+# implant is the group membership, not the user existence — keeping
+# /etc/passwd otherwise quiet lets Q1 surface the group line
+# unambiguously.
+
+RUN useradd -M -s /bin/bash ${attacker_user} 2>/dev/null || \
+        echo '${attacker_user}:x:9999:9999:System Helper:/nonexistent:/bin/bash' >> /etc/passwd && \
+    groupadd -f ${group_name} && \
+    usermod -a -G ${group_name} ${attacker_user} 2>/dev/null || \
+        sed -i 's/^\(${group_name}:[^:]*:[^:]*:\)\(.*\)$$/\1\2,${attacker_user}/' /etc/group
