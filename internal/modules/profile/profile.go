@@ -263,6 +263,17 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 		ContentSnippet:    snippet(string(canon)),
 	}
 	core.FillFileMeta(&rec, info)
+	// Pull the first explicit exec target out of the script body so
+	// Q12 (campaign basename clustering) can consolidate this record
+	// with sibling cron / systemd records that target the same payload.
+	// Without this, a worm whose three arms all source the same
+	// /usr/local/bin/sync split into two Q12 rows because the profile
+	// arm carried no ExecTarget. See v0.4.0 sprint task #14.
+	if target := ExtractExecTarget(raw); target != "" {
+		rec.ExecTarget = target
+		core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, target)
+		core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, target)
+	}
 	rec.Signals = core.DedupSignals(m.baseSignals(info, logical))
 	emit(rec)
 
