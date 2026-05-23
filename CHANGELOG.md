@@ -7,6 +7,106 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-23
+
+v0.4.0 closes the Linux MITRE bridge for the three highest-impact
+persistence techniques the 18-ID matrix missed (T1546.005 trap,
+T1098.007 privileged group membership, T1548.001 setuid/sgid),
+finishes the Q12 worm-profile-arm consolidation deferred from
+v0.3.3/v0.3.4, and lands a non-functional code-review refactor
+(~1100 LOC of duplication removed) plus the first CI automation
+this project has ever had.
+
+Matrix coverage: 34 → 39 site_classes implemented. Catalog: 43 → 51
+signals (+6 group membership, +2 suid/sgid). Detections: 23 → 24.
+Modules: 21 → 22 (suidbits is the only new package).
+
+### Added — three new MITRE techniques
+- **T1546.005 (Event Triggered Execution: Trap)** — profile module
+  scans every profile.d / bashrc / zshrc body for `trap CMD SIG…`
+  lines and emits a record under the new
+  `profile.trap.{system,user}` site_classes with
+  `trap_command`, `trap_exit_handler` (if EXIT is in the signal
+  list) and `trap_command_in_tmp` (if the command resolves under
+  /tmp). Lands in v0.4.0 via the 2026-05-23 trap-detection commit.
+- **T1098.007 (Account Manipulation: Additional Local or Domain
+  Groups)** — passwd module reclassifies /etc/group records to a
+  new `passwd.group.privileged` site_class when the group name is
+  on the privileged list (wheel, sudo, docker, adm, lxd, root)
+  AND at least one non-root supplemental member is present. Six
+  new signals (`group_<name>_membership`), one per group, so Q1 /
+  Q3 stacking can distinguish a benign baseline (engineering team
+  in `docker`) from an anomaly (one host with eve in `wheel`).
+  Reclassified records carry MITRE `[T1136.001, T1098.007]`.
+- **T1548.001 (Abuse Elevation Control Mechanism: Setuid and
+  Setgid)** — new `suidbits` module walks /usr/bin, /usr/sbin,
+  /usr/local/{bin,sbin}, /opt, /home, /tmp, /var/tmp and emits one
+  record per regular file with the suid (04000) or sgid (02000)
+  bit set. Four site_classes split by suid-vs-sgid × system-vs-user.
+  Two new signals (`suid_bit_set`, `sgid_bit_set`); pairs with the
+  existing `non_package_path` to drive the new detection rule
+  `suid_binary_outside_package_path` (severity: critical) in Q7.
+  content_norm_sha256 is `mode_octal:basename` so legitimate
+  package-managed suid binaries collapse to single Q1 rows across
+  the fleet, leaving the /tmp / /home implants as Q1 singletons.
+
+### Added — fleet engine improvements
+- **Q12 worm-arm consolidation** (`internal/modules/profile/exec_target.go`):
+  profile records now populate ExecTarget by scanning the script
+  body for the first `. /path`, `source /path`, `exec /path` or
+  leading absolute-path command. A 3-arm worm (cron + systemd +
+  profile) consolidates into one Q12 cluster row instead of two.
+  Closes the v0.3.3/v0.3.4 deferred item.
+- **CI workflow** (`.github/workflows/ci.yml`) runs `make all` +
+  `make test-race` + static-link gate on push/PR + on `v*` tags.
+  Closes the discourse/praxis gap where ADR release gates only ran
+  on Jarmi's laptop. A separate `duckdb-equiv` CI job installs the
+  DuckDB CLI and runs the new Go↔SQL equivalence test (gated by
+  `-tags=duckdb`, does not block the main gate). The equivalence
+  test pins eight current SQL↔Go row-count divergences as TODO
+  baselines so any future drift fails loudly.
+- **Stats golden harness** (`cmd/linpersist-report/stats_golden_test.go`)
+  pins build() + renderText / renderHTML output on a 13-record
+  synthetic fixture covering Q1/Q4/Q7/Q11/Q12 paths. Required for
+  every future stats.go refactor. Caught one pre-existing bug
+  during landing: `BySiteClass` and `ByOSID` sorts were unstable
+  on ties, shuffling rows between runs of the same input. Added
+  Name tiebreakers.
+
+### Changed — code-review refactor (P0–P3)
+- **Helpers extracted to internal/core/**: `FillFileMeta` and
+  `DedupSignals` / `DedupSignalsSorted` lived (mostly byte-identical)
+  in 21 modules. Centralized. `TmpDirs` constant centralized too.
+  Net delete: ~833 LOC across the modules.
+- **Shared module registry** (`internal/modset/`): one explicit
+  alphabetical slice consumed by both `cmd/linpersist` and
+  `cmd/matrix-audit`. Adding a module is now one edit instead of
+  three coordinated ones. Tests pin the count and ordering.
+- **Q11/Q12 calibration moved to embedded YAML**
+  (`cmd/linpersist-report/assets/{vendor_basenames,script_extensions}.yaml`):
+  the 34-entry vendor baseline allow-list and the 5-entry Q12
+  extension list are now data files an operator can tune without
+  recompiling.
+- **Shared text-render helpers** in
+  `cmd/linpersist-report/render_common.go`: ansi/TTY/section/bar
+  helpers consumed by render_text, render_host_text and
+  render_diff_text, instead of one of them owning them implicitly.
+- **Hardcoded signal name strings replaced with constants** in
+  stats.go and render.go; new `signals_consumption_test.go` asserts
+  every key in `warningSignals` exists in the core catalog, closing
+  the drift channel the existing emission-side test does not see.
+- **Hot-path improvements** in stats.go: `hasSignal()` linear-scan
+  helper replaces `sigSet()` per-record map allocations in Q9 / Q10
+  / Q11 loops; `worstSeverity` precomputed once at init
+  (O(N×M) → O(N+M)); `computeQ3` fuses its two record passes into
+  one.
+
+### Added — lab-realistic v2 fixtures
+- Three new implant templates + catalog entries + placements:
+  `trap-bashrc-payload` (dev-workstation), `suid-rooted-binary`
+  (legacy), `group-wheel-attacker` (build-ci). Ground truth grows
+  from 33 to 36 placements across 26 hosts.
+
 ## [0.3.4] - 2026-05-22
 
 ### Fixed (v0.3.4 — ssh-forced-tmp end-to-end + lab fixture audit)
