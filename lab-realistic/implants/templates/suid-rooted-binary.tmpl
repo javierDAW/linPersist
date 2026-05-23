@@ -1,0 +1,20 @@
+# Implant template: suid-rooted-binary (L1, armed)
+#
+# T1548.001 (Abuse Elevation Control Mechanism: Setuid and Setgid).
+# Drops a tiny binary at a user-writable locus, chowns it to
+# root:root, and sets the setuid bit. linpersist's suidbits module
+# fires suid_bit_set; pairing with provenance's non_package_path
+# matches the suid_binary_outside_package_path detection rule
+# (severity: critical) and promotes the record to Q7.
+#
+# Variables: ${implant_path}
+#
+# Layered Dockerfile note: `cp /bin/bash ${implant_path}` is the
+# textbook ATT&CK example. We use it verbatim so the bytes on disk
+# are a real ELF and the streaming sha256 in suidbits matches what
+# core.HashReader will see.
+
+RUN mkdir -p "$$(dirname ${implant_path})" && \
+    cp /bin/sh ${implant_path} && \
+    chown root:root ${implant_path} && \
+    chmod 4755 ${implant_path}

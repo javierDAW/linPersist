@@ -277,6 +277,61 @@ implants:
       attacker_user: sysmaint
       gecos: System Maintenance
 
+  # ====================== v0.4.0 additions =====================
+  # Three new MITRE techniques the v0.4.0 sprint covers: T1546.005
+  # trap (profile module extension), T1548.001 suid/sgid (new
+  # suidbits module), and T1098.007 privileged group membership
+  # (passwd module extension).
+
+  - id: trap-bashrc-payload
+    tier: L2
+    variant: armed
+    module: profile
+    site_class: profile.trap.system
+    description: |
+      profile.d drop installing a `trap CMD EXIT` handler bound to
+      an inert payload under /tmp. T1546.005.
+    expected_signals: [trap_command, trap_exit_handler, trap_command_in_tmp, recent_mtime_7d]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: payload_under_tmp_via_persistence
+    template: trap-bashrc-payload.tmpl
+    vars:
+      profile_file: /etc/profile.d/zz-trap-cleanup.sh
+      payload_path: /tmp/.trap/cleanup
+
+  - id: suid-rooted-binary
+    tier: L1
+    variant: armed
+    module: suidbits
+    site_class: suid.user
+    description: |
+      cp /bin/sh /tmp/.x; chown root; chmod 4755 — textbook T1548.001
+      escalation pivot. Surfaces via suid_bit_set + non_package_path.
+    expected_signals: [suid_bit_set, non_package_path, recent_mtime_7d]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: suid_binary_outside_package_path
+    template: suid-rooted-binary.tmpl
+    vars:
+      implant_path: /tmp/.cache/.x
+
+  - id: group-wheel-attacker
+    tier: L2
+    variant: armed
+    module: passwd
+    site_class: passwd.group.privileged
+    description: |
+      Attacker user added to a privileged Linux group (wheel,
+      sudo, docker, adm, lxd, root). T1098.007 — the quietest
+      escalation pivot, no /etc/passwd or /etc/shadow change beyond
+      the user existence row.
+    expected_signals: [group_docker_membership, recent_mtime_7d]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: null
+    template: group-wheel-attacker.tmpl
+    vars:
+      attacker_user: opswatch
+      group_name: docker
+
 # ==========================================================================
 # Placement plan -- generator picks hosts per role to keep TPs measurable.
 
@@ -295,3 +350,6 @@ placements:
   linger-non-root-account: { count: 2, roles: [dev-workstation, build-ci] }
   tmpfiles-payload-at-boot: { count: 2, roles: [db-replica, k8s-node] }
   sysusers-second-uid-zero: { count: 2, roles: [db-primary, monitoring] }
+  trap-bashrc-payload:     { count: 1, roles: [dev-workstation] }
+  suid-rooted-binary:      { count: 1, roles: [legacy] }
+  group-wheel-attacker:    { count: 1, roles: [build-ci] }
