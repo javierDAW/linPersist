@@ -1,0 +1,47 @@
+# Q11 vendor-baseline allow-list.
+#
+# Basenames of vendor-shipped binaries that legitimately install outside
+# the package manager (typically under /opt/<vendor>/ or /usr/local/bin/).
+# They surface as non_package_path records on every host that runs them;
+# the analyst-side triage hides them so the implant shapes stand out.
+#
+# v0.3.3 introduced this filter so Q11 stops surfacing legitimate vendor
+# binaries as orphans; the implant shapes (single-host hits in
+# /usr/local/sbin/<name>) bubble to the top of the table without
+# competing with 20+ vendor rows.
+#
+# Operators can edit this file and rebuild to tune the allow-list for
+# their fleet. The schema is intentionally a flat list of basenames;
+# version-specific suffixes (-1.0, _stable) should be stripped by
+# convention before listing.
+
+basenames:
+  - datadog-agent
+  - datadog-agent-cli
+  - splunkd
+  - vector
+  - filebeat
+  - node_exporter
+  - redis_exporter
+  - postgres_exporter
+  - mysqld_exporter
+  - blackbox_exporter
+  - prometheus
+  - alertmanager
+  - grafana-server
+  - kubelet
+  - kube-proxy
+  - kubectl
+  - kubeadm
+  - crictl
+  - containerd
+  - rbash-wrapper
+  - pm2
+  - vault-cli
+  - ssh-keys
+  - systemd-pcrphase
+  - modprobe
+  - node
+  - trivy
+  - hadolint
+  - docker

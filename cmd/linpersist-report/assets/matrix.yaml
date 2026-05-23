@@ -317,7 +317,31 @@ site_classes:
       One record per group line. Members are sorted alphabetically
       in the canonical form for stacking. Any change to membership
       (an attacker adding a user to wheel, sudo, docker, etc.)
-      surfaces immediately as a singleton.
+      surfaces immediately as a singleton. Records whose group name
+      is on the privileged list AND which carry at least one
+      non-root supplemental member are reclassified to the
+      passwd.group.privileged site_class so MITRE T1098.007
+      coverage is tracked independently.
+
+  - site_class: passwd.group.privileged
+    module: passwd
+    mitre: [T1136.001, T1098.007]
+    loci:
+      - /etc/group
+    status: implemented
+    test_coverage: golden
+    notes: |
+      Subset of passwd.group emitted when a non-root user is a
+      supplemental member of a privileged group (wheel, sudo,
+      docker, adm, lxd, root). The discriminating signals are
+      group_<name>_membership, one per group. Membership of these
+      groups is the textbook T1098.007 quiet-escalation pivot — the
+      compromised account is added to docker / wheel and never
+      touches /etc/passwd or /etc/shadow. Stacks well under Q1
+      (one host with eve in the docker group when the rest of the
+      fleet has only the engineering team is a singleton) and Q3
+      (peer-grouped by role tag so build hosts that legitimately
+      expose docker do not poison the signal).
 
   - site_class: passwd.gshadow
     module: passwd

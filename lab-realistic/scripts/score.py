@@ -11,10 +11,19 @@ Computes per-query precision and recall:
     ground-truth placements with records that the query would have
     surfaced. TP/FP/FN counts are emitted as a markdown table.
 
-Heuristic limitations: the script does NOT re-render Q1..Q12. It
-approximates by checking, for each record, whether it carries the
-expected_signals from the implant's catalog entry. A future
-revision can pipe linpersist-report's structured output back in.
+Heuristic limitations: the script does NOT re-render Q1..Q12,
+and the catch-test is PRESENCE-based, not signal-exact. For
+each expected (host, module, site_class) key it checks whether
+the agent emitted ANY record carrying ANY signal at that key;
+the catalog's `expected_signals` is used to populate the
+ground-truth column but NOT enforced. Rationale: agent and
+catalog use overlapping-but-not-identical signal names (e.g.
+catalog says `exec_target_orphan`, agent emits `non_package_path`
+when the payload exists on disk and is not package-managed),
+and an exact-match check would surface confusing FNs even for
+correctly-caught implants. A future revision can pipe
+linpersist-report's structured output back in, or align the
+catalog vocabulary with internal/core/signals.go.
 
 Usage: python3 scripts/score.py [-i ndjson_path] [-g ground_truth_path]
 """

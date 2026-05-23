@@ -28,8 +28,6 @@ import (
 // MITRE ATT&CK techniques applied to every record this module emits.
 var mitreSSHDConfig = []string{"T1098.004", "T1556"}
 
-var tmpDirs = []string{"/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"}
-
 // Options configures a Module instance.
 type Options struct {
 	Root        string
@@ -209,10 +207,10 @@ func (m *Module) recordFromMatch(logical string, info os.FileInfo, pl parsedLine
 		ContentNormSHA256: core.HashHexString(canon),
 		ContentSnippet:    snippet(snippetMatch(pl.keyword, pl.matchRaw)),
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 	signals := m.baseSignals(info, logical)
 	signals = append(signals, core.SignalSSHDMatchBlockDirective)
-	rec.Signals = dedupSignals(signals)
+	rec.Signals = core.DedupSignals(signals)
 	return rec
 }
 
@@ -231,7 +229,7 @@ func (m *Module) recordFromDirective(logical string, info os.FileInfo, pl parsed
 	if et := directiveExecTarget(pl.keyword, pl.value); et != "" {
 		rec.ExecTarget = et
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 	signals := m.baseSignals(info, logical)
 	signals = append(signals, directiveSignals(pl.keyword, pl.value)...)
 	if currentMatch != "" {
@@ -240,7 +238,7 @@ func (m *Module) recordFromDirective(logical string, info os.FileInfo, pl parsed
 	if rec.ExecTarget != "" {
 		signals = append(signals, m.execTargetSignals(rec.ExecTarget)...)
 	}
-	rec.Signals = dedupSignals(signals)
+	rec.Signals = core.DedupSignals(signals)
 	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
 	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	return rec
@@ -255,32 +253,11 @@ func (m *Module) envelopeRecord(logical string, info os.FileInfo, errs []core.Re
 		Errors:    errs,
 	}
 	if info != nil {
-		fillFileMeta(&rec, info)
-		rec.Signals = dedupSignals(m.baseSignals(info, logical))
+		core.FillFileMeta(&rec, info)
+		rec.Signals = core.DedupSignals(m.baseSignals(info, logical))
 	}
 	return rec
 }
-
-func fillFileMeta(rec *core.Record, info os.FileInfo) {
-	size := info.Size()
-	rec.Size = &size
-	mt := info.ModTime().UTC()
-	rec.MTime = &mt
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		uid := uint32(st.Uid)
-		gid := uint32(st.Gid)
-		rec.OwnerUID = &uid
-		rec.OwnerGID = &gid
-		rec.Mode = core.FormatMode(uint32(st.Mode) & 0o7777)
-		atime := time.Unix(int64(st.Atim.Sec), int64(st.Atim.Nsec)).UTC()
-		ctime := time.Unix(int64(st.Ctim.Sec), int64(st.Ctim.Nsec)).UTC()
-		rec.ATime = &atime
-		rec.CTime = &ctime
-	} else {
-		rec.Mode = core.FormatMode(uint32(info.Mode().Perm()))
-	}
-}
-
 func (m *Module) baseSignals(info os.FileInfo, logical string) []string {
 	var out []string
 	mt := info.ModTime().UTC()
@@ -308,7 +285,7 @@ func (m *Module) execTargetSignals(target string) []string {
 	if target == "" || !strings.HasPrefix(target, "/") {
 		return out
 	}
-	for _, prefix := range tmpDirs {
+	for _, prefix := range core.TmpDirs {
 		if strings.HasPrefix(target, prefix) {
 			out = append(out, core.SignalInterpreterInTmp)
 			break
@@ -353,23 +330,6 @@ func snippet(s string) string {
 	}
 	return s[:max]
 }
-
-func dedupSignals(in []string) []string {
-	if len(in) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(in))
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		out = append(out, s)
-	}
-	return out
-}
-
 func errnoCode(err error) string {
 	if errors.Is(err, fs.ErrNotExist) {
 		return "ENOENT"

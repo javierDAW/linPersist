@@ -456,7 +456,7 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, siteClass string,
 		ContentNormSHA256: core.HashHex(canon),
 		ContentSnippet:    snippet(string(canon)),
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 
 	sections, parseErrs := ParseUnitFile(raw)
 	for _, pe := range parseErrs {
@@ -541,7 +541,7 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, siteClass string,
 		}
 	}
 
-	rec.Signals = dedupSignals(rec.Signals)
+	rec.Signals = core.DedupSignals(rec.Signals)
 	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
 	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	return rec
@@ -558,7 +558,7 @@ func (m *Module) envelope(logical string, info os.FileInfo, siteClass string, us
 		Locus:     logical,
 	}
 	if info != nil {
-		fillFileMeta(&rec, info)
+		core.FillFileMeta(&rec, info)
 	}
 	if userMode {
 		rec.Signals = appendUnique(rec.Signals, core.SignalSystemdUserUnit)
@@ -682,29 +682,6 @@ func (m *Module) targetInsideWalkedLoci(abs string) bool {
 	}
 	return false
 }
-
-// fillFileMeta populates the file-metadata block of a Record. Mirrors
-// the helper in the profile module to keep the surface familiar.
-func fillFileMeta(rec *core.Record, info os.FileInfo) {
-	size := info.Size()
-	rec.Size = &size
-	mt := info.ModTime().UTC()
-	rec.MTime = &mt
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		uid := uint32(st.Uid)
-		gid := uint32(st.Gid)
-		rec.OwnerUID = &uid
-		rec.OwnerGID = &gid
-		rec.Mode = core.FormatMode(uint32(st.Mode) & 0o7777)
-		atime := time.Unix(int64(st.Atim.Sec), int64(st.Atim.Nsec)).UTC()
-		ctime := time.Unix(int64(st.Ctim.Sec), int64(st.Ctim.Nsec)).UTC()
-		rec.ATime = &atime
-		rec.CTime = &ctime
-	} else {
-		rec.Mode = core.FormatMode(uint32(info.Mode().Perm()))
-	}
-}
-
 func mitreForSiteClass(siteClass string) string {
 	switch siteClass {
 	case "systemd.timer":
@@ -781,12 +758,10 @@ func stripExecPrefixes(v string) string {
 }
 
 func isInterpreterInTmp(p string) bool {
-	switch {
-	case strings.HasPrefix(p, "/tmp/"),
-		strings.HasPrefix(p, "/var/tmp/"),
-		strings.HasPrefix(p, "/dev/shm/"),
-		strings.HasPrefix(p, "/run/shm/"):
-		return true
+	for _, prefix := range core.TmpDirs {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
 	}
 	return false
 }
@@ -853,20 +828,4 @@ func appendUnique(sigs []string, name string) []string {
 		}
 	}
 	return append(sigs, name)
-}
-
-func dedupSignals(in []string) []string {
-	if len(in) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(in))
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		out = append(out, s)
-	}
-	return out
 }

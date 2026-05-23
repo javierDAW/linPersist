@@ -179,7 +179,7 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, raw string) core.
 		ContentNormSHA256: core.HashHexString(canon + "\n"),
 		ContentSnippet:    snippet(canon),
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 	rec.Signals = m.baseSignals(info)
 
 	// exec_target + directive-class signals.
@@ -211,7 +211,7 @@ func (m *Module) envelopeRecord(logical string, info os.FileInfo, errs []core.Re
 		Locus:     logical,
 		Errors:    errs,
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 	rec.Signals = m.baseSignals(info)
 	return rec
 }
@@ -262,27 +262,6 @@ func (m *Module) execTargetSignals(in []string, target string) []string {
 	}
 	return out
 }
-
-func fillFileMeta(rec *core.Record, info os.FileInfo) {
-	size := info.Size()
-	rec.Size = &size
-	mt := info.ModTime().UTC()
-	rec.MTime = &mt
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		uid := uint32(st.Uid)
-		gid := uint32(st.Gid)
-		rec.OwnerUID = &uid
-		rec.OwnerGID = &gid
-		rec.Mode = core.FormatMode(uint32(st.Mode) & 0o7777)
-		atime := time.Unix(int64(st.Atim.Sec), int64(st.Atim.Nsec)).UTC()
-		ctime := time.Unix(int64(st.Ctim.Sec), int64(st.Ctim.Nsec)).UTC()
-		rec.ATime = &atime
-		rec.CTime = &ctime
-	} else {
-		rec.Mode = core.FormatMode(uint32(info.Mode().Perm()))
-	}
-}
-
 func skipName(name string) bool {
 	if strings.HasPrefix(name, ".") {
 		return true

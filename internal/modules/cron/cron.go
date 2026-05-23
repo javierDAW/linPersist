@@ -53,9 +53,6 @@ var shellInterps = map[string]struct{}{
 	"node":    {},
 }
 
-// tmpDirs is the set of path prefixes that trigger interpreter_in_tmp.
-var tmpDirs = []string{"/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"}
-
 // Options configures a Module instance.
 //
 // Root is the synthetic filesystem prefix prepended to every locus
@@ -301,7 +298,7 @@ func (m *Module) recordFromParsedLine(logical string, info os.FileInfo, siteClas
 		ContentNormSHA256: core.HashHexString(canon),
 		ContentSnippet:    snippet(canon),
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 	signals := m.baseSignals(info, logical)
 
 	switch pl.kind {
@@ -320,7 +317,7 @@ func (m *Module) recordFromParsedLine(logical string, info os.FileInfo, siteClas
 		rec.Errors = append(rec.Errors, core.RecordError{Field: "schedule", Code: pl.parseErr})
 	}
 
-	rec.Signals = dedupSignals(signals)
+	rec.Signals = core.DedupSignals(signals)
 	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
 	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	return rec
@@ -337,41 +334,9 @@ func (m *Module) envelopeRecord(logical string, info os.FileInfo, siteClass stri
 		Locus:     logical,
 		Errors:    errs,
 	}
-	fillFileMeta(&rec, info)
-	rec.Signals = dedupSignals(append(m.baseSignals(info, logical), extraSignals...))
+	core.FillFileMeta(&rec, info)
+	rec.Signals = core.DedupSignals(append(m.baseSignals(info, logical), extraSignals...))
 	return rec
-}
-
-// fillFileMeta populates ownership, mode and timestamp fields from a
-// FileInfo. Mode bits and atime/ctime come from Stat_t on Linux; on
-// any error path the fields simply remain unset.
-func fillFileMeta(rec *core.Record, info os.FileInfo) {
-	size := info.Size()
-	rec.Size = &size
-	mt := info.ModTime().UTC()
-	rec.MTime = &mt
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		uid := uint32(st.Uid)
-		gid := uint32(st.Gid)
-		rec.OwnerUID = &uid
-		rec.OwnerGID = &gid
-		// Use the raw POSIX mode bits from Stat_t rather than
-		// os.FileMode flags, which mix Go-private bits and POSIX bits
-		// in a way that does not round-trip to the four-digit octal
-		// representation the schema expects.
-		rec.Mode = core.FormatMode(uint32(st.Mode) & 0o7777)
-		// Explicit int64 conversions for the Sec/Nsec fields to keep
-		// 32-bit GOARCHes (linux/386, linux/arm/v7) compiling.
-		atime := time.Unix(int64(st.Atim.Sec), int64(st.Atim.Nsec)).UTC()
-		ctime := time.Unix(int64(st.Ctim.Sec), int64(st.Ctim.Nsec)).UTC()
-		rec.ATime = &atime
-		rec.CTime = &ctime
-	} else {
-		// Fallback: derive a permission bits string from os.FileMode.
-		// Loses setuid/setgid/sticky on non-Linux. Acceptable because
-		// the agent is Linux-only by charter.
-		rec.Mode = core.FormatMode(uint32(info.Mode().Perm()))
-	}
 }
 
 // baseSignals returns the per-file signals that are independent of
@@ -411,7 +376,7 @@ func (m *Module) execTargetSignals(target string) []string {
 		}
 		return out
 	}
-	for _, prefix := range tmpDirs {
+	for _, prefix := range core.TmpDirs {
 		if strings.HasPrefix(target, prefix) {
 			out = append(out, core.SignalInterpreterInTmp)
 			break
@@ -470,24 +435,6 @@ func snippet(s string) string {
 		return s
 	}
 	return s[:max]
-}
-
-// dedupSignals stable-deduplicates a signal slice, preserving order of
-// first occurrence.
-func dedupSignals(in []string) []string {
-	if len(in) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(in))
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		out = append(out, s)
-	}
-	return out
 }
 
 // errnoCode returns the POSIX errno mnemonic for an os error when
@@ -578,7 +525,7 @@ func (m *Module) processPeriodicFile(ctx context.Context, logical, real string, 
 		MITRE:     []string{mitreCron},
 		Locus:     logical,
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 	rec.ContentSHA256 = core.HashHex(raw)
 	rec.ContentNormSHA256 = rec.ContentSHA256
 	rec.ContentSnippet = snippet(string(raw))
@@ -594,7 +541,7 @@ func (m *Module) processPeriodicFile(ctx context.Context, logical, real string, 
 			Field: "mode", Code: "NOT_EXECUTABLE",
 		})
 	}
-	rec.Signals = dedupSignals(signals)
+	rec.Signals = core.DedupSignals(signals)
 	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
 	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	emit(rec)

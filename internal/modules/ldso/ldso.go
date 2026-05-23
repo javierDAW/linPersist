@@ -40,12 +40,6 @@ import (
 // MITRE ATT&CK technique ID applied to every record this module emits.
 const mitreLDSO = "T1574.006"
 
-// tmpDirs is the set of path prefixes that trigger interpreter_in_tmp.
-// Mirrors the list used by the cron module; kept private per module
-// because the canonical home for this constant (a core helper) is
-// scheduled for a later refactor once a third module needs it.
-var tmpDirs = []string{"/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"}
-
 // Options configures a Module instance.
 //
 // Root, Now and MaxFileSize follow the same convention as the cron
@@ -215,7 +209,7 @@ func (m *Module) recordFromPreloadToken(logical string, info os.FileInfo, lineHa
 		ContentSnippet:    snippet(canon),
 		ExecTarget:        token,
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 
 	signals := m.baseSignals(info, logical)
 	signals = append(signals, core.SignalLDPreloadSet)
@@ -226,7 +220,7 @@ func (m *Module) recordFromPreloadToken(logical string, info os.FileInfo, lineHa
 	if m.targetMtimeRecent(token) {
 		signals = append(signals, core.SignalRecentTargetMtime7d)
 	}
-	rec.Signals = dedupSignals(signals)
+	rec.Signals = core.DedupSignals(signals)
 	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, token)
 	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, token)
 	return rec
@@ -373,10 +367,10 @@ func (m *Module) recordFromConfLine(logical string, info os.FileInfo, siteClass 
 		ContentNormSHA256: core.HashHexString(canon),
 		ContentSnippet:    snippet(canon),
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 
 	signals := m.baseSignals(info, logical)
-	rec.Signals = dedupSignals(signals)
+	rec.Signals = core.DedupSignals(signals)
 	return rec
 }
 
@@ -390,38 +384,13 @@ func (m *Module) envelopeRecord(logical string, info os.FileInfo, siteClass stri
 		Locus:     logical,
 		Errors:    errs,
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 	base := m.baseSignals(info, logical)
 	if siteClass == "ldso.preload" {
 		base = append(base, core.SignalLDPreloadSet)
 	}
-	rec.Signals = dedupSignals(append(base, extraSignals...))
+	rec.Signals = core.DedupSignals(append(base, extraSignals...))
 	return rec
-}
-
-// fillFileMeta populates ownership, mode and timestamp fields from a
-// FileInfo. Mirrors the cron module's implementation; kept private
-// because cross-module helpers are not part of the v0.1.0 core API
-// surface (a refactor into core/ will land when a third module needs
-// the same code).
-func fillFileMeta(rec *core.Record, info os.FileInfo) {
-	size := info.Size()
-	rec.Size = &size
-	mt := info.ModTime().UTC()
-	rec.MTime = &mt
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		uid := uint32(st.Uid)
-		gid := uint32(st.Gid)
-		rec.OwnerUID = &uid
-		rec.OwnerGID = &gid
-		rec.Mode = core.FormatMode(uint32(st.Mode) & 0o7777)
-		atime := time.Unix(int64(st.Atim.Sec), int64(st.Atim.Nsec)).UTC()
-		ctime := time.Unix(int64(st.Ctim.Sec), int64(st.Ctim.Nsec)).UTC()
-		rec.ATime = &atime
-		rec.CTime = &ctime
-	} else {
-		rec.Mode = core.FormatMode(uint32(info.Mode().Perm()))
-	}
 }
 
 // baseSignals returns the per-file signals that are independent of
@@ -458,7 +427,7 @@ func (m *Module) execTargetSignals(target string) []string {
 	if target == "" {
 		return out
 	}
-	for _, prefix := range tmpDirs {
+	for _, prefix := range core.TmpDirs {
 		if strings.HasPrefix(target, prefix) {
 			out = append(out, core.SignalInterpreterInTmp)
 			break
@@ -558,24 +527,6 @@ func snippet(s string) string {
 		return s
 	}
 	return s[:max]
-}
-
-// dedupSignals stable-deduplicates a signal slice, preserving order
-// of first occurrence.
-func dedupSignals(in []string) []string {
-	if len(in) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(in))
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		out = append(out, s)
-	}
-	return out
 }
 
 // errnoCode returns the POSIX errno mnemonic for an os error when

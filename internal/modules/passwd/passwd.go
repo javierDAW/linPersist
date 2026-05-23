@@ -29,9 +29,43 @@ import (
 	"github.com/jarmidaw/linpersist/internal/core"
 )
 
-const mitrePasswd = "T1136.001"
+const (
+	mitrePasswd          = "T1136.001"
+	mitreGroupPrivileged = "T1098.007"
+)
 
-var tmpDirs = []string{"/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"}
+// privilegedGroupSignals maps Linux group names whose membership grants
+// privilege escalation (or read-everything access) to the signal that
+// fires when a non-root user appears in their member list. See
+// internal/core/signals.go for the full rationale per group.
+var privilegedGroupSignals = map[string]string{
+	"wheel":  core.SignalGroupWheelMembership,
+	"sudo":   core.SignalGroupSudoMembership,
+	"docker": core.SignalGroupDockerMembership,
+	"adm":    core.SignalGroupAdmMembership,
+	"lxd":    core.SignalGroupLxdMembership,
+	"root":   core.SignalGroupRootMembership,
+}
+
+// nonRootMembers parses a sorted comma-separated group-member list and
+// returns true if at least one member is not "root" and not empty.
+// /etc/group's 4th field is the supplemental-member CSV; users with
+// the group as their PRIMARY group don't appear there (they're listed
+// in /etc/passwd's 4th field as a numeric gid). Per-line scope is
+// fine for T1098.007 — supplemental membership is the documented
+// vector for the implant we are surfacing.
+func nonRootMembers(members string) bool {
+	if members == "" {
+		return false
+	}
+	for _, m := range strings.Split(members, ",") {
+		if m == "" || m == "root" {
+			continue
+		}
+		return true
+	}
+	return false
+}
 
 type Options struct {
 	Root        string
@@ -73,7 +107,10 @@ var _ core.Module = (*Module)(nil)
 func (m *Module) Name() string { return "passwd" }
 
 func (m *Module) SiteClasses() []string {
-	return []string{"passwd.user", "passwd.shadow", "passwd.group", "passwd.gshadow"}
+	return []string{
+		"passwd.user", "passwd.shadow", "passwd.group",
+		"passwd.group.privileged", "passwd.gshadow",
+	}
 }
 
 // Collect reads the four passwd-family files in order. The set of
@@ -244,7 +281,7 @@ func (m *Module) recordFromPasswdUser(logical string, info os.FileInfo, pu passw
 		ContentSnippet:    snippet(pu.raw),
 		ExecTarget:        pu.shell,
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 	signals := m.baseSignals(info, logical)
 	if pu.uid == "0" && pu.user != "root" {
 		signals = append(signals, core.SignalPasswdUIDZero)
@@ -253,7 +290,7 @@ func (m *Module) recordFromPasswdUser(logical string, info os.FileInfo, pu passw
 	if m.targetMtimeRecent(pu.shell) {
 		signals = append(signals, core.SignalRecentTargetMtime7d)
 	}
-	rec.Signals = dedupSignals(signals)
+	rec.Signals = core.DedupSignals(signals)
 	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
 	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	return rec
@@ -272,12 +309,12 @@ func (m *Module) recordFromShadow(logical string, info os.FileInfo, se shadowEnt
 		ContentNormSHA256: core.HashHexString(se.canon),
 		ContentSnippet:    snippet(se.canon),
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 	signals := m.baseSignals(info, logical)
 	if se.status == "empty" {
 		signals = append(signals, core.SignalPasswdNoPassword)
 	}
-	rec.Signals = dedupSignals(signals)
+	rec.Signals = core.DedupSignals(signals)
 	return rec
 }
 
@@ -291,8 +328,23 @@ func (m *Module) recordFromGroup(logical string, info os.FileInfo, ge groupEntry
 		ContentNormSHA256: core.HashHexString(ge.canon),
 		ContentSnippet:    snippet(ge.canon),
 	}
-	fillFileMeta(&rec, info)
-	rec.Signals = dedupSignals(m.baseSignals(info, logical))
+	core.FillFileMeta(&rec, info)
+	signals := m.baseSignals(info, logical)
+
+	// T1098.007 reclassification: if the group name is on the
+	// privileged list AND at least one non-root user is listed as a
+	// supplemental member, the record is reclassified to the
+	// passwd.group.privileged site_class so MITRE coverage tracks
+	// T1098.007 independently of T1136.001 in the fleet-wide panel.
+	// Records for privileged groups with only root (or empty
+	// membership) remain under passwd.group — they are baseline
+	// system shape, not an escalation pivot.
+	if sig, ok := privilegedGroupSignals[ge.name]; ok && nonRootMembers(ge.members) {
+		rec.SiteClass = "passwd.group.privileged"
+		rec.MITRE = []string{mitrePasswd, mitreGroupPrivileged}
+		signals = append(signals, sig)
+	}
+	rec.Signals = core.DedupSignals(signals)
 	return rec
 }
 
@@ -307,8 +359,8 @@ func (m *Module) recordFromGshadow(logical string, info os.FileInfo, ge gshadowE
 		ContentNormSHA256: core.HashHexString(ge.canon),
 		ContentSnippet:    snippet(ge.canon),
 	}
-	fillFileMeta(&rec, info)
-	rec.Signals = dedupSignals(m.baseSignals(info, logical))
+	core.FillFileMeta(&rec, info)
+	rec.Signals = core.DedupSignals(m.baseSignals(info, logical))
 	return rec
 }
 
@@ -321,32 +373,11 @@ func (m *Module) envelopeRecord(logical string, info os.FileInfo, siteClass stri
 		Errors:    errs,
 	}
 	if info != nil {
-		fillFileMeta(&rec, info)
-		rec.Signals = dedupSignals(m.baseSignals(info, logical))
+		core.FillFileMeta(&rec, info)
+		rec.Signals = core.DedupSignals(m.baseSignals(info, logical))
 	}
 	return rec
 }
-
-func fillFileMeta(rec *core.Record, info os.FileInfo) {
-	size := info.Size()
-	rec.Size = &size
-	mt := info.ModTime().UTC()
-	rec.MTime = &mt
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		uid := uint32(st.Uid)
-		gid := uint32(st.Gid)
-		rec.OwnerUID = &uid
-		rec.OwnerGID = &gid
-		rec.Mode = core.FormatMode(uint32(st.Mode) & 0o7777)
-		atime := time.Unix(int64(st.Atim.Sec), int64(st.Atim.Nsec)).UTC()
-		ctime := time.Unix(int64(st.Ctim.Sec), int64(st.Ctim.Nsec)).UTC()
-		rec.ATime = &atime
-		rec.CTime = &ctime
-	} else {
-		rec.Mode = core.FormatMode(uint32(info.Mode().Perm()))
-	}
-}
-
 func (m *Module) baseSignals(info os.FileInfo, logical string) []string {
 	var out []string
 	mt := info.ModTime().UTC()
@@ -374,7 +405,7 @@ func (m *Module) execTargetSignals(target string) []string {
 	if target == "" || !strings.HasPrefix(target, "/") {
 		return out
 	}
-	for _, prefix := range tmpDirs {
+	for _, prefix := range core.TmpDirs {
 		if strings.HasPrefix(target, prefix) {
 			out = append(out, core.SignalInterpreterInTmp)
 			break
@@ -416,23 +447,6 @@ func snippet(s string) string {
 	}
 	return s[:max]
 }
-
-func dedupSignals(in []string) []string {
-	if len(in) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(in))
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		out = append(out, s)
-	}
-	return out
-}
-
 func errnoCode(err error) string {
 	if errors.Is(err, fs.ErrNotExist) {
 		return "ENOENT"

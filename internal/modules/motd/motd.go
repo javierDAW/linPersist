@@ -228,7 +228,7 @@ func (m *Module) baseRecord(logical string, info os.FileInfo) core.Record {
 		MITRE:     []string{mitreMotd},
 		Locus:     logical,
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 	rec.Signals = m.baseSignals(info)
 	return rec
 }
@@ -260,27 +260,6 @@ func (m *Module) baseSignals(info os.FileInfo) []string {
 	}
 	return out
 }
-
-func fillFileMeta(rec *core.Record, info os.FileInfo) {
-	size := info.Size()
-	rec.Size = &size
-	mt := info.ModTime().UTC()
-	rec.MTime = &mt
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		uid := uint32(st.Uid)
-		gid := uint32(st.Gid)
-		rec.OwnerUID = &uid
-		rec.OwnerGID = &gid
-		rec.Mode = core.FormatMode(uint32(st.Mode) & 0o7777)
-		atime := time.Unix(int64(st.Atim.Sec), int64(st.Atim.Nsec)).UTC()
-		ctime := time.Unix(int64(st.Ctim.Sec), int64(st.Ctim.Nsec)).UTC()
-		rec.ATime = &atime
-		rec.CTime = &ctime
-	} else {
-		rec.Mode = core.FormatMode(uint32(info.Mode().Perm()))
-	}
-}
-
 func skipName(name string) bool {
 	if strings.HasPrefix(name, ".") {
 		return true

@@ -1,0 +1,20 @@
+# Q12 basename-clustering extensions.
+#
+# When clustering campaign arms across modules (Q12), the same logical
+# script body shows up under different filenames per module:
+#   - cron drops a file named <name>
+#   - profile.d demands <name>.sh
+#   - systemd demands <name>.service
+# Q12 strips these extensions from the basename before grouping so a
+# worm whose arms span all three modules clusters into one row instead
+# of fragmenting by extension.
+#
+# Operators can edit this file and rebuild to add module-specific
+# extensions as new collectors are introduced.
+
+extensions:
+  - .sh
+  - .service
+  - .conf
+  - .timer
+  - .socket

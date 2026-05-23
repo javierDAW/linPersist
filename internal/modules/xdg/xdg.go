@@ -23,7 +23,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -237,7 +236,7 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 			rec.Signals = appendUnique(rec.Signals, core.SignalRecentTargetMtime7d)
 		}
 	}
-	rec.Signals = dedupSignals(rec.Signals)
+	rec.Signals = core.DedupSignalsSorted(rec.Signals)
 	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
 	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	emit(rec)
@@ -250,7 +249,7 @@ func (m *Module) baseRecord(logical string, info os.FileInfo) core.Record {
 		MITRE:     []string{mitreXDGAutostart},
 		Locus:     logical,
 	}
-	fillFileMeta(&rec, info)
+	core.FillFileMeta(&rec, info)
 	rec.Signals = m.baseSignals(info, logical)
 	return rec
 }
@@ -335,28 +334,6 @@ func (m *Module) targetMtimeRecent(target string) bool {
 	return delta >= 0 && delta < 7*24*time.Hour
 }
 
-// fillFileMeta copies file-metadata fields from a FileInfo into a
-// Record. Mirrors the helper in every other module verbatim.
-func fillFileMeta(rec *core.Record, info os.FileInfo) {
-	size := info.Size()
-	rec.Size = &size
-	mt := info.ModTime().UTC()
-	rec.MTime = &mt
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		uid := uint32(st.Uid)
-		gid := uint32(st.Gid)
-		rec.OwnerUID = &uid
-		rec.OwnerGID = &gid
-		rec.Mode = core.FormatMode(uint32(st.Mode) & 0o7777)
-		atime := time.Unix(int64(st.Atim.Sec), int64(st.Atim.Nsec)).UTC()
-		ctime := time.Unix(int64(st.Ctim.Sec), int64(st.Ctim.Nsec)).UTC()
-		rec.ATime = &atime
-		rec.CTime = &ctime
-	} else {
-		rec.Mode = core.FormatMode(uint32(info.Mode().Perm()))
-	}
-}
-
 // shellInterps mirrors the cron / ldso / ssh convention for the
 // shell_indirect signal. Kept private to this package; will move to
 // core when a fifth module needs the same constant.
@@ -374,11 +351,8 @@ var shellInterps = map[string]struct{}{
 	"node":    {},
 }
 
-// tmpDirs is the set of path prefixes that trigger interpreter_in_tmp.
-var tmpDirs = []string{"/tmp/", "/var/tmp/", "/dev/shm/", "/run/shm/"}
-
 func isInterpreterInTmp(target string) bool {
-	for _, p := range tmpDirs {
+	for _, p := range core.TmpDirs {
 		if strings.HasPrefix(target, p) {
 			return true
 		}
@@ -439,23 +413,4 @@ func appendUnique(sigs []string, name string) []string {
 		}
 	}
 	return append(sigs, name)
-}
-
-func dedupSignals(in []string) []string {
-	if len(in) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(in))
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		out = append(out, s)
-	}
-	// Sort for deterministic output. Mirrors the convention every other
-	// module uses inside dedupSignals.
-	sort.Strings(out)
-	return out
 }
