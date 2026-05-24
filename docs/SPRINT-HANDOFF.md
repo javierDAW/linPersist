@@ -6,8 +6,8 @@
 > developer), start here. It is intentionally dense: everything that
 > is non-obvious from the code lives in this doc.
 >
-> Last updated: 2026-05-22 after the v0.3.4 release and at the start
-> of the v0.4.0 sprint ("close the Linux MITRE bridge").
+> Last updated: 2026-05-24 after the v0.5.0 release ("cloud-native
+> coverage") and at the close of the v0.4.x line.
 >
 > The body of this doc (architectural canon, lessons learned,
 > known gotchas, conventions, iterate-fast cookbook, debug map)
@@ -85,10 +85,71 @@ handoff snapshot, all by `Jarmi <jarmidaw@gmail.com>`.
   Lab v2 re-bench: Q1/Q4/Q7/Q9 all at 1.00 recall, Q12 at 0.67
   (worm-profile-arm consolidation deferred). 19,473 records.
 
+- **`v0.4.0`** (2026-05-23) — close the Linux MITRE bridge.
+  Lands the three highest-impact missing techniques from the
+  18-ID matrix: T1546.005 trap (extension to `profile` module,
+  new `profile.trap.{system,user}` site_classes), T1098.007
+  privileged group membership (extension to `passwd` module,
+  new `passwd.group.privileged` site_class, six
+  `group_<name>_membership` signals), T1548.001 setuid/setgid
+  (new `suidbits` module, four site_classes, two new signals,
+  one new detection rule `suid_binary_outside_package_path`).
+  Q12 worm-profile-arm consolidation closed via
+  `internal/modules/profile/exec_target.go`. First CI on the
+  repo (`.github/workflows/ci.yml`): `make all` + `make
+  test-race` + static-link gate on push/PR/`v*`. Code-review
+  refactor lands `FillFileMeta` + `DedupSignals[Sorted]` +
+  `TmpDirs` in `internal/core/` (net ~833 LOC deleted from
+  modules), shared module registry `internal/modset/`, Q11/Q12
+  calibration moved to embedded YAML, shared text-render
+  helpers, hardcoded signal-name strings replaced with
+  constants. Stats golden harness pins `build()` + renderers.
+  Lab v2 ground truth grew 33 → 36.
+
+- **`v0.4.1`** (2026-05-24) — release pipeline + first
+  consultoría deliverable. Infrastructure-only patch (no
+  collector/report changes). New `.github/workflows/release.yml`
+  (tag-driven, cosign keyless via OIDC, cross-arch builds,
+  SHA256 checksums, `gh release create`). New flag
+  `linpersist --self-sha256` for chain-of-custody. New
+  `make engagement-kit VERSION=…` target produces a
+  client-ready tarball (binaries × {amd64, arm64}, RUNBOOK,
+  SCOPE, LICENSE, README, CHANGELOG, golden sample report,
+  CHECKSUMS). New docs `docs/scope.md` (SOW-ready,
+  eight sections including honest "Limitations") and
+  `docs/client-runbook.md` (bilingual EN+ES). actions/* bumped
+  to versions supporting Node 24; `tools/*.sh` and
+  `lab-realistic/*.sh` chmod +x for CI runners.
+
+- **`v0.5.0`** (2026-05-24) — cloud-native coverage. Three new
+  persistence modules covering five site_classes on the
+  cloud/container surface, plus Alpine `apk` provenance.
+  `internal/modules/dbus` (T1543) walks
+  `/usr/share/dbus-1/{system,session}-services/` and
+  `/etc/dbus-1/…`; parses freedesktop INI; new site_classes
+  `dbus.system`, `dbus.session`. `internal/modules/cloudinit`
+  (T1543 + T1547) walks `cloud.cfg`, `cloud.cfg.d/*` and
+  `/var/lib/cloud/scripts/{per-boot,per-instance,per-once}/`;
+  new site_classes `cloudinit.config`, `cloudinit.script`;
+  non-executable scripts emit `NOT_EXECUTABLE` envelopes
+  (cloud-init silently skips them so the analyst sees the
+  dead drop). `internal/modules/k8sstatic` (T1543.005) walks
+  `/etc/kubernetes/manifests/`; parses minimal Pod spec via
+  yaml.v3; ExecTarget = first container image; new site_class
+  `k8s.static-pod`. `internal/core/provenance.go` learns
+  `PkgMgrApk` (detection via `/lib/apk/db/installed` + os-release
+  ID match); precedence apk > dpkg > rpm. Without this, every
+  binary on Alpine surfaced as `non_package_path` and the signal
+  was useless noise on cloud-native fleets. Matrix: 39 → 44
+  site_classes. modset: 22 → 25 modules. No new signal names
+  or detection rules; new modules plug into existing shared
+  signals via `EmittedBy` expansions.
+
 **Tag history now**: `v0.1.0-alpha` → `v0.2.0` → `v0.3.0` →
-`v0.3.1` → `v0.3.2` → `v0.3.3` → `v0.3.4`. v0.3.4 commit/tag/push
-to be confirmed by Jarmi via the FINAL 1-5 command sequence handed
-off at sprint close.
+`v0.3.1` → `v0.3.2` → `v0.3.3` → `v0.3.4` → `v0.4.0` →
+`v0.4.1` → `v0.5.0`. v0.5.0 release notes drafted in
+CHANGELOG `[0.5.0]`; commit/tag/push handed off to Jarmi via
+the FINAL command sequence at sprint close.
 
 ## Inventory delta since the original handoff
 
@@ -124,14 +185,45 @@ off at sprint close.
 - **+ Lab-realistic v2 in-repo**: 13 role templates, 6 distro
   bases, 14-implant catalog, 33 placements, scoring kit.
 
-## What is OPEN after v0.3.4
+## What is OPEN after v0.5.0
 
-- **Q12 worm-profile-arm consolidation** (deferred from v0.3.3,
-  reconfirmed in v0.3.4). The profile module does not populate
-  `exec_target` from the script body, so the 3-arm worm campaign
-  (`cron` + `systemd` + `profile`) splits into two Q12 rows
-  instead of one. Brings Q12 recall from 0.67 to 1.00 when fixed.
-  Tracked as v0.4.0 task #14.
+Closed in v0.4.0–v0.5.0 (no longer open):
+- T1546.005 trap (v0.4.0), T1098.007 privileged group membership
+  (v0.4.0), T1548.001 setuid/sgid (v0.4.0), T1053.007 container
+  orchestration job (v0.5.0 via `k8sstatic`). Q12 worm-profile-arm
+  consolidation closed in v0.4.0. CI gate landed in v0.4.0.
+  Release pipeline + engagement-kit landed in v0.4.1.
+
+Still OPEN:
+
+- **Lab-realistic fixtures for v0.5.0 modules**. The three new
+  cloud-native modules (`dbus`, `cloudinit`, `k8sstatic`) ship
+  with unit tests but no lab-realistic implant templates. Q1 /
+  Q7 / Q12 surfacing on those site_classes is therefore unproven
+  on fleet-shaped data. Sprint candidate: new templates
+  `dbus-system-impostor`, `cloudinit-per-boot-payload`,
+  `k8s-static-attacker-pod`, plus role placements
+  (cloud-init: any AWS/GCP/Azure-flavoured host; k8s: control
+  plane / kubelet hosts; dbus: desktop + many server hosts).
+- **Detection rules over the new v0.5.0 site_classes**. None
+  added in v0.5.0 — the modules connect to existing shared
+  signals via `EmittedBy` expansions only. Bespoke rules for
+  e.g. `k8s.static-pod` ExecTarget pointing at `:latest` /
+  unsigned images, `cloudinit.script` non-package paths,
+  `dbus.system` Exec= under /tmp — all candidates once lab
+  baselines exist.
+- **eBPF state inspection** (deferred from v0.5.0 candidate
+  backlog). Requires vetting the cilium/ebpf dependency vs.
+  the project's "no CGO, no daemons, pure Go" invariant. Could
+  surface in-memory persistence (bashrc loaded by current
+  shells, LD_PRELOAD active in running procs, kprobes hooked
+  by rootkits) that artifact-on-disk modules cannot see. ADR
+  needed first.
+- **Webshell + supply-chain walk** (deferred). Walk
+  DocumentRoot-style paths (`/var/www/`, `/srv/`, common
+  custom roots), hash candidate PHP/JSP/CGI files, compare
+  against a small embedded hash catalog. Lower-risk than eBPF
+  — fits the existing artifact-walk-on-disk model.
 - **ssh-forced-tmp greedy placement bias** (v0.3.4). The greedy
   `assign_implants` in `generate.py` places all 3 ssh-forced-tmp
   instances on build-ci + web-edge, zero on bastion despite the
@@ -147,15 +239,8 @@ off at sprint close.
   normalized `ssh-forced-tmp` from `exec_target_orphan` to
   `non_package_path`; other implants may have similar drift).
   Audit-and-normalize sprint candidate.
-- **MITRE Linux Matrix gaps** (driver of v0.4.0). The current
-  18 distinct technique IDs cover 11 parent techniques. The
-  highest-impact unclaimed Linux-relevant techniques are
-  T1548.001 (setuid/sgid), T1546.005 (trap), T1098.007
-  (privileged group membership), and T1053.007 (container
-  orchestration job) — the first three are scheduled for v0.4.0,
-  the fourth lifted to v0.5.0 (cloud-native sprint).
 
-## Next sprint (v0.4.0 — "close the Linux MITRE bridge")
+## Next sprint (v0.4.0 — "close the Linux MITRE bridge") — ARCHIVED, all six tasks shipped in v0.4.0
 
 **Theme**: depth over breadth. Cover the three highest-impact
 Linux persistence techniques that the current 18-ID matrix

@@ -7,6 +7,124 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-24
+
+v0.5.0 lands the cloud-native sprint deferred from v0.4.0: three new
+persistence modules (`dbus`, `cloudinit`, `k8sstatic`) covering five
+site_classes on the cloud / container surface, plus Alpine `apk`
+provenance so package-managed binaries on Alpine-based hosts no longer
+surface as `non_package_path` noise.
+
+Matrix coverage: 39 → 44 site_classes implemented. Modules: 22 → 25
+(three new packages). Catalog: no new signal names — the new modules
+plug into the existing shared signals (`recent_mtime_*`,
+`world_writable`, `non_root_owner`, `interpreter_in_tmp`,
+`exec_target_orphan`, `shell_indirect`, `unqualified_exec_target`) via
+`EmittedBy` expansions.
+
+### Added — three cloud-native modules
+- **`dbus` (T1543, Create or Modify System Process)** —
+  `internal/modules/dbus` walks
+  `/usr/share/dbus-1/{system,session}-services/` and
+  `/etc/dbus-1/{system,session}-services/`. One record per `*.service`
+  file. Parses the freedesktop INI (`[D-BUS Service]` section, `Name`,
+  `Exec`, `User`, `SystemdService` keys) and extracts argv[0] of
+  `Exec=` as ExecTarget; honours POSIX-sh single-level quoting (paths
+  with spaces are legal freedesktop syntax). New site_classes:
+  `dbus.system`, `dbus.session`. The new module needed zero net-new
+  helpers — it consumes the shared `shellInterps`, `TmpDirs`,
+  `isSystemPath` from `internal/core/`.
+- **`cloudinit` (T1543 + T1547)** — `internal/modules/cloudinit` walks
+  `/etc/cloud/cloud.cfg`, `/etc/cloud/cloud.cfg.d/*` and the three
+  per-execution-phase script directories
+  (`/var/lib/cloud/scripts/{per-boot,per-instance,per-once}/`). New
+  site_classes: `cloudinit.config` (YAML configs), `cloudinit.script`
+  (executable hooks). Scripts emit `ExecTarget = locus` (self-exec
+  model, same shape as `cron.periodic` / `netdispatch`).
+  Non-executable scripts emit a `NOT_EXECUTABLE` error envelope —
+  cloud-init silently skips them, so the analyst sees the dead drop
+  rather than a live vector and the implant doesn't disappear from
+  triage.
+- **`k8sstatic` (T1543.005, Container Service)** —
+  `internal/modules/k8sstatic` walks `/etc/kubernetes/manifests/` (the
+  kubelet `pod-manifest-path` default). One record per Pod manifest
+  YAML. Parses a minimal subset of the Pod spec via `yaml.v3` — kind,
+  namespace, name, first container's image and command — enough to
+  surface the persistence target without modelling the full schema.
+  `content_norm_sha256` is keyed on the canonical rendering of those
+  fields so block-style and flow-style YAML representing the same Pod
+  collapse into one Q1 group. `ExecTarget = first container's image
+  string` so Q6 / Q12 cluster identical attacker images across the
+  fleet. New site_class: `k8s.static-pod`.
+
+### Added — Alpine apk provenance support
+- `internal/core/provenance.go` learns `PkgMgrApk`. Detection runs
+  off `/lib/apk/db/installed` plus an `/etc/os-release` ID match
+  (`alpine`, `postmarketos`, `wolfi`, `chainguard`). `buildApkMap`
+  parses the apk-tools world database record-by-record. Detection
+  precedence: `apk > dpkg > rpm` when multiple package managers are
+  present (rare, but possible in Alpine-on-Debian-with-chroot edge
+  cases).
+- Why: without this, every binary on an Alpine host surfaced as
+  `non_package_path` and the whole `non_package_path` signal became
+  useless noise on cloud-native fleets where Alpine is the default
+  container base image.
+
+### Tests
+- Each new module ships with 6–9 unit tests covering canonical implant
+  cases, classification edge cases, malformed-input envelopes, and
+  stacking determinism. The apk parser is exercised via the existing
+  `internal/core/provenance_test.go`.
+- Stats smoke golden regenerated; five new dormant techniques now
+  surface in the MITRE coverage panel.
+
+### Notes
+- `internal/modset/modset.go` is now 25 modules in alphabetical order;
+  `modset_test` pins the count.
+- No detection rules were added — the new modules connect to the
+  existing rule vocabulary via shared-signal `EmittedBy` expansions.
+  Bespoke rules over `k8s.static-pod` / `cloudinit.script` / `dbus.*`
+  are deferred to a future calibration sprint once a lab fixture set
+  with realistic baselines on those surfaces exists.
+
+## [0.4.1] - 2026-05-24
+
+Infrastructure + deliverable patch on top of v0.4.0. No collector or
+report changes; ships the release pipeline and the first consultoría
+deliverable kit.
+
+### Added
+- **Tag-driven release pipeline** (`.github/workflows/release.yml`):
+  cosign keyless signing via OIDC, cross-arch binary builds, SHA256
+  checksums, GitHub Release auto-publish on `v*` tags. Uses
+  first-party `gh release create` (no race conditions vs. the previous
+  `softprops/action-gh-release`).
+- **`linpersist --self-sha256`** flag — prints the running binary's
+  SHA256 to stdout and exits. Chain-of-custody primitive consumed by
+  the engagement-kit RUNBOOK.
+- **`make engagement-kit VERSION=…`** target produces a single
+  client-ready tarball under `dist/`: both binaries × {amd64, arm64},
+  RUNBOOK, SCOPE, LICENSE, README, CHANGELOG, golden
+  `sample-report.{html,txt}`, `CHECKSUMS.txt`. Fails loudly if any
+  required doc is missing so the kit never ships incomplete.
+- **`docs/scope.md`** — eight sections (what the agent does, what it
+  never does, evidence shape, footprint, required privileges,
+  distribution integrity, source reproducibility, honest Limitations
+  section). Designed to be quoted verbatim in the annex of an
+  engagement contract.
+- **`docs/client-runbook.md`** — bilingual EN+ES operator runbook. EN
+  authoritative, ES mirror. Covers kit verification (sha256 + `cosign
+  verify-blob` + `--self-sha256`), invocation patterns (Ansible
+  playbook, AWS SSM RunCommand, systemd timer, manual), post-collection
+  handoff, troubleshooting table, secure deletion at engagement close.
+
+### Changed
+- `actions/checkout`, `actions/setup-go`, etc. bumped to versions
+  supporting Node 24 (the previous pins broke under GitHub's runner
+  upgrade).
+- `chmod +x` on `tools/*.sh` and `lab-realistic/*.sh` so CI runners
+  can execute them.
+
 ## [0.4.0] - 2026-05-23
 
 v0.4.0 closes the Linux MITRE bridge for the three highest-impact
