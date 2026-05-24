@@ -1,0 +1,130 @@
+name: release
+
+# Tag-driven release pipeline. Cross-builds every supported Linux
+# arch, signs each binary with cosign keyless (Fulcio cert via the
+# GitHub OIDC token — no maintainer key stored anywhere), emits a
+# SHA256 manifest, and publishes the lot as a GitHub Release.
+#
+# Operators verifying a binary delivered as part of an engagement
+# kit can run:
+#
+#   cosign verify-blob \
+#     --certificate linpersist-linux-amd64.pem \
+#     --signature   linpersist-linux-amd64.sig \
+#     --certificate-identity-regexp 'https://github.com/.+/linPersist/.+' \
+#     --certificate-oidc-issuer    'https://token.actions.githubusercontent.com' \
+#     linpersist-linux-amd64
+#
+# Manual workflow_dispatch is supported for sandbox runs (no Release
+# is created on dispatch — artifacts are uploaded for inspection
+# only).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write       # create GitHub Release
+  id-token: write       # cosign keyless via GitHub OIDC
+  attestations: write   # future-proof for SLSA build attestations
+
+jobs:
+  release:
+    name: cross-build + sign + publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # need full history for git describe in ldflags
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Resolve VERSION
+        id: version
+        run: |
+          set -eu
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            v="${GITHUB_REF#refs/tags/}"
+          else
+            v="manual-$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Resolved VERSION=$v"
+
+      - name: Cross-compile (linux/{amd64,arm64,386,arm-v7})
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          make build-all VERSION="$VERSION"
+          ls -la dist/
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd dist
+          sha256sum linpersist-* linpersist-report-* > CHECKSUMS.txt
+          echo "--- CHECKSUMS.txt ---"
+          cat CHECKSUMS.txt
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign every artifact (keyless, GitHub OIDC)
+        run: |
+          set -eu
+          for f in dist/linpersist-* dist/linpersist-report-*; do
+            case "$f" in *.sig|*.pem) continue ;; esac
+            echo "Signing $f"
+            cosign sign-blob \
+              --yes \
+              --output-signature "$f.sig" \
+              --output-certificate "$f.pem" \
+              "$f"
+          done
+          ls -la dist/
+
+      - name: Verify own signatures (sanity gate)
+        env:
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+        run: |
+          set -eu
+          # The Fulcio cert binds the signature to this workflow run +
+          # ref. Verifying our own sigs catches the case where the
+          # signing step finished but the cert/sig pair is malformed.
+          for f in dist/linpersist-* dist/linpersist-report-*; do
+            case "$f" in *.sig|*.pem) continue ;; esac
+            echo "Verifying $f"
+            cosign verify-blob \
+              --certificate "$f.pem" \
+              --signature   "$f.sig" \
+              --certificate-identity-regexp "https://github.com/${REPO}/.+" \
+              --certificate-oidc-issuer    "https://token.actions.githubusercontent.com" \
+              "$f"
+          done
+
+      - name: Create GitHub Release with signed artifacts
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            dist/linpersist-*
+            dist/linpersist-report-*
+            dist/CHECKSUMS.txt
+
+      - name: Upload artifacts on manual dispatch (no Release)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v5
+        with:
+          name: linpersist-${{ steps.version.outputs.version }}
+          path: |
+            dist/linpersist-*
+            dist/linpersist-report-*
+            dist/CHECKSUMS.txt
+          retention-days: 14
