@@ -132,8 +132,17 @@ def render_implant_template(implant, host):
 
 
 def assign_implants(rng, hosts, catalog):
-    """Greedy placement: each implant placed on `count` hosts of an
-    eligible role. Returns implants_by_host: {hostname: [implant_id, ...]}."""
+    """Round-robin placement: each implant is spread across its declared
+    roles before any role is doubled-up.
+
+    Pre-v0.5.x this was a flat shuffle-and-take-first-N which let the
+    deterministic seed bias all placements into one role (the v0.3.4
+    handoff documented ssh-forced-tmp landing all 3 on build-ci + web-edge
+    with zero on bastion despite the [bastion, build-ci, web-edge]
+    declaration). Round-robin fixes the bias while staying deterministic
+    under the same seed.
+
+    Returns implants_by_host: {hostname: [implant_id, ...]}."""
     by_role = {}
     for h in hosts:
         by_role.setdefault(h["role"], []).append(h)
@@ -143,11 +152,25 @@ def assign_implants(rng, hosts, catalog):
     for implant_id, plan in catalog.get("placements", {}).items():
         count = plan["count"]
         roles = plan["roles"]
-        candidates = []
-        for r in roles:
-            candidates.extend(by_role.get(r, []))
-        rng.shuffle(candidates)
-        for h in candidates[:count]:
+        # Per-role pool, shuffled so the seed picks vary across roles
+        # but the rotation across roles is deterministic.
+        pools = {r: by_role.get(r, []).copy() for r in roles}
+        for r in pools:
+            rng.shuffle(pools[r])
+        picked = []
+        i = 0
+        # Rotate through roles in declaration order; each rotation takes
+        # one host from that role's pool. Skip roles whose pool is empty.
+        # Stop when count is met or every pool is exhausted.
+        while len(picked) < count:
+            role = roles[i % len(roles)]
+            i += 1
+            pool = pools[role]
+            if pool:
+                picked.append(pool.pop(0))
+            if all(len(p) == 0 for p in pools.values()):
+                break
+        for h in picked:
             assignments.setdefault(h["hostname"], []).append(implant_id)
 
     return assignments, implant_by_id
