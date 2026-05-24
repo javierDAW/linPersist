@@ -96,6 +96,18 @@ func (rs *RuleSet) detectionMatches(d *Detection, r core.Record, sigs map[string
 			return false
 		}
 	}
+	if len(w.SiteClassIn) > 0 {
+		hit := false
+		for _, sc := range w.SiteClassIn {
+			if r.SiteClass == sc {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return false
+		}
+	}
 	if len(w.ContentContainsAny) > 0 {
 		hit := false
 		for _, s := range w.ContentContainsAny {

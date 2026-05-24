@@ -95,6 +95,7 @@ type When struct {
 	SignalsAny         []string `yaml:"signals_any"`
 	SignalsNone        []string `yaml:"signals_none"`
 	ModuleIn           []string `yaml:"module_in"`
+	SiteClassIn        []string `yaml:"site_class_in"`
 	ContentContainsAny []string `yaml:"content_contains_any"`
 }
 
@@ -224,5 +225,6 @@ func (w *When) populated() bool {
 	return len(w.SignalsAll) > 0 ||
 		len(w.SignalsAny) > 0 ||
 		len(w.ModuleIn) > 0 ||
+		len(w.SiteClassIn) > 0 ||
 		len(w.ContentContainsAny) > 0
 }
