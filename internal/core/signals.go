@@ -338,4 +338,18 @@ const (
 	// the unmistakable implant shape.
 	SignalSuidBitSet = "suid_bit_set"
 	SignalSgidBitSet = "sgid_bit_set"
+
+	// SignalTrapCommand and friends fire on profile.trap.{system,user}
+	// records emitted by the profile module's trap walker (v0.4.0).
+	// MITRE T1546.005 (Event Triggered Execution: Trap). A `trap CMD
+	// SIG…` directive installed in /etc/profile.d/, ~/.bashrc, /etc/
+	// zshrc, etc. fires CMD when the shell receives SIG — including
+	// SIGEXIT on every shell exit, which is the typical implant shape.
+	//   - SignalTrapCommand: any non-noop `trap CMD …` directive seen
+	//   - SignalTrapExitHandler: the signal list includes EXIT
+	//   - SignalTrapCommandInTmp: the first token of CMD resolves
+	//     under /tmp / /var/tmp / /dev/shm
+	SignalTrapCommand      = "trap_command"
+	SignalTrapExitHandler  = "trap_exit_handler"
+	SignalTrapCommandInTmp = "trap_command_in_tmp"
 )

@@ -16,6 +16,8 @@ package profile
 
 import (
 	"strings"
+
+	"github.com/jarmidaw/linpersist/internal/core"
 )
 
 // trapHit describes one persistent trap directive discovered in a shell
@@ -142,11 +144,11 @@ func extractToken(s string) (string, string, bool) {
 // only adds trap-specific signals.
 func signalsForTrapHit(h trapHit) []string {
 	var out []string
-	out = append(out, "trap_command")
+	out = append(out, core.SignalTrapCommand)
 	for _, sig := range h.signals {
 		switch strings.ToUpper(strings.TrimPrefix(sig, "SIG")) {
 		case "EXIT", "DEBUG", "RETURN", "ERR":
-			out = append(out, "trap_exit_handler")
+			out = append(out, core.SignalTrapExitHandler)
 		}
 	}
 	// trap_command_in_tmp fires when the first token of the command
@@ -154,7 +156,7 @@ func signalsForTrapHit(h trapHit) []string {
 	// argv[0]; this matches the convention used by the cron/systemd
 	// `interpreter_in_tmp` heuristic.
 	if cmdFirst, _, ok := extractToken(h.cmd); ok && strings.HasPrefix(cmdFirst, "/tmp/") {
-		out = append(out, "trap_command_in_tmp")
+		out = append(out, core.SignalTrapCommandInTmp)
 	}
 	return out
 }
