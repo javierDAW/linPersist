@@ -18,7 +18,7 @@ Overview
     info:                    0
   Q8 mtime spikes:           0
   Q11 orphan outside tmp:    2
-  MITRE coverage:            1/21 surfacing, 20 dormant (6 gap, 14 silent)
+  MITRE coverage:            1/24 surfacing, 23 dormant (6 gap, 17 silent)
   Q12 basename clusters:     0
 
 LFA stacking histogram
@@ -56,7 +56,7 @@ OS distribution
   ubuntu  3      6
   debian  1      3
 
-MITRE ATT&CK coverage (1/21 surfacing, 20 dormant (6 gap, 14 silent))
+MITRE ATT&CK coverage (1/24 surfacing, 23 dormant (6 gap, 17 silent))
 ---------------------------------------------------------------------
 Techniques declared in matrix.yaml cross-referenced with live records.
 surfacing             = at least one record carries the technique ID.
@@ -81,7 +81,10 @@ dormant_module_silent = no covering module emitted any record fleet-wide,
   T1053.001  dormant_module_silent  0        0      at.jobs
   T1098.004  dormant_module_silent  0        0      ssh.authkeys, sshd.config
   T1542.003  dormant_module_silent  0        0      kernel.grub.config, kernel.grub.dropin
+  T1543      dormant_module_silent  0        0      cloudinit.config, cloudinit.script, dbus.session, dbus.system
+  T1543.005  dormant_module_silent  0        0      k8s.static-pod
   T1546      dormant_module_silent  0        0      network.dispatchers, systemd.linger, udev
+  T1547      dormant_module_silent  0        0      cloudinit.config, cloudinit.script
   T1547.006  dormant_module_silent  0        0      kmod
   T1547.013  dormant_module_silent  0        0      xdg.autostart
   T1548      dormant_module_silent  0        0      polkit.rules

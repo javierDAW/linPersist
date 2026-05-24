@@ -16,8 +16,11 @@ package modset
 import (
 	"github.com/jarmidaw/linpersist/internal/core"
 	"github.com/jarmidaw/linpersist/internal/modules/atjobs"
+	"github.com/jarmidaw/linpersist/internal/modules/cloudinit"
 	"github.com/jarmidaw/linpersist/internal/modules/cron"
+	"github.com/jarmidaw/linpersist/internal/modules/dbus"
 	"github.com/jarmidaw/linpersist/internal/modules/grub"
+	"github.com/jarmidaw/linpersist/internal/modules/k8sstatic"
 	"github.com/jarmidaw/linpersist/internal/modules/kmod"
 	"github.com/jarmidaw/linpersist/internal/modules/ldso"
 	"github.com/jarmidaw/linpersist/internal/modules/linger"
@@ -53,8 +56,11 @@ func All(prov core.Provenance, liveProcs core.LiveProcessSet) []core.Module {
 	}
 	return []core.Module{
 		atjobs.New(atjobs.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		cloudinit.New(cloudinit.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		cron.New(cron.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		dbus.New(dbus.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		grub.New(grub.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		k8sstatic.New(k8sstatic.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		kmod.New(kmod.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		ldso.New(ldso.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		linger.New(linger.Options{}),

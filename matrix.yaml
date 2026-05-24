@@ -422,6 +422,98 @@ site_classes:
       the same policy as user password hash (ADR-0005): hash never
       emitted, only password_status enum.
 
+  # ====================== v0.5.0 cloud-native ===========================
+  # Three modules added in v0.5.0 to cover the persistence surface on
+  # modern cloud + container fleets that the original 19-technique
+  # matrix missed.
+
+  - site_class: dbus.system
+    module: dbus
+    mitre: [T1543]
+    loci:
+      - /usr/share/dbus-1/system-services/
+      - /etc/dbus-1/system-services/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      One record per *.service file under the system bus service
+      directories. dbus-daemon exec()s the `Exec=` value as root
+      whenever a client requests the named bus name. Common on
+      desktop distros and many server distros (PolicyKit,
+      NetworkManager, ModemManager, accounts daemon). An attacker
+      who can write one of these files gets on-demand root code
+      execution every time something bus-activates the service.
+
+  - site_class: dbus.session
+    module: dbus
+    mitre: [T1543]
+    loci:
+      - /usr/share/dbus-1/services/
+      - /etc/dbus-1/services/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      Session-bus sibling of dbus.system. The activated process runs
+      as the user whose session bus called it. Per-user override dirs
+      under $XDG_DATA_HOME are NOT walked here — the agent surfaces
+      system-wide and root-shipped session files only.
+
+  - site_class: cloudinit.config
+    module: cloudinit
+    mitre: [T1543, T1547]
+    loci:
+      - /etc/cloud/cloud.cfg
+      - /etc/cloud/cloud.cfg.d/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      One record per YAML config under /etc/cloud/cloud.cfg or the
+      cloud.cfg.d/ drop-in dir. cloud-init merges these at first
+      boot and reads them on every boot of cloud-init-managed
+      hosts (every modern cloud VM). Modules declared inside
+      (runcmd, write_files, bootcmd, users, ssh_authorized_keys)
+      get executed by the cloud-init daemon at root privilege.
+      content_norm_sha256 is the raw bytes; YAML re-serialisation
+      is too fragile to use as a stacking key.
+
+  - site_class: cloudinit.script
+    module: cloudinit
+    mitre: [T1543, T1547]
+    loci:
+      - /var/lib/cloud/scripts/per-boot/
+      - /var/lib/cloud/scripts/per-instance/
+      - /var/lib/cloud/scripts/per-once/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      One record per executable script under any of cloud-init's
+      three execution phases. cloud-init exec()s every script in
+      lexical order at the matching boot phase. The script itself
+      IS the persistence target (same pattern as cron.periodic and
+      netdispatch); non-executable scripts emit a NOT_EXECUTABLE
+      error envelope because cloud-init silently skips them.
+
+  - site_class: k8s.static-pod
+    module: k8sstatic
+    mitre: [T1543.005]
+    loci:
+      - /etc/kubernetes/manifests/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      One record per Pod manifest YAML under the kubelet's
+      --pod-manifest-path directory. The kubelet reads these at
+      startup AND on file change, then runs the containers
+      described inside, with no involvement from the apiserver,
+      scheduler, or RBAC. Static pods are an extremely quiet
+      persistence vector on any node running kubelet because they
+      do not appear in `kubectl get pods` unless the node-name
+      selector is used and they survive control-plane downtime.
+      content_norm_sha256 collapses across formatting variants
+      (block vs flow YAML); exec_target is the first container's
+      image string so Q6 can cluster identical attacker images
+      across the fleet.
+
   - site_class: profile.system
     module: profile
     mitre: [T1546.004]

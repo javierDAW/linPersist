@@ -57,18 +57,20 @@ var Signals = []SignalDef{
 		Name:        SignalRecentMtime7d,
 		Description: "artifact mtime within the last 7 days (UTC, evaluated against collected_at)",
 		EmittedBy: []string{
-			"atjobs", "cron", "grub", "kmod", "ldso", "motd", "netdispatch",
-			"pam", "passwd", "polkit", "profile", "ssh", "sshd", "sudoers",
-			"suidbits", "systemd", "sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
+			"atjobs", "cloudinit", "cron", "dbus", "grub", "k8sstatic", "kmod", "ldso",
+			"motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
+			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
+			"linger", "tmpfiles", "sysusers",
 		},
 	},
 	{
 		Name:        SignalRecentMtime30d,
 		Description: "artifact mtime within the last 30 days but outside the 7-day window",
 		EmittedBy: []string{
-			"atjobs", "cron", "grub", "kmod", "ldso", "motd", "netdispatch",
-			"pam", "passwd", "polkit", "profile", "ssh", "sshd", "sudoers",
-			"suidbits", "systemd", "sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
+			"atjobs", "cloudinit", "cron", "dbus", "grub", "k8sstatic", "kmod", "ldso",
+			"motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
+			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
+			"linger", "tmpfiles", "sysusers",
 		},
 	},
 	{
@@ -82,9 +84,10 @@ var Signals = []SignalDef{
 		Name:        SignalWorldWritable,
 		Description: "artifact has the 0o002 mode bit set",
 		EmittedBy: []string{
-			"atjobs", "cron", "grub", "kmod", "ldso", "motd", "netdispatch",
-			"pam", "passwd", "polkit", "profile", "ssh", "sshd", "sudoers",
-			"suidbits", "systemd", "sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
+			"atjobs", "cloudinit", "cron", "dbus", "grub", "k8sstatic", "kmod", "ldso",
+			"motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
+			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
+			"linger", "tmpfiles", "sysusers",
 		},
 	},
 
@@ -128,7 +131,7 @@ var Signals = []SignalDef{
 		Name:        SignalInterpreterInTmp,
 		Description: "exec_target lives under /tmp, /var/tmp, /dev/shm or /run/shm",
 		EmittedBy: []string{
-			"cron", "grub", "kmod", "ldso", "pam", "passwd", "ssh", "sshd",
+			"cron", "dbus", "grub", "kmod", "ldso", "pam", "passwd", "ssh", "sshd",
 			"systemd", "sysv", "udev", "xdg",
 		},
 	},
@@ -141,7 +144,7 @@ var Signals = []SignalDef{
 		Name:        SignalExecTargetOrphan,
 		Description: "exec_target points to a file that does not exist on disk",
 		EmittedBy: []string{
-			"cron", "grub", "kmod", "ldso", "pam", "passwd", "ssh", "sshd",
+			"cron", "dbus", "grub", "kmod", "ldso", "pam", "passwd", "ssh", "sshd",
 			"systemd", "sysv", "udev", "xdg",
 		},
 	},
@@ -149,20 +152,21 @@ var Signals = []SignalDef{
 		Name:        SignalNonRootOwner,
 		Description: "artifact under /etc, /usr, /lib, /bin, /sbin is owned by uid != 0",
 		EmittedBy: []string{
-			"cron", "grub", "kmod", "ldso", "motd", "netdispatch", "pam",
-			"passwd", "polkit", "profile", "ssh", "sshd", "sudoers", "suidbits",
-			"systemd", "sysv", "udev", "xdg", "linger", "tmpfiles", "sysusers",
+			"cloudinit", "cron", "dbus", "grub", "k8sstatic", "kmod", "ldso", "motd",
+			"netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd", "sudoers",
+			"suidbits", "systemd", "sysv", "udev", "xdg",
+			"linger", "tmpfiles", "sysusers",
 		},
 	},
 	{
 		Name:        SignalShellIndirect,
 		Description: "exec_target is a common shell or interpreter — actual command is inside a -c argument",
-		EmittedBy:   []string{"cron", "kmod", "systemd", "udev", "xdg"},
+		EmittedBy:   []string{"cron", "dbus", "kmod", "systemd", "udev", "xdg"},
 	},
 	{
 		Name:        SignalUnqualifiedExecTarget,
 		Description: "exec_target is a bare executable name with no leading slash",
-		EmittedBy:   []string{"cron", "kmod", "systemd", "udev", "xdg"},
+		EmittedBy:   []string{"cron", "dbus", "k8sstatic", "kmod", "systemd", "udev", "xdg"},
 	},
 
 	// --- Cron ---
