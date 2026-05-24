@@ -269,12 +269,14 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 	// Without this, a worm whose three arms all source the same
 	// /usr/local/bin/sync split into two Q12 rows because the profile
 	// arm carried no ExecTarget. See v0.4.0 sprint task #14.
+	var execTargetSigs []string
 	if target := ExtractExecTarget(raw); target != "" {
 		rec.ExecTarget = target
 		core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, target)
 		core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, target)
+		execTargetSigs = m.execTargetStatSignals(target)
 	}
-	rec.Signals = core.DedupSignals(m.baseSignals(info, logical))
+	rec.Signals = core.DedupSignals(append(m.baseSignals(info, logical), execTargetSigs...))
 	emit(rec)
 
 	// Walk the raw content for `trap CMD SIGNAL...` directives. Each
@@ -359,6 +361,27 @@ func (m *Module) baseSignals(info os.FileInfo, logical string) []string {
 	if st, ok := info.Sys().(*syscall.Stat_t); ok {
 		if st.Uid != 0 && isSystemPath(logical) {
 			out = append(out, core.SignalNonRootOwner)
+		}
+	}
+	return out
+}
+
+// execTargetStatSignals emits stat-derived signals for a populated
+// ExecTarget: exec_target_orphan when the target is missing,
+// recent_target_mtime_7d when the target's mtime is fresh. Mirrors
+// the per-module helper cron/systemd/kmod/etc already carry — the
+// profile module needs the same emissions for Q12 worm-arm clustering
+// to fire on the profile arm of a three-arm worm.
+func (m *Module) execTargetStatSignals(target string) []string {
+	var out []string
+	info, err := os.Stat(target)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		out = append(out, core.SignalExecTargetOrphan)
+	case err == nil:
+		delta := m.opts.Now().Sub(info.ModTime().UTC())
+		if delta >= 0 && delta < 7*24*time.Hour {
+			out = append(out, core.SignalRecentTargetMtime7d)
 		}
 	}
 	return out
