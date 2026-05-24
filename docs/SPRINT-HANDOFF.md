@@ -218,53 +218,57 @@ Closed in v0.5.x follow-ups (no longer open):
   documented residual FP class for operator-deployed
   /etc/cloud/cloud.cfg.d/* fragments that aren't package-managed.
 
+Closed in the v0.5.x consolidation sprint (6 follow-ups in chain):
+
+- **Baseline fleet-wide dbus services** (commit 3ff3632). Six
+  canonical *.service files via shared `_dbus-system-baseline.sh`.
+  Each stacks to count=44; only implants are Q1 singletons.
+- **Q12 worm-profile-arm signals empty** (commit 76f37fd). Profile
+  module now emits `exec_target_orphan` and `recent_target_mtime_7d`
+  via a new `execTargetStatSignals` helper. Q12 recall 0.67 → 1.00
+  (score.py heuristic stopped under-counting the profile arm).
+- **`site_class_in` predicate** (commit feab4fb). Symmetric
+  counterpart to `module_in`. Tightens
+  `cloudinit_script_non_package_path` to fire only on
+  `cloudinit.script` (not `cloudinit.config`).
+- **amzn2 noise singletons** (commit 1e799f2). Bumped legacy role
+  count 1 → 2. The 7 amazonlinux:2-shipped systemd dbus *.service
+  files now stack across both legacy hosts (count=2) instead of
+  appearing as Q1 singletons. Lab post-fix: zero dbus.system noise
+  singletons; only the 2 intentional implants surface.
+- **Catalog `expected_signals` vocabulary alignment** (commit
+  15f43a1). Three v0.4.0 trap signals (`trap_command`,
+  `trap_exit_handler`, `trap_command_in_tmp`) were emitted as bare
+  string literals in `internal/modules/profile/trap.go` without
+  corresponding constants in `internal/core/signals.go` or entries
+  in `signals_catalog.go`. Registered properly; trap.go uses the
+  constants; vocabulary audit: 0 drift.
+- **score.py heuristic is presence-based, not signal-exact** AND
+  **ssh-forced-tmp greedy placement bias** (commits 4c07c78 +
+  e3cc5d0, coupled). score.py now requires every name in
+  expected_signals to be observed; reports per-FN gap detail.
+  generate.py: stamp step moved BEFORE implants (implants keep
+  build-time mtime, recent_mtime_7d fires reliably). generate.py:
+  assign_implants switched from flat-shuffle-take-N to round-robin
+  across declared roles — each role gets one placement before any
+  doubles up. Lab bench under exact + round-robin: Q1 1.00 (38/38),
+  Q4 1.00 (11/11), Q7 1.00 (32/32), Q9 1.00 (15/15), Q12 1.00 (3/3)
+  — first time the lab is clean across every implant family under
+  signal-exact scoring.
+
 Still OPEN:
 
-- **`site_class_in` predicate** (lifted from above). Would tighten
-  `cloudinit_script_non_package_path` to fire only on
-  `cloudinit.script`, eliminating the residual FP class on
-  operator-deployed `cloud.cfg.d/*` fragments. Same shape as the
-  existing `module_in` predicate — small additive schema change.
-  Defer until the residual FP class is observed on a real fleet;
-  current bench has zero FPs.
-- **Baseline fleet-wide dbus services** (closed in commit 3ff3632).
-  Six canonical *.service files (NetworkManager, polkit,
-  accountsservice, systemd-{hostnamed,localed,timedated}) added to
-  the four modern distro base images via a shared
-  `_dbus-system-baseline.sh` helper. Each baseline service stacks to
-  count=44 across the fleet; the two implant placements remain the
-  only intentional Q1 singletons. Lab Q1/Q4/Q7/Q9 all at 1.00 recall
-  (was 0.97 before the baseline due to the pre-existing suid amzn2
-  miss, which the rebuild also cleared). A 5-singleton FP class
-  remains on r-legacy-amzn2-01 from systemd dbus files preinstalled
-  in the `amazonlinux:2` image — kept as documented noise.
 - **eBPF state inspection** (deferred from v0.5.0 candidate
-  backlog). Requires vetting the cilium/ebpf dependency vs.
-  the project's "no CGO, no daemons, pure Go" invariant. Could
-  surface in-memory persistence (bashrc loaded by current
-  shells, LD_PRELOAD active in running procs, kprobes hooked
-  by rootkits) that artifact-on-disk modules cannot see. ADR
-  needed first.
+  backlog). Requires vetting the cilium/ebpf dependency vs. the
+  project's "no CGO, no daemons, pure Go" invariant. Could surface
+  in-memory persistence (bashrc loaded by current shells,
+  LD_PRELOAD active in running procs, kprobes hooked by rootkits)
+  that artifact-on-disk modules cannot see. ADR needed first.
 - **Webshell + supply-chain walk** (deferred). Walk
-  DocumentRoot-style paths (`/var/www/`, `/srv/`, common
-  custom roots), hash candidate PHP/JSP/CGI files, compare
-  against a small embedded hash catalog. Lower-risk than eBPF
-  — fits the existing artifact-walk-on-disk model.
-- **ssh-forced-tmp greedy placement bias** (v0.3.4). The greedy
-  `assign_implants` in `generate.py` places all 3 ssh-forced-tmp
-  instances on build-ci + web-edge, zero on bastion despite the
-  `placements: roles: [bastion, build-ci, web-edge]` declaration.
-  Cosmetic for now; bench passes. Worth revisiting if more
-  implants land with similar role triplets.
-- **score.py heuristic is presence-based, not signal-exact**
-  despite the docstring's original claim. v0.3.4 corrected the
-  docstring. A future revision could tighten the matching once
-  the catalog vocabulary is aligned with
-  `internal/core/signals.go` literals.
-- **Catalog `expected_signals` vocabulary alignment** (v0.3.4
-  normalized `ssh-forced-tmp` from `exec_target_orphan` to
-  `non_package_path`; other implants may have similar drift).
-  Audit-and-normalize sprint candidate.
+  DocumentRoot-style paths (`/var/www/`, `/srv/`, common custom
+  roots), hash candidate PHP/JSP/CGI files, compare against a
+  small embedded hash catalog. Lower-risk than eBPF — fits the
+  existing artifact-walk-on-disk model.
 
 ## Next sprint (v0.4.0 — "close the Linux MITRE bridge") — ARCHIVED, all six tasks shipped in v0.4.0
 
