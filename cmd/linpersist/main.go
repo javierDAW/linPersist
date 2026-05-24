@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"flag"
 	"fmt"
 	"io"
@@ -76,6 +77,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		disableLiveProcess = fs.Bool("no-live-process", false, "Skip /proc snapshot (no live_process_attached signal)")
 		logLevel           = fs.String("log-level", "warn", "Log level: debug|info|warn|error")
 		showVersion        = fs.Bool("version", false, "Print version and exit")
+		showSelfSHA256     = fs.Bool("self-sha256", false, "Print sha256sum of the running binary to stdout and exit. Use for chain-of-custody: an operator can confirm the binary executing on the client matches the binary handed over.")
 	)
 	var tags tagsFlag
 	fs.Var(&tags, "tag", "Repeatable host tag (key=value). See ADR-0015 for the format.")
@@ -88,6 +90,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *showVersion {
 		fmt.Fprintf(stdout, "linpersist %s (commit %s)\n", version, commit)
 		return 0
+	}
+
+	if *showSelfSHA256 {
+		return printSelfSHA256(stdout, stderr)
 	}
 
 	logger := newLogger(stderr, *logLevel)
@@ -181,6 +187,36 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// catastrophic happened.
 	}
 
+	return 0
+}
+
+// printSelfSHA256 streams the running binary into sha256 and prints
+// the hex digest to stdout in `sha256sum`-compatible format. Used by
+// operators in consultoría engagements to confirm the binary the
+// client is about to run is byte-identical to the one shipped in the
+// engagement kit.
+//
+// Output format example (so it can be piped into `sha256sum -c`):
+//
+//	d8e1...  /usr/local/bin/linpersist
+func printSelfSHA256(stdout, stderr io.Writer) int {
+	me, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(stderr, "linpersist: os.Executable: %v\n", err)
+		return 1
+	}
+	f, err := os.Open(me)
+	if err != nil {
+		fmt.Fprintf(stderr, "linpersist: open %s: %v\n", me, err)
+		return 1
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		fmt.Fprintf(stderr, "linpersist: read %s: %v\n", me, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "%x  %s\n", h.Sum(nil), me)
 	return 0
 }
 
