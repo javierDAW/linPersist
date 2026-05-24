@@ -109,13 +109,25 @@ jobs:
 
       - name: Create GitHub Release with signed artifacts
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ steps.version.outputs.version }}
-          generate_release_notes: true
-          files: |
-            dist/linpersist-*
-            dist/linpersist-report-*
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # First-party `gh release create` instead of a third-party
+          # marketplace action — no Node-runtime deprecation, no
+          # softprops/action-gh-release@v2 race conditions, and the
+          # auth model is the standard GITHUB_TOKEN. Uses
+          # --generate-notes for auto-generated changelog text from
+          # the commit range, --verify-tag to fail fast if the tag
+          # is somehow not pushed, and --clobber so a re-run can
+          # overwrite the artifact set rather than 422-ing on
+          # "already exists".
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --generate-notes \
+            --verify-tag \
+            dist/linpersist-* \
+            dist/linpersist-report-* \
             dist/CHECKSUMS.txt
 
       - name: Upload artifacts on manual dispatch (no Release)
