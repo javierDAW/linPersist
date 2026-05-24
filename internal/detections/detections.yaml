@@ -18,6 +18,7 @@
 #   signals_any:          [a, b, ...]   at least one signal in the list must be present
 #   signals_none:         [a, b, ...]   no signal in the list may be present (FP suppression)
 #   module_in:            [a, b, ...]   record.module must be one of these
+#   site_class_in:        [a, b, ...]   record.site_class must be one of these
 #   content_contains_any: ["a", "b"]    record.content_snippet must contain at least one substring
 #
 # Calibration note (v0.2.x-tune): the curl/wget and /tmp content
@@ -263,11 +264,11 @@ detections:
       signals_all: [interpreter_in_tmp]
 
   - id: cloudinit_script_non_package_path
-    description: cloud-init walker emitted a record at a path not owned by any installed package — cloud-init runs /var/lib/cloud/scripts/per-boot/* as root on every boot
+    description: cloud-init per-boot/per-instance/per-once script at a path not owned by any installed package — cloud-init runs these as root on every boot
     severity: high
     mitre: [T1543, T1547]
     when:
-      module_in: [cloudinit]
+      site_class_in: [cloudinit.script]
       signals_all: [non_package_path]
 
   - id: k8s_static_pod_unqualified_image

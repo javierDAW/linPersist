@@ -296,18 +296,29 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "cloudinit record with non_package_path -> cloudinit_script_non_package_path",
+			name: "cloudinit.script record with non_package_path -> cloudinit_script_non_package_path",
 			rec: core.Record{
-				Module:  "cloudinit",
-				Signals: []string{core.SignalNonPackagePath, core.SignalRecentMtime7d},
+				Module:    "cloudinit",
+				SiteClass: "cloudinit.script",
+				Signals:   []string{core.SignalNonPackagePath, core.SignalRecentMtime7d},
 			},
 			want: []string{"cloudinit_script_non_package_path"},
 		},
 		{
-			name: "cloudinit record without non_package_path -> rule suppressed",
+			name: "cloudinit.config record with non_package_path -> rule suppressed by site_class_in",
 			rec: core.Record{
-				Module:  "cloudinit",
-				Signals: []string{core.SignalRecentMtime7d},
+				Module:    "cloudinit",
+				SiteClass: "cloudinit.config",
+				Signals:   []string{core.SignalNonPackagePath, core.SignalRecentMtime7d},
+			},
+			want: nil,
+		},
+		{
+			name: "cloudinit.script record without non_package_path -> rule suppressed",
+			rec: core.Record{
+				Module:    "cloudinit",
+				SiteClass: "cloudinit.script",
+				Signals:   []string{core.SignalRecentMtime7d},
 			},
 			want: nil,
 		},

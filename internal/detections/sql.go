@@ -103,6 +103,17 @@ func renderDetectionSQL(d *Detection, opts SQLOptions) string {
 			parts = append(parts, "("+strings.Join(any, " OR ")+")")
 		}
 	}
+	if len(w.SiteClassIn) > 0 {
+		var any []string
+		for _, sc := range w.SiteClassIn {
+			any = append(any, fmt.Sprintf("site_class = '%s'", sc))
+		}
+		if len(any) == 1 {
+			parts = append(parts, any[0])
+		} else {
+			parts = append(parts, "("+strings.Join(any, " OR ")+")")
+		}
+	}
 	if len(w.ContentContainsAny) > 0 {
 		var any []string
 		for _, s := range w.ContentContainsAny {
