@@ -206,19 +206,27 @@ Closed in v0.4.0–v0.5.0 (no longer open):
   surfaces (without per-host variation the hashes collide and Q1
   misses).
 
+Closed in v0.5.x follow-ups (no longer open):
+- **Detection rules over the new v0.5.0 site_classes** (commit
+  7dae474). Three rules added: `dbus_exec_under_tmp` (critical,
+  module_in:[dbus]), `cloudinit_script_non_package_path` (high,
+  module_in:[cloudinit]), `k8s_static_pod_unqualified_image`
+  (high, module_in:[k8sstatic]). Detections 24 → 27. Lab Q7
+  recall on the 5 v0.5.0 implants: 5/5, zero FPs across the
+  rest of the fleet. Module-scoped via `module_in` (no
+  `site_class_in` schema extension); cloudinit rule has a
+  documented residual FP class for operator-deployed
+  /etc/cloud/cloud.cfg.d/* fragments that aren't package-managed.
+
 Still OPEN:
 
-- **Detection rules over the new v0.5.0 site_classes**. None
-  added in v0.5.0 — the modules connect to existing shared
-  signals via `EmittedBy` expansions only. Three candidates,
-  motivated by the post-fixture observation that cloudinit and
-  k8s implants currently catch via Q1 only (no Q7 rule):
-  `k8s_static_pod_unqualified_image` (fires on
-  `unqualified_exec_target` + `k8s.static-pod`),
-  `cloudinit_script_non_package_path` (any `cloudinit.script`
-  with `non_package_path`), `dbus_exec_under_tmp` (may want a
-  dbus-specific severity-critical hook over what
-  `payload_under_tmp_via_persistence` already does).
+- **`site_class_in` predicate** (lifted from above). Would tighten
+  `cloudinit_script_non_package_path` to fire only on
+  `cloudinit.script`, eliminating the residual FP class on
+  operator-deployed `cloud.cfg.d/*` fragments. Same shape as the
+  existing `module_in` predicate — small additive schema change.
+  Defer until the residual FP class is observed on a real fleet;
+  current bench has zero FPs.
 - **Baseline fleet-wide dbus services**. No role template ships
   benign `*.service` files under `/usr/share/dbus-1/system-services/`,
   so every dbus.system record fleet-wide is the implant. This
