@@ -227,14 +227,17 @@ Still OPEN:
   existing `module_in` predicate — small additive schema change.
   Defer until the residual FP class is observed on a real fleet;
   current bench has zero FPs.
-- **Baseline fleet-wide dbus services**. No role template ships
-  benign `*.service` files under `/usr/share/dbus-1/system-services/`,
-  so every dbus.system record fleet-wide is the implant. This
-  trivialises Q1 for dbus on this fleet. A v0.6.0 calibration
-  should add `NetworkManager.service`, `ModemManager.service`,
-  `org.freedesktop.Accounts.service` etc. shims to the
-  dev-workstation / monitoring / web-app roles so Q1 stacking
-  actually has benign content to separate from.
+- **Baseline fleet-wide dbus services** (closed in commit 3ff3632).
+  Six canonical *.service files (NetworkManager, polkit,
+  accountsservice, systemd-{hostnamed,localed,timedated}) added to
+  the four modern distro base images via a shared
+  `_dbus-system-baseline.sh` helper. Each baseline service stacks to
+  count=44 across the fleet; the two implant placements remain the
+  only intentional Q1 singletons. Lab Q1/Q4/Q7/Q9 all at 1.00 recall
+  (was 0.97 before the baseline due to the pre-existing suid amzn2
+  miss, which the rebuild also cleared). A 5-singleton FP class
+  remains on r-legacy-amzn2-01 from systemd dbus files preinstalled
+  in the `amazonlinux:2` image — kept as documented noise.
 - **eBPF state inspection** (deferred from v0.5.0 candidate
   backlog). Requires vetting the cilium/ebpf dependency vs.
   the project's "no CGO, no daemons, pure Go" invariant. Could
