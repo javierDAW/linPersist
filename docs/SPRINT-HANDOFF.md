@@ -193,25 +193,40 @@ Closed in v0.4.0–v0.5.0 (no longer open):
   orchestration job (v0.5.0 via `k8sstatic`). Q12 worm-profile-arm
   consolidation closed in v0.4.0. CI gate landed in v0.4.0.
   Release pipeline + engagement-kit landed in v0.4.1.
+- **Lab-realistic fixtures for v0.5.0 modules** (closed in commit
+  6b332ca, post-v0.5.0). Three new implant templates
+  (`dbus-system-impostor` L2 orphan × 2 dev-workstation hosts,
+  `cloudinit-per-boot-payload` L2 armed × 2 k8s-node hosts,
+  `k8s-static-attacker-pod` L2 armed × 1 k8s-cp host). Ground
+  truth: 36 → 41 placements. Surfacing observed on the 45-host /
+  20,210-record fleet: dbus → Q1 + Q4 + Q7
+  (`payload_under_tmp_via_persistence`, high); cloudinit → Q1;
+  k8sstatic → Q1. Templates embed `${hostname}` in rendered content
+  so each placement gets a unique `content_norm_sha256` and Q1
+  surfaces (without per-host variation the hashes collide and Q1
+  misses).
 
 Still OPEN:
 
-- **Lab-realistic fixtures for v0.5.0 modules**. The three new
-  cloud-native modules (`dbus`, `cloudinit`, `k8sstatic`) ship
-  with unit tests but no lab-realistic implant templates. Q1 /
-  Q7 / Q12 surfacing on those site_classes is therefore unproven
-  on fleet-shaped data. Sprint candidate: new templates
-  `dbus-system-impostor`, `cloudinit-per-boot-payload`,
-  `k8s-static-attacker-pod`, plus role placements
-  (cloud-init: any AWS/GCP/Azure-flavoured host; k8s: control
-  plane / kubelet hosts; dbus: desktop + many server hosts).
 - **Detection rules over the new v0.5.0 site_classes**. None
   added in v0.5.0 — the modules connect to existing shared
-  signals via `EmittedBy` expansions only. Bespoke rules for
-  e.g. `k8s.static-pod` ExecTarget pointing at `:latest` /
-  unsigned images, `cloudinit.script` non-package paths,
-  `dbus.system` Exec= under /tmp — all candidates once lab
-  baselines exist.
+  signals via `EmittedBy` expansions only. Three candidates,
+  motivated by the post-fixture observation that cloudinit and
+  k8s implants currently catch via Q1 only (no Q7 rule):
+  `k8s_static_pod_unqualified_image` (fires on
+  `unqualified_exec_target` + `k8s.static-pod`),
+  `cloudinit_script_non_package_path` (any `cloudinit.script`
+  with `non_package_path`), `dbus_exec_under_tmp` (may want a
+  dbus-specific severity-critical hook over what
+  `payload_under_tmp_via_persistence` already does).
+- **Baseline fleet-wide dbus services**. No role template ships
+  benign `*.service` files under `/usr/share/dbus-1/system-services/`,
+  so every dbus.system record fleet-wide is the implant. This
+  trivialises Q1 for dbus on this fleet. A v0.6.0 calibration
+  should add `NetworkManager.service`, `ModemManager.service`,
+  `org.freedesktop.Accounts.service` etc. shims to the
+  dev-workstation / monitoring / web-app roles so Q1 stacking
+  actually has benign content to separate from.
 - **eBPF state inspection** (deferred from v0.5.0 candidate
   backlog). Requires vetting the cilium/ebpf dependency vs.
   the project's "no CGO, no daemons, pure Go" invariant. Could
