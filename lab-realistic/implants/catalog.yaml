@@ -332,6 +332,88 @@ implants:
       attacker_user: opswatch
       group_name: docker
 
+  # ====================== v0.5.0 additions =====================
+  # Three cloud-native surfaces the v0.5.0 sprint added modules for:
+  # dbus (T1543), cloudinit (T1543+T1547), k8sstatic (T1543.005).
+  # First implant set on these surfaces — preliminary, no benign
+  # baselines exist yet across the fleet so Q1 stacking does not
+  # meaningfully separate these implants from legitimate records on
+  # hosts that happen to ship the same surface. Detection rules
+  # over these site_classes are deferred; bespoke Q7 hooks land in
+  # a follow-up calibration sprint once baselines exist.
+
+  - id: dbus-system-impostor
+    tier: L2
+    variant: orphan
+    module: dbus
+    site_class: dbus.system
+    description: |
+      /usr/share/dbus-1/system-services/ drop with Exec= pointing at
+      a non-existent /tmp payload. T1543. Same orphan-shape as
+      cron-tmp-dangling — fires payload_under_tmp_via_persistence
+      (interpreter_in_tmp + exec_target_orphan).
+    expected_signals: [interpreter_in_tmp, exec_target_orphan, recent_mtime_7d, non_package_path]
+    expected_caught_by: [Q1, Q4, Q7]
+    expected_q7_rule: payload_under_tmp_via_persistence
+    template: dbus-system-impostor.tmpl
+    vars:
+      service_file: /usr/share/dbus-1/system-services/org.ops.SyncHelper.service
+      bus_name: org.ops.SyncHelper
+      payload_path: /tmp/.dbus-cache/agent
+
+  - id: cloudinit-per-boot-payload
+    tier: L2
+    variant: armed
+    module: cloudinit
+    site_class: cloudinit.script
+    description: |
+      Executable script in /var/lib/cloud/scripts/per-boot/. Self-exec
+      model: ExecTarget = locus. T1543 + T1547. No bespoke Q7 rule
+      yet (gap documented in SPRINT-HANDOFF "What is OPEN after
+      v0.5.0"); surfaces via Q1 (singleton content hash) on the
+      first pass.
+    expected_signals: [recent_mtime_7d, non_package_path]
+    expected_caught_by: [Q1]
+    expected_q7_rule: null
+    template: cloudinit-per-boot-payload.tmpl
+    vars:
+      script_file: /var/lib/cloud/scripts/per-boot/99-ops-bootstrap.sh
+
+  - id: k8s-static-attacker-pod
+    tier: L2
+    variant: armed
+    module: k8sstatic
+    site_class: k8s.static-pod
+    description: |
+      Pod manifest in /etc/kubernetes/manifests/ — kubelet runs it
+      as a privileged container with hostPID + hostNetwork. The
+      image string is a bare token (no registry, no project, no
+      tag) which trips the k8sstatic module's unqualified_exec_target
+      signal — legitimate static pods use full registry refs like
+      registry.k8s.io/kube-apiserver:v1.30.1. T1543.005.
+
+      recent_mtime_7d does NOT fire: lab role templates run
+      `find /etc /home -type f | xargs touch -d <provisioned_at>` at
+      the end of the Dockerfile build, which resets the implant's
+      mtime to the host's provisioning date. dbus and cloudinit
+      implants escape this because they live outside /etc /home;
+      k8s manifests live under /etc/kubernetes/ and cannot.
+
+      No bespoke Q7 rule for k8s.static-pod yet (gap documented in
+      SPRINT-HANDOFF "What is OPEN after v0.5.0"); surfaces via Q1
+      (the attacker pod's content_norm_sha256 is unique across the
+      fleet — every legitimate kube-system pod stacks across multiple
+      k8s-cp hosts).
+    expected_signals: [unqualified_exec_target]
+    expected_caught_by: [Q1]
+    expected_q7_rule: null
+    template: k8s-static-attacker-pod.tmpl
+    vars:
+      manifest_file: /etc/kubernetes/manifests/ops-bootstrap.yaml
+      pod_name: ops-bootstrap
+      namespace: kube-system
+      image: persistor
+
 # ==========================================================================
 # Placement plan -- generator picks hosts per role to keep TPs measurable.
 
@@ -353,3 +435,6 @@ placements:
   trap-bashrc-payload:     { count: 1, roles: [dev-workstation] }
   suid-rooted-binary:      { count: 1, roles: [legacy] }
   group-wheel-attacker:    { count: 1, roles: [build-ci] }
+  dbus-system-impostor:    { count: 2, roles: [dev-workstation, k8s-cp] }
+  cloudinit-per-boot-payload: { count: 2, roles: [web-edge, k8s-node] }
+  k8s-static-attacker-pod: { count: 1, roles: [k8s-cp] }

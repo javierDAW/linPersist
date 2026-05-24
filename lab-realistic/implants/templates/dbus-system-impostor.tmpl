@@ -1,0 +1,30 @@
+# Implant template: dbus-system-impostor (L2, orphan-shape)
+#
+# T1543 (Create or Modify System Process). Drops a *.service file
+# under /usr/share/dbus-1/system-services/ whose Exec= points at a
+# non-existent payload under /tmp. dbus-daemon would exec() that
+# path as root the next time a client requested the bus name; here
+# the payload is missing entirely so the implant is the "orphan"
+# shape — same morphology as cron-tmp-dangling and systemd-tmp-orphan.
+#
+# linpersist's dbus module emits one dbus.system record with
+# ExecTarget set to ${payload_path}. The shared signals fire:
+#   - interpreter_in_tmp   (ExecTarget starts with /tmp)
+#   - exec_target_orphan   (ExecTarget does not exist)
+#   - recent_mtime_7d      (the service file is freshly written)
+# And the existing detection rule `payload_under_tmp_via_persistence`
+# (severity: high) fires because both interpreter_in_tmp +
+# exec_target_orphan are present.
+#
+# Variables: ${service_file}, ${bus_name}, ${payload_path}
+
+RUN mkdir -p /usr/share/dbus-1/system-services && \
+    printf '%s\n' \
+        '[D-BUS Service]' \
+        '# Operator-provisioned for ${hostname}.' \
+        'Name=${bus_name}.${hostname}' \
+        'Exec=${payload_path}' \
+        'User=root' \
+        > ${service_file} && \
+    chown root:root ${service_file} && \
+    chmod 0644 ${service_file}

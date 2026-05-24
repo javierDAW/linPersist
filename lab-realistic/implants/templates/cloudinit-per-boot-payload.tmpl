@@ -1,0 +1,44 @@
+# Implant template: cloudinit-per-boot-payload (L2, armed, self-exec)
+#
+# T1543 + T1547 (Create or Modify System Process; Boot or Logon
+# Autostart). cloud-init scans /var/lib/cloud/scripts/per-boot/ on
+# every boot and exec()s every executable file as root. Dropping a
+# +x script there gives the attacker boot-time root code execution
+# on every reboot, with no systemd unit or cron line to grep.
+#
+# Self-exec model: ExecTarget = locus (the script file IS the
+# payload). Same shape as cron.periodic and netdispatch.
+#
+# linpersist's cloudinit module emits one cloudinit.script record
+# under the per-boot site_class. Signals on a stock realistic lab
+# host:
+#   - recent_mtime_7d   (the script is freshly written)
+#   - non_package_path  (cloud-init scripts are never package-managed)
+# No bespoke detection rule exists for cloudinit.script yet (gap
+# documented in docs/SPRINT-HANDOFF.md "What is OPEN after v0.5.0");
+# implant surfaces via Q1 (singleton content hash) only at this
+# stage. Adding a rule like cloudinit_script_non_package_path is
+# the natural follow-up calibration once a baseline of benign
+# per-boot scripts exists across the fleet.
+#
+# Variables: ${script_file}
+
+RUN mkdir -p /var/lib/cloud/scripts/per-boot && \
+    printf '%s\n' \
+        '#!/bin/sh' \
+        '# INERT IMPLANT MARKER -- lab artifact, not real malware.' \
+        '# Simulated cloud-init per-boot persistence (T1543 + T1547).' \
+        '# Provisioned for node ${hostname} (datacenter ${datacenter}).' \
+        'set -eu' \
+        'NODE_TAG="${hostname}"' \
+        'BEACON_ID="ops-${hostname}-bootstrap"' \
+        'echo "lab-implant cloudinit-per-boot-payload host=$$(hostname) ts=$$(date -Is)" \' \
+        '    >> /tmp/.implant-trace' \
+        'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' \
+        'export PATH NODE_TAG BEACON_ID' \
+        '# Beacon stub: a real implant would phone home here as $$BEACON_ID.' \
+        ': "${HOME:=/root}"' \
+        'exit 0' \
+        > ${script_file} && \
+    chown root:root ${script_file} && \
+    chmod 0755 ${script_file}
