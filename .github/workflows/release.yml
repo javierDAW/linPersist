@@ -118,16 +118,19 @@ jobs:
           # softprops/action-gh-release@v2 race conditions, and the
           # auth model is the standard GITHUB_TOKEN. Uses
           # --generate-notes for auto-generated changelog text from
-          # the commit range, --verify-tag to fail fast if the tag
-          # is somehow not pushed, and --clobber so a re-run can
-          # overwrite the artifact set rather than 422-ing on
-          # "already exists".
+          # the commit range and --verify-tag to fail fast if the tag
+          # is somehow not pushed.
+          #
+          # NB: only one glob (dist/linpersist-*). `dist/linpersist-report-*`
+          # is a subset and adding it as a separate arg caused gh to
+          # try uploading each report asset twice — second attempt 422s
+          # with "ReleaseAsset.name already exists" (gh release create
+          # has no --clobber). Bug bit v0.4.1 + v0.5.0 first attempts.
           gh release create "$VERSION" \
             --title "$VERSION" \
             --generate-notes \
             --verify-tag \
             dist/linpersist-* \
-            dist/linpersist-report-* \
             dist/CHECKSUMS.txt
 
       - name: Upload artifacts on manual dispatch (no Release)
