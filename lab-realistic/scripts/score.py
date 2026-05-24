@@ -11,19 +11,19 @@ Computes per-query precision and recall:
     ground-truth placements with records that the query would have
     surfaced. TP/FP/FN counts are emitted as a markdown table.
 
-Heuristic limitations: the script does NOT re-render Q1..Q12,
-and the catch-test is PRESENCE-based, not signal-exact. For
-each expected (host, module, site_class) key it checks whether
-the agent emitted ANY record carrying ANY signal at that key;
-the catalog's `expected_signals` is used to populate the
-ground-truth column but NOT enforced. Rationale: agent and
-catalog use overlapping-but-not-identical signal names (e.g.
-catalog says `exec_target_orphan`, agent emits `non_package_path`
-when the payload exists on disk and is not package-managed),
-and an exact-match check would surface confusing FNs even for
-correctly-caught implants. A future revision can pipe
-linpersist-report's structured output back in, or align the
-catalog vocabulary with internal/core/signals.go.
+Heuristic: the script does NOT re-render Q1..Q12, but the catch-test
+is signal-exact. For each expected (host, module, site_class) key it
+checks whether every name in the catalog's `expected_signals` list
+was actually emitted on a record at that key. An implant catches a
+query when ALL its listed expected_signals are observed; missing
+signals are reported as FNs with the specific gaps named.
+
+The pre-v0.5.x heuristic was presence-based ("ANY signal fires at
+the key") and routinely under-reported FNs — a record emitting only
+`non_package_path` when the catalog expected
+`[interpreter_in_tmp, exec_target_orphan]` was scored as TP because
+SOMETHING fired. The catalog and core signal vocabularies are now
+aligned (see commit 15f43a1), so exact matching is the right floor.
 
 Usage: python3 scripts/score.py [-i ndjson_path] [-g ground_truth_path]
 """
@@ -60,10 +60,13 @@ def main():
 
     # Build expected sets by query: (host, module, site_class) -> implant_id
     expected_by_q = defaultdict(set)   # q -> set((host, module, site_class))
-    expected_meta = {}                  # (host, m, sc) -> implant_id
+    expected_meta = {}                  # (host, m, sc) -> {implant_id, expected_signals}
     for g in gt:
         key = (g["host"], g["module"], g["site_class"])
-        expected_meta[key] = g["implant"]
+        expected_meta[key] = {
+            "implant": g["implant"],
+            "expected_signals": set(g.get("expected_signals", []) or []),
+        }
         for q in g.get("expected_caught_by", []):
             expected_by_q[q].add(key)
 
@@ -76,27 +79,44 @@ def main():
             record_signals[key].add(s)
 
     # For each query, decide whether the expected key was surfaced.
+    # Signal-exact: every name in expected_signals must appear on at
+    # least one record at the key. Missing signals are FNs and the
+    # specific gap is named in the "misses" block after the table.
     queries = ["Q1", "Q4", "Q7", "Q9", "Q11", "Q12"]
     print("# Lab-realistic v2 scoring report\n")
     print("| query | TP | FN | recall |")
     print("|---|---:|---:|---:|")
+    misses_by_q = {}
     for q in queries:
         expected = expected_by_q.get(q, set())
         if not expected:
             print(f"| {q} | -- | -- | (no implants target this query) |")
             continue
         tp = 0
+        misses = []
         for key in expected:
-            # Heuristic: an implant was caught if at least one of its
-            # expected signals appears on a record at the same
-            # (host, module, site_class).
-            implant_id = expected_meta[key]
+            meta = expected_meta[key]
             seen = record_signals.get(key, set())
-            if seen:
+            gaps = meta["expected_signals"] - seen
+            if not gaps:
                 tp += 1
+            else:
+                misses.append((meta["implant"], key, sorted(gaps), sorted(seen)))
         fn = len(expected) - tp
         recall = tp / len(expected) if expected else 0.0
         print(f"| {q} | {tp} | {fn} | {recall:.2f} |")
+        if misses:
+            misses_by_q[q] = misses
+
+    if misses_by_q:
+        print("\n## FN details (signal-exact)\n")
+        for q, misses in misses_by_q.items():
+            print(f"### {q}")
+            for implant, key, gaps, seen in misses:
+                host, mod, sc = key
+                print(f"- `{implant}` on `{host}` ({mod}/{sc})")
+                print(f"  missing: {gaps}")
+                print(f"  observed: {seen}")
 
     print("\nNotes: precision is not computed here -- it requires "
           "re-running the report queries and comparing each row against "

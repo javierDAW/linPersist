@@ -187,7 +187,23 @@ def main():
         # Render role template body.
         body = render_role_template(h["role"], h)
 
-        # Append implant snippets.
+        # Stamp the role-template configs to provisioned_at BEFORE
+        # implants land. Two reasons for this order:
+        #   1. Without the stamp, every host would emit a ~100-record
+        #      cluster carrying recent_mtime_7d, drowning Q8.
+        #   2. Stamping AFTER implants (as pre-v0.5.x did) erases the
+        #      recent_mtime_7d signal on the implant itself — implants
+        #      should look fresh because they ARE fresh, and Q1/Q7/Q9
+        #      catalogue entries that expect recent_mtime_7d must
+        #      actually observe it. Bug closed in v0.5.x consolidation.
+        body += (
+            "\n# Stamp every operator-shaped config to provisioned_at\n"
+            "# BEFORE implants land — implants get build-time (recent) mtime.\n"
+            "RUN find /etc /home -type f 2>/dev/null "
+            f"| xargs -r -I{{}} touch -d \"{h['provisioned_at_iso']}\" {{}} 2>/dev/null ; true\n"
+        )
+
+        # Append implant snippets AFTER the stamp.
         for impl_id in impls:
             impl = implant_by_id[impl_id]
             body += "\n\n# ---- Implant: " + impl_id + " ----\n"
@@ -203,16 +219,6 @@ def main():
                 "expected_q7_rule": impl.get("expected_q7_rule"),
             }
             ground_truth_lines.append(json.dumps(gt, sort_keys=True))
-
-        # Append a mtime-stamping step so the generated configs
-        # reflect the host's provisioned_at, not the docker build
-        # time. Without this, every host emits a ~100-record cluster
-        # carrying recent_mtime_7d, drowning Q8.
-        body += (
-            "\n# Stamp every operator-shaped config to provisioned_at.\n"
-            "RUN find /etc /home -type f 2>/dev/null "
-            f"| xargs -r -I{{}} touch -d \"{h['provisioned_at_iso']}\" {{}} 2>/dev/null ; true\n"
-        )
         # Write Dockerfile.
         dockerfile = OUT / "dockerfiles" / f"{h['hostname']}.Dockerfile"
         dockerfile.write_text(body, encoding="utf-8")
