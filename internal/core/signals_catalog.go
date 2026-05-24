@@ -380,6 +380,21 @@ var Signals = []SignalDef{
 		Description: "file has the setgid bit (02000); pair with non_package_path for the T1548.001 implant shape",
 		EmittedBy:   []string{"suidbits"},
 	},
+	{
+		Name:        SignalTrapCommand,
+		Description: "profile-class file installs a `trap CMD SIG…` shell directive (T1546.005)",
+		EmittedBy:   []string{"profile"},
+	},
+	{
+		Name:        SignalTrapExitHandler,
+		Description: "profile-class trap directive's signal list includes EXIT (fires on every shell exit)",
+		EmittedBy:   []string{"profile"},
+	},
+	{
+		Name:        SignalTrapCommandInTmp,
+		Description: "profile-class trap directive's CMD resolves under /tmp / /var/tmp / /dev/shm",
+		EmittedBy:   []string{"profile"},
+	},
 }
 
 // signalsByName is a presence-and-lookup index built once from Signals.
