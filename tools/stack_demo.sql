@@ -368,6 +368,9 @@ WHERE
   OR /* sysusers_second_uid_zero */ list_contains(signals, 'sysusers_uid_zero')
   OR /* systemd_linger_non_root_account */ list_contains(signals, 'systemd_linger_non_root')
   OR /* suid_binary_outside_package_path */ (list_contains(signals, 'non_package_path') AND (list_contains(signals, 'suid_bit_set') OR list_contains(signals, 'sgid_bit_set')))
+  OR /* dbus_exec_under_tmp */ (list_contains(signals, 'interpreter_in_tmp') AND module = 'dbus')
+  OR /* cloudinit_script_non_package_path */ (list_contains(signals, 'non_package_path') AND module = 'cloudinit')
+  OR /* k8s_static_pod_unqualified_image */ (list_contains(signals, 'unqualified_exec_target') AND module = 'k8sstatic')
   -- END GENERATED
 ORDER BY host, module, locus;
 

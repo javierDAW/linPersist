@@ -354,7 +354,11 @@ implants:
       (interpreter_in_tmp + exec_target_orphan).
     expected_signals: [interpreter_in_tmp, exec_target_orphan, recent_mtime_7d, non_package_path]
     expected_caught_by: [Q1, Q4, Q7]
-    expected_q7_rule: payload_under_tmp_via_persistence
+    # Fires two Q7 rules: payload_under_tmp_via_persistence (orphan + tmp,
+    # severity: high) AND dbus_exec_under_tmp (dbus-scoped, severity:
+    # critical). The latter is the more important hit — dbus-daemon
+    # runs Exec= as root on bus activation, no orphan check needed.
+    expected_q7_rule: dbus_exec_under_tmp
     template: dbus-system-impostor.tmpl
     vars:
       service_file: /usr/share/dbus-1/system-services/org.ops.SyncHelper.service
@@ -373,8 +377,8 @@ implants:
       v0.5.0"); surfaces via Q1 (singleton content hash) on the
       first pass.
     expected_signals: [recent_mtime_7d, non_package_path]
-    expected_caught_by: [Q1]
-    expected_q7_rule: null
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: cloudinit_script_non_package_path
     template: cloudinit-per-boot-payload.tmpl
     vars:
       script_file: /var/lib/cloud/scripts/per-boot/99-ops-bootstrap.sh
@@ -405,8 +409,8 @@ implants:
       fleet — every legitimate kube-system pod stacks across multiple
       k8s-cp hosts).
     expected_signals: [unqualified_exec_target]
-    expected_caught_by: [Q1]
-    expected_q7_rule: null
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: k8s_static_pod_unqualified_image
     template: k8s-static-attacker-pod.tmpl
     vars:
       manifest_file: /etc/kubernetes/manifests/ops-bootstrap.yaml

@@ -265,6 +265,76 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			},
 			want: nil,
 		},
+
+		// v0.5.0 follow-up: cloud-native rules.
+
+		{
+			name: "dbus.system Exec= under /tmp orphan -> dbus_exec_under_tmp + payload_under_tmp_via_persistence",
+			rec: core.Record{
+				Module: "dbus",
+				Signals: []string{
+					core.SignalInterpreterInTmp,
+					core.SignalExecTargetOrphan,
+				},
+			},
+			want: []string{"payload_under_tmp_via_persistence", "dbus_exec_under_tmp"},
+		},
+		{
+			name: "dbus Exec= under /tmp armed (payload exists, no orphan) -> dbus_exec_under_tmp only",
+			rec: core.Record{
+				Module:  "dbus",
+				Signals: []string{core.SignalInterpreterInTmp},
+			},
+			want: []string{"dbus_exec_under_tmp"},
+		},
+		{
+			name: "non-dbus module with interpreter_in_tmp alone -> dbus rule must NOT fire",
+			rec: core.Record{
+				Module:  "cron",
+				Signals: []string{core.SignalInterpreterInTmp},
+			},
+			want: nil,
+		},
+		{
+			name: "cloudinit record with non_package_path -> cloudinit_script_non_package_path",
+			rec: core.Record{
+				Module:  "cloudinit",
+				Signals: []string{core.SignalNonPackagePath, core.SignalRecentMtime7d},
+			},
+			want: []string{"cloudinit_script_non_package_path"},
+		},
+		{
+			name: "cloudinit record without non_package_path -> rule suppressed",
+			rec: core.Record{
+				Module:  "cloudinit",
+				Signals: []string{core.SignalRecentMtime7d},
+			},
+			want: nil,
+		},
+		{
+			name: "k8sstatic pod with unqualified image -> k8s_static_pod_unqualified_image",
+			rec: core.Record{
+				Module:  "k8sstatic",
+				Signals: []string{core.SignalUnqualifiedExecTarget},
+			},
+			want: []string{"k8s_static_pod_unqualified_image"},
+		},
+		{
+			name: "k8sstatic pod with full registry ref (no unqualified signal) -> rule suppressed",
+			rec: core.Record{
+				Module:  "k8sstatic",
+				Signals: []string{core.SignalRecentMtime7d, core.SignalNonRootOwner},
+			},
+			want: nil,
+		},
+		{
+			name: "unqualified_exec_target on non-k8sstatic module -> k8s rule must NOT fire",
+			rec: core.Record{
+				Module:  "cron",
+				Signals: []string{core.SignalUnqualifiedExecTarget},
+			},
+			want: nil,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
