@@ -248,3 +248,32 @@ detections:
     when:
       signals_all: [non_package_path]
       signals_any: [suid_bit_set, sgid_bit_set]
+
+  # ---------- v0.5.0 follow-up: cloud-native surfaces -----------------
+  # Three rules covering the dbus / cloudinit / k8sstatic modules
+  # added in v0.5.0. Module-scoped (no per-site_class predicate in the
+  # schema yet); the residual FP classes are documented per rule.
+
+  - id: dbus_exec_under_tmp
+    description: D-Bus service file points at an Exec= path under /tmp — dbus-daemon execs it as root on bus activation
+    severity: critical
+    mitre: [T1543]
+    when:
+      module_in: [dbus]
+      signals_all: [interpreter_in_tmp]
+
+  - id: cloudinit_script_non_package_path
+    description: cloud-init walker emitted a record at a path not owned by any installed package — cloud-init runs /var/lib/cloud/scripts/per-boot/* as root on every boot
+    severity: high
+    mitre: [T1543, T1547]
+    when:
+      module_in: [cloudinit]
+      signals_all: [non_package_path]
+
+  - id: k8s_static_pod_unqualified_image
+    description: Static pod manifest references a bare image name (no registry, no tag) — legitimate kubelet pods always use full registry refs like registry.k8s.io/kube-apiserver:v1.30.0
+    severity: high
+    mitre: [T1543.005]
+    when:
+      module_in: [k8sstatic]
+      signals_all: [unqualified_exec_target]
