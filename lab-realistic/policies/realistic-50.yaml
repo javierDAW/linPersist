@@ -141,7 +141,7 @@ roles:
       median_days_ago: 200
 
   - id: legacy
-    count: 1
+    count: 2
     distros: { amzn2: 1.0 }     # special legacy distro
     tags:
       role: legacy
