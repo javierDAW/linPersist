@@ -77,7 +77,7 @@ var Signals = []SignalDef{
 		Name:        SignalRecentTargetMtime7d,
 		Description: "resolved exec_target's mtime is within the last 7 days",
 		EmittedBy: []string{
-			"cron", "kmod", "ldso", "pam", "passwd", "ssh", "systemd", "udev", "xdg",
+			"cron", "kmod", "ldso", "pam", "passwd", "profile", "ssh", "systemd", "udev", "xdg",
 		},
 	},
 	{
@@ -144,7 +144,7 @@ var Signals = []SignalDef{
 		Name:        SignalExecTargetOrphan,
 		Description: "exec_target points to a file that does not exist on disk",
 		EmittedBy: []string{
-			"cron", "dbus", "grub", "kmod", "ldso", "pam", "passwd", "ssh", "sshd",
+			"cron", "dbus", "grub", "kmod", "ldso", "pam", "passwd", "profile", "ssh", "sshd",
 			"systemd", "sysv", "udev", "xdg",
 		},
 	},
