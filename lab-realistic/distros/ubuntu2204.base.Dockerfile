@@ -14,5 +14,12 @@ RUN apt-get update \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
+# Drop the dbus system-bus baseline files (NetworkManager, polkit,
+# accountsservice, systemd-{hostnamed,localed,timedated}). Mirrors a
+# stock package install at filesystem level; needed for fleet-scale
+# Q1 stacking on dbus.system to behave realistically.
+COPY distros/_dbus-system-baseline.sh /tmp/_dbus-system-baseline.sh
+RUN /bin/sh /tmp/_dbus-system-baseline.sh && rm /tmp/_dbus-system-baseline.sh
+
 RUN mkdir -p /opt/linpersist && touch /opt/linpersist/linpersist
 WORKDIR /opt/linpersist
