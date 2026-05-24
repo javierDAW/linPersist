@@ -98,6 +98,8 @@ const (
 	PkgMgrDpkg
 	// PkgMgrRpm means /var/lib/rpm/ was found.
 	PkgMgrRpm
+	// PkgMgrApk means /lib/apk/db/installed was found (Alpine).
+	PkgMgrApk
 )
 
 // String returns the lowercase name of the package manager.
@@ -107,6 +109,8 @@ func (p PackageManager) String() string {
 		return "dpkg"
 	case PkgMgrRpm:
 		return "rpm"
+	case PkgMgrApk:
+		return "apk"
 	default:
 		return "none"
 	}
@@ -268,6 +272,8 @@ func (r *Resolver) Warmup(ctx context.Context) {
 			m, err = r.buildDpkgMap(buildCtx)
 		case PkgMgrRpm:
 			m, err = r.buildRpmMap(buildCtx)
+		case PkgMgrApk:
+			m, err = r.buildApkMap(buildCtx)
 		}
 		elapsed := time.Since(start)
 
@@ -374,22 +380,26 @@ func (r *Resolver) PackageManager() PackageManager { return r.pkgMgr }
 // build failure.
 func (r *Resolver) MapSize() int { return len(r.pathMap) }
 
-// detectPackageManager picks dpkg or rpm based on /etc/os-release plus
-// filesystem evidence. See ADR-0009 for the rules.
+// detectPackageManager picks dpkg, rpm or apk based on /etc/os-release
+// plus filesystem evidence. See ADR-0009 for the rules; apk added in
+// v0.5.0 to cover Alpine and Alpine-derived container images.
 func (r *Resolver) detectPackageManager() PackageManager {
 	dpkgDir := r.resolveRoot("/var/lib/dpkg/info")
 	rpmDir := r.resolveRoot("/var/lib/rpm")
+	apkDB := r.resolveRoot("/lib/apk/db/installed")
 
 	dpkgExists := dirExists(dpkgDir)
 	rpmExists := dirExists(rpmDir)
+	apkExists := fileExists(apkDB)
 
-	if !dpkgExists && !rpmExists {
+	if !dpkgExists && !rpmExists && !apkExists {
 		return PkgMgrNone
 	}
 
 	osIDs := r.readOSReleaseIDs()
 	prefersDpkg := false
 	prefersRpm := false
+	prefersApk := false
 	for _, id := range osIDs {
 		switch id {
 		case "debian", "ubuntu", "kali", "raspbian", "linuxmint", "mint",
@@ -399,14 +409,20 @@ func (r *Resolver) detectPackageManager() PackageManager {
 			"ol", "oracle", "scientific", "opensuse", "opensuse-leap",
 			"opensuse-tumbleweed", "sles", "suse":
 			prefersRpm = true
+		case "alpine", "postmarketos", "wolfi", "chainguard":
+			prefersApk = true
 		}
 	}
 
 	switch {
+	case prefersApk && apkExists:
+		return PkgMgrApk
 	case prefersDpkg && dpkgExists:
 		return PkgMgrDpkg
 	case prefersRpm && rpmExists:
 		return PkgMgrRpm
+	case apkExists:
+		return PkgMgrApk
 	case dpkgExists:
 		return PkgMgrDpkg
 	case rpmExists:
@@ -414,6 +430,12 @@ func (r *Resolver) detectPackageManager() PackageManager {
 	default:
 		return PkgMgrNone
 	}
+}
+
+// fileExists returns true iff path is a regular file.
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 // readOSReleaseIDs returns ID and every token from ID_LIKE found in
@@ -533,6 +555,89 @@ func (r *Resolver) scanDpkgList(path, pkgName string, out map[string]string) err
 		out[p] = pkgName
 	}
 	return sc.Err()
+}
+
+// buildApkMap parses /lib/apk/db/installed and returns a path → pkg
+// map. The apk-tools "world database" is a single text file with
+// record-oriented format separated by blank lines; each record is a
+// package, each non-empty line is a `K:value` tuple. The keys this
+// builder cares about:
+//
+//	P:<name>     — package name, sets the "current package"
+//	F:<dir>      — relative-to-root directory, sets the "current dir"
+//	R:<file>     — file within the current dir; one (P, /F/R) entry
+//
+// Any non-key line, comment, or unknown key is silently skipped.
+// File-conflict policy: first occurrence wins (same as dpkg/rpm
+// paths in the existing builders).
+//
+// Performance: a stock Alpine 3.19 minirootfs has ~20-25 packages
+// totalling ~2500 lines; a fat container with build-base, ssh, curl
+// etc. is ~50-100 packages and a few thousand lines. Single-pass
+// scanner under 50 ms.
+func (r *Resolver) buildApkMap(ctx context.Context) (map[string]string, error) {
+	path := r.resolveRoot("/lib/apk/db/installed")
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer f.Close()
+
+	out := make(map[string]string, 20_000)
+	sc := bufio.NewScanner(f)
+	// apk installed records can carry long Z: (content hash) lines,
+	// but the project-wide line cap of 1 MiB is more than enough.
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	var (
+		curPkg string
+		curDir string
+	)
+	for sc.Scan() {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		line := sc.Text()
+		if line == "" {
+			// Record terminator: clear state so a missing P: in the
+			// next record does not leak ownership across packages.
+			curPkg = ""
+			curDir = ""
+			continue
+		}
+		if len(line) < 2 || line[1] != ':' {
+			continue
+		}
+		key := line[0]
+		val := line[2:]
+		switch key {
+		case 'P':
+			curPkg = val
+		case 'F':
+			curDir = val
+		case 'R':
+			if curPkg == "" {
+				continue
+			}
+			// F: is relative to / and has no leading slash; combine
+			// to an absolute path. R: at the root (curDir == "")
+			// produces /<R>.
+			var abs string
+			if curDir == "" {
+				abs = "/" + val
+			} else {
+				abs = "/" + curDir + "/" + val
+			}
+			if _, dup := out[abs]; dup {
+				continue
+			}
+			out[abs] = curPkg
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("scan %s: %w", path, err)
+	}
+	return out, nil
 }
 
 // buildRpmMap spawns `rpm -qa --filesbypkg` and streams its output
