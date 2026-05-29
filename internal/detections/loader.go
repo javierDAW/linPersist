@@ -10,10 +10,11 @@
 //
 // The loader validates schema version, predicate shapes, signal names
 // (against core.KnownSignalSet), unique detection IDs, and SQL-unsafe
-// characters in content substrings before returning. Callers that get
-// back a *RuleSet have a tree they can trust to be internally
-// consistent and safe to render to either Go-native predicates or
-// SQL.
+// characters in every value the SQL generator interpolates verbatim
+// (content substrings, module_in and site_class_in) before returning.
+// Callers that get back a *RuleSet have a tree they can trust to be
+// internally consistent and safe to render to either Go-native
+// predicates or SQL.
 //
 // See ADR-0013 for the schema and release-gate rationale.
 
@@ -64,6 +65,17 @@ var validMITREPattern = regexp.MustCompile(`^T[0-9]{4}(\.[0-9]{3})?$`)
 // /tmp/, ...) never need these characters, and rejection means the
 // SQL backend is irrelevant to the loader.
 var sqlUnsafePattern = regexp.MustCompile("['%_\\\\]")
+
+// sqlEqUnsafePattern guards values interpolated into an equality clause
+// (module = '<s>', site_class = '<s>') rather than a LIKE pattern. Only
+// the single quote and backslash can break out of the quoted literal
+// there; % and _ are literal in an equality match, so — unlike content
+// substrings — they are NOT rejected (a future site_class or module
+// name containing them would still render safely). Module and site_class
+// names are lowercase dotted identifiers in practice, so this never
+// rejects legitimate input; it exists so a malformed or hostile rule
+// source can never inject SQL through these fields.
+var sqlEqUnsafePattern = regexp.MustCompile("['\\\\]")
 
 // RuleSet is the parsed detections.yaml. The fields mirror the YAML
 // structure verbatim; the loader does the validation work so callers
@@ -205,6 +217,34 @@ func (rs *RuleSet) validate(signals, modules map[string]struct{}) error {
 				errs = append(errs,
 					fmt.Sprintf("detection %q: content_contains_any %q contains SQL-unsafe character (' %% _ \\); "+
 						"the SQL backend rejects these", d.ID, s))
+			}
+		}
+		// module_in / site_class_in are interpolated into equality
+		// clauses by the SQL generator. Reject the quote/backslash that
+		// could break out of the literal, and — when a module registry
+		// was supplied — confirm each module name is real (mirrors the
+		// signals closed-set check; typo protection on top of safety).
+		for _, mname := range d.When.ModuleIn {
+			if mname == "" {
+				errs = append(errs, fmt.Sprintf("detection %q: module_in has empty entry", d.ID))
+				continue
+			}
+			if sqlEqUnsafePattern.MatchString(mname) {
+				errs = append(errs, fmt.Sprintf("detection %q: module_in %q contains SQL-unsafe character (' or \\)", d.ID, mname))
+			}
+			if modules != nil {
+				if _, ok := modules[mname]; !ok {
+					errs = append(errs, fmt.Sprintf("detection %q: module_in references unknown module %q", d.ID, mname))
+				}
+			}
+		}
+		for _, sc := range d.When.SiteClassIn {
+			if sc == "" {
+				errs = append(errs, fmt.Sprintf("detection %q: site_class_in has empty entry", d.ID))
+				continue
+			}
+			if sqlEqUnsafePattern.MatchString(sc) {
+				errs = append(errs, fmt.Sprintf("detection %q: site_class_in %q contains SQL-unsafe character (' or \\)", d.ID, sc))
 			}
 		}
 	}

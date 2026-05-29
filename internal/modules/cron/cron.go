@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -252,7 +251,7 @@ func (m *Module) processCrontabFile(ctx context.Context, logical, real string, i
 		return
 	}
 
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
@@ -503,15 +502,7 @@ func (m *Module) processPeriodicFile(ctx context.Context, logical, real string, 
 		}, nil))
 		return
 	}
-	f, err := os.Open(real)
-	if err != nil {
-		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
-			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
-		}, nil))
-		return
-	}
-	defer f.Close()
-	raw, err := io.ReadAll(f)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
@@ -577,7 +568,7 @@ func (m *Module) collectAnacrontab(ctx context.Context, logical string, emit fun
 		}, nil))
 		return nil
 	}
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},

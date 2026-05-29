@@ -30,6 +30,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -137,13 +138,13 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 		emit(m.envelope(logical, info, []core.RecordError{{Field: "content_sha256", Code: "SIZE_LIMIT"}}))
 		return
 	}
-	f, err := os.Open(real)
+	f, err := core.OpenRegularNoBlock(real)
 	if err != nil {
 		emit(m.envelope(logical, info, []core.RecordError{{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()}}))
 		return
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(io.LimitReader(f, m.opts.MaxFileSize))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	any := false
 	for sc.Scan() {

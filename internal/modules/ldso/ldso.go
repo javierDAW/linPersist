@@ -150,7 +150,7 @@ func (m *Module) collectPreload(ctx context.Context, logical string, emit func(c
 		}, nil))
 		return nil
 	}
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
@@ -298,7 +298,7 @@ func (m *Module) processConfFile(ctx context.Context, logical, real string, info
 		}, nil))
 		return
 	}
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},

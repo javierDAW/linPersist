@@ -429,6 +429,26 @@ func TestLoaderRejectsBadInputs(t *testing.T) {
 			yaml: "schema_version: 1\ndetections: [{id: x, when: {module_in: [cron], content_contains_any: [\"O'Reilly\"]}}]\n",
 			want: "SQL-unsafe",
 		},
+		{
+			name: "sql-unsafe module_in (quote breaks equality literal)",
+			yaml: "schema_version: 1\ndetections: [{id: x, when: {module_in: [\"cron' OR '1'='1\"]}}]\n",
+			want: "module_in",
+		},
+		{
+			name: "sql-unsafe site_class_in (backslash)",
+			yaml: "schema_version: 1\ndetections: [{id: x, when: {site_class_in: [\"cron.d\\\\\"]}}]\n",
+			want: "site_class_in",
+		},
+		{
+			name: "empty module_in entry",
+			yaml: "schema_version: 1\ndetections: [{id: x, when: {module_in: [\"\"]}}]\n",
+			want: "module_in has empty entry",
+		},
+		{
+			name: "empty site_class_in entry",
+			yaml: "schema_version: 1\ndetections: [{id: x, when: {site_class_in: [\"\"]}}]\n",
+			want: "site_class_in has empty entry",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -440,6 +460,25 @@ func TestLoaderRejectsBadInputs(t *testing.T) {
 				t.Errorf("error %q does not contain %q", err.Error(), tc.want)
 			}
 		})
+	}
+}
+
+// TestModuleInClosedSetCheck exercises the (previously dead) modules
+// argument: when a registry is supplied, module_in must reference a
+// known module. A dotted site_class and a real module name must NOT be
+// rejected by the SQL-safety guards — guarding against a false positive
+// that would fail the build gate on legitimate rules.
+func TestModuleInClosedSetCheck(t *testing.T) {
+	known := map[string]struct{}{"cron": {}, "ssh": {}}
+
+	bad := "schema_version: 1\ndetections: [{id: x, when: {module_in: [definitely_not_a_module]}}]\n"
+	if _, err := Load([]byte(bad), nil, known); err == nil || !strings.Contains(err.Error(), "unknown module") {
+		t.Fatalf("expected unknown-module error, got %v", err)
+	}
+
+	good := "schema_version: 1\ndetections: [{id: x, when: {module_in: [cron], site_class_in: [cron.d]}}]\n"
+	if _, err := Load([]byte(good), nil, known); err != nil {
+		t.Fatalf("clean rule with dotted site_class rejected: %v", err)
 	}
 }
 

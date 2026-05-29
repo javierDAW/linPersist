@@ -378,7 +378,7 @@ func (m *Module) processSymlink(ctx context.Context, logical, real string, info 
 		emit(rec)
 		return
 	}
-	raw, err := os.ReadFile(realTarget)
+	raw, err := core.ReadFileCapped(realTarget, m.opts.MaxFileSize)
 	if err != nil {
 		rec := m.envelope(logical, info, classifyByLogical(logical), userMode)
 		rec.Errors = append(rec.Errors, core.RecordError{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()})
@@ -422,7 +422,7 @@ func (m *Module) emitRegular(ctx context.Context, logical, real string, info os.
 		emit(rec)
 		return
 	}
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		rec := m.envelope(logical, info, siteClass, userMode)
 		rec.Errors = append(rec.Errors, core.RecordError{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()})
