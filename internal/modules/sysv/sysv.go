@@ -254,7 +254,7 @@ func (m *Module) processInitFile(ctx context.Context, logical, real string, info
 		}))
 		return
 	}
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
@@ -309,7 +309,7 @@ func (m *Module) processRunlevelSymlink(ctx context.Context, logical, real strin
 		emit(rec)
 		return
 	}
-	raw, err := os.ReadFile(realTarget)
+	raw, err := core.ReadFileCapped(realTarget, m.opts.MaxFileSize)
 	if err != nil {
 		rec := m.baseRecord(logical, info)
 		rec.Signals = appendUnique(rec.Signals, core.SignalSysvExternalInitSymlink)

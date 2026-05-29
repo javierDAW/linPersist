@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Security — terminal-escape hardening in the report binary
+### Security — hardening across the report binary, collector and detections loader
 - **`linpersist-report` text output now neutralizes terminal-control
   sequences in untrusted, record-derived fields.** The fleet report,
   per-host dossier and diff renderers wrote attacker-influenced values
@@ -30,6 +30,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or hostile host file (a line > 4 MiB) blinded the analyst to every
   other host. It now reads via a bounded `bufio.Reader`, counts the
   oversized line as one skipped line, and continues.
+- **Collector file reads are now hardened against TOCTOU swaps.** Every
+  module previously did `os.Lstat` (size / regular check) then
+  `os.ReadFile(real)`, leaving a window in which an attacker with write
+  access to a scanned directory could swap the target for a much larger
+  file (unbounded read → memory pressure) or a FIFO/device (a read-only
+  open blocks until the module's 30s deadline). New
+  `core.ReadFileCapped` / `core.OpenRegularNoBlock`
+  (`internal/core/readfile.go`) open with `O_NONBLOCK`, `fstat` the
+  resulting descriptor to reject non-regular targets (no pre-open Lstat
+  race), and bound the read with `io.LimitReader`. Symlink-following is
+  preserved (several modules legitimately hash a symlinked locus's
+  target). All 28 module read sites plus the streaming readers
+  (`sysusers`, `tmpfiles`, `cron.periodic`) were migrated. Tests:
+  `internal/core/readfile_test.go`.
+- **Detections loader now rejects SQL-unsafe characters in every value
+  the SQL generator interpolates.** `content_contains_any` was already
+  checked, but `module_in` / `site_class_in` — interpolated into
+  `module = '<v>'` / `site_class = '<v>'` by `detgen` — were not, an
+  asymmetric-escaping footgun should the rule source ever become less
+  trusted. The loader now rejects `'` and `\` in those fields and, when
+  a module registry is supplied, validates `module_in` against it (the
+  previously-unused `modules` argument). No effect on the committed
+  `detections.yaml`; `detgen --verify` output is unchanged. Tests:
+  `internal/detections/detections_test.go`.
 
 ## [0.5.0] - 2026-05-24
 

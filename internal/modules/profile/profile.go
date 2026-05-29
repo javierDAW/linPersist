@@ -242,7 +242,7 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 		}))
 		return
 	}
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
