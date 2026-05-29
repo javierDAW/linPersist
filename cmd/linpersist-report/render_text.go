@@ -30,7 +30,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		fmt.Fprintf(out, " · %d malformed lines skipped", report.SkippedLines)
 	}
 	if report.AgentVersion != "" {
-		fmt.Fprintf(out, " · agent %s", report.AgentVersion)
+		fmt.Fprintf(out, " · agent %s", safeCell(report.AgentVersion))
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out)
@@ -83,7 +83,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "  module\trecords\thosts")
 	for _, r := range report.Overview.ByModule {
-		fmt.Fprintf(tw, "  %s\t%s\t%d\n", r.Name, commaInt(r.Records), r.Hosts)
+		fprintfSafe(tw, "  %s\t%s\t%d\n", r.Name, commaInt(r.Records), r.Hosts)
 	}
 	tw.Flush()
 	fmt.Fprintln(out)
@@ -93,7 +93,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "  site_class\trecords\thosts")
 	for _, r := range report.Overview.BySiteClass {
-		fmt.Fprintf(tw, "  %s\t%s\t%d\n", r.Name, commaInt(r.Records), r.Hosts)
+		fprintfSafe(tw, "  %s\t%s\t%d\n", r.Name, commaInt(r.Records), r.Hosts)
 	}
 	tw.Flush()
 	fmt.Fprintln(out)
@@ -103,7 +103,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "  os_id\thosts\trecords")
 	for _, r := range report.Overview.ByOSID {
-		fmt.Fprintf(tw, "  %s\t%d\t%s\n", r.Name, r.Hosts, commaInt(r.Records))
+		fprintfSafe(tw, "  %s\t%d\t%s\n", r.Name, r.Hosts, commaInt(r.Records))
 	}
 	tw.Flush()
 	fmt.Fprintln(out)
@@ -132,8 +132,8 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 				status = a.orange(status)
 			}
 			fmt.Fprintf(tw, "  %s\t%s\t%d\t%d\t%s\n",
-				row.TechniqueID, status, row.Records, row.Hosts,
-				strings.Join(row.SiteClasses, ", "))
+				safeCell(row.TechniqueID), status, row.Records, row.Hosts,
+				safeCell(strings.Join(row.SiteClasses, ", ")))
 		}
 		tw.Flush()
 		fmt.Fprintln(out)
@@ -144,7 +144,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "  signal\thosts\trecords")
 	for _, r := range report.Overview.BySignal {
-		fmt.Fprintf(tw, "  %s\t%d\t%s\n", r.Name, r.Hosts, commaInt(r.Records))
+		fprintfSafe(tw, "  %s\t%d\t%s\n", r.Name, r.Hosts, commaInt(r.Records))
 	}
 	tw.Flush()
 	fmt.Fprintln(out)
@@ -159,7 +159,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  module\tsite_class\tcontent_norm\tsample_host\tsample_locus\tsnippet")
 		for _, r := range report.Q1Singletons {
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
+			fprintfSafe(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
 				r.Module, r.SiteClass, r.ContentNorm, r.SampleHost,
 				r.SampleLocus, r.SampleSnippet)
 		}
@@ -177,7 +177,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  module\tsite_class\tlocus\tcontent_norm\tsample_host\tsnippet")
 		for _, r := range report.Q2LocusSingletons {
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
+			fprintfSafe(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
 				r.Module, r.SiteClass, r.Locus, r.ContentNorm,
 				r.SampleHost, r.SampleSnippet)
 		}
@@ -195,7 +195,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  os_id\tmodule\tsite_class\tcontent_norm\tpeer_size\tsample_host\tsample_locus")
 		for _, r := range report.Q3PeerGroupSingletons {
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+			fprintfSafe(tw, "  %s\t%s\t%s\t%s\t%d\t%s\t%s\n",
 				r.OSID, r.Module, r.SiteClass, r.ContentNorm, r.PeerSize,
 				r.SampleHost, r.SampleLocus)
 		}
@@ -217,7 +217,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		fmt.Fprintln(tw, "  host\tmodule\tsite_class\tlocus\texec_target\tsignals")
 		for _, r := range report.Q4ImplantFingerprint {
 			sigs := strings.Join(r.Signals, ",")
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
+			fprintfSafe(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
 				r.Host, r.Module, r.SiteClass, r.Locus,
 				r.ExecTarget, sigs)
 		}
@@ -236,7 +236,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  module\tsignal\thosts\trecords")
 		for _, r := range report.Q5SignalDistribution {
-			fmt.Fprintf(tw, "  %s\t%s\t%d\t%s\n",
+			fprintfSafe(tw, "  %s\t%s\t%d\t%s\n",
 				r.Module, r.Signal, r.Hosts, commaInt(r.Records))
 		}
 		tw.Flush()
@@ -255,7 +255,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		fmt.Fprintln(tw, "  exec_target_sha256\thosts\trecords\tmodules\tsample_target\tspread")
 		for _, r := range report.Q6ExecTargetStacking {
 			spread := strings.Join(r.SpreadModules, ",")
-			fmt.Fprintf(tw, "  %s\t%d\t%s\t%d\t%s\t%s\n",
+			fprintfSafe(tw, "  %s\t%d\t%s\t%d\t%s\t%s\n",
 				r.ExecTargetSHA256, r.Hosts, commaInt(r.Records),
 				r.Modules, r.SampleTarget, spread)
 		}
@@ -284,8 +284,8 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 			}
 			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				colorSeverity(a, sev),
-				r.Host, r.Module, r.SiteClass,
-				r.Locus, r.ExecTarget, det, sigs)
+				safeCell(r.Host), safeCell(r.Module), safeCell(r.SiteClass),
+				safeCell(r.Locus), safeCell(r.ExecTarget), safeCell(det), safeCell(sigs))
 		}
 		tw.Flush()
 	}
@@ -302,7 +302,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  host\tmodule\trecent_records\trecent_loci")
 		for _, r := range report.Q8MtimeConcentration {
-			fmt.Fprintf(tw, "  %s\t%s\t%d\t%d\n",
+			fprintfSafe(tw, "  %s\t%s\t%d\t%d\n",
 				r.Host, r.Module, r.RecentRecords, r.RecentLoci)
 		}
 		tw.Flush()
@@ -324,7 +324,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 			if r.IsOrphan {
 				orph = "yes"
 			}
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
+			fprintfSafe(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
 				r.Host, r.Module, r.SiteClass,
 				r.Locus, r.ExecTarget, orph)
 		}
@@ -343,7 +343,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  host\tos_id\trecords\tmodules\tsite_classes\trecent")
 		for _, r := range report.Q10HostCoverage {
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%d\t%d\t%d\n",
+			fprintfSafe(tw, "  %s\t%s\t%s\t%d\t%d\t%d\n",
 				r.Host, r.OSID, commaInt(r.Records),
 				r.Modules, r.SiteClasses, r.RecentRecords)
 		}
@@ -362,7 +362,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  exec_target\thosts\trecords\tmodule\tsite_class\tsample_host\tsample_locus")
 		for _, r := range report.Q11OrphanOutsideTmp {
-			fmt.Fprintf(tw, "  %s\t%d\t%d\t%s\t%s\t%s\t%s\n",
+			fprintfSafe(tw, "  %s\t%d\t%d\t%s\t%s\t%s\t%s\n",
 				r.ExecTarget, r.Hosts, r.Records,
 				r.Module, r.SiteClass, r.SampleHost,
 				r.SampleLocus)
@@ -388,7 +388,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 			if sampleExec == "" {
 				sampleExec = "(locus) " + r.SampleLocus
 			}
-			fmt.Fprintf(tw, "  %s\t%d\t%d\t%s\t%s\t%s\n",
+			fprintfSafe(tw, "  %s\t%d\t%d\t%s\t%s\t%s\n",
 				r.Basename, r.Hosts, r.Records,
 				strings.Join(r.Modules, ", "),
 				r.SampleHost, sampleExec)

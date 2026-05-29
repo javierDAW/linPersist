@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security — terminal-escape hardening in the report binary
+- **`linpersist-report` text output now neutralizes terminal-control
+  sequences in untrusted, record-derived fields.** The fleet report,
+  per-host dossier and diff renderers wrote attacker-influenced values
+  (`locus`/path, `content_snippet`, `exec_target`, hostname, os_id,
+  agent_version, module/site_class, signal lists) verbatim to the
+  analyst's TTY. A compromised monitored host could embed ANSI
+  cursor-movement / line-erase / OSC sequences in a filename or file
+  content so that, when the analyst viewed the report in a terminal,
+  the host's own singleton row was overwritten or hidden — defeating
+  the singleton-hunt the tool exists to perform. New `safeCell` helper
+  (`cmd/linpersist-report/render_common.go`) rewrites every C0 control,
+  DEL and C1 control as a visible `\xHH` escape; all three text
+  renderers route record-derived cells through it (via `safeCell` or
+  the `fprintfSafe` wrapper), leaving the renderer's own color escapes
+  intact. The HTML report was already safe (`html/template`
+  auto-escaping). Tests: `render_sanitize_test.go`.
+- **A single oversized NDJSON line no longer aborts the whole fleet
+  report.** `readFile` previously used a `bufio.Scanner` whose
+  `ErrTooLong` propagated up and failed the entire load, so one corrupt
+  or hostile host file (a line > 4 MiB) blinded the analyst to every
+  other host. It now reads via a bounded `bufio.Reader`, counts the
+  oversized line as one skipped line, and continues.
+
 ## [0.5.0] - 2026-05-24
 
 v0.5.0 lands the cloud-native sprint deferred from v0.4.0: three new
