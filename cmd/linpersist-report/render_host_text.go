@@ -43,9 +43,9 @@ func renderHostText(out io.Writer, d *HostDossier, title string, color bool) err
 	fmt.Fprintln(out, strings.Repeat("=", len(title)))
 	fmt.Fprintf(out, "generated %s · host dossier for %s",
 		d.Generated.Format("2006-01-02 15:04 UTC"),
-		hostLabel(d.Host))
+		safeCell(hostLabel(d.Host)))
 	if d.AgentVersion != "" {
-		fmt.Fprintf(out, " · agent %s", d.AgentVersion)
+		fmt.Fprintf(out, " · agent %s", safeCell(d.AgentVersion))
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out)
@@ -53,29 +53,29 @@ func renderHostText(out io.Writer, d *HostDossier, title string, color bool) err
 	// --- Host header -------------------------------------------------
 	textSection(out, a, "Host")
 	if d.Host.Hostname != "" {
-		fmt.Fprintf(out, "  hostname:     %s\n", d.Host.Hostname)
+		fmt.Fprintf(out, "  hostname:     %s\n", safeCell(d.Host.Hostname))
 	}
 	if d.Host.HostID != "" {
-		fmt.Fprintf(out, "  host_id:      %s\n", d.Host.HostID)
+		fmt.Fprintf(out, "  host_id:      %s\n", safeCell(d.Host.HostID))
 	}
 	if d.Host.OSID != "" {
 		os := d.Host.OSID
 		if d.Host.OSVersion != "" {
 			os = os + " " + d.Host.OSVersion
 		}
-		fmt.Fprintf(out, "  os:           %s\n", os)
+		fmt.Fprintf(out, "  os:           %s\n", safeCell(os))
 	}
 	if d.Host.Kernel != "" {
-		fmt.Fprintf(out, "  kernel:       %s\n", d.Host.Kernel)
+		fmt.Fprintf(out, "  kernel:       %s\n", safeCell(d.Host.Kernel))
 	}
 	if d.Host.Arch != "" {
-		fmt.Fprintf(out, "  arch:         %s\n", d.Host.Arch)
+		fmt.Fprintf(out, "  arch:         %s\n", safeCell(d.Host.Arch))
 	}
 	if d.Host.BootID != "" {
-		fmt.Fprintf(out, "  boot_id:      %s\n", d.Host.BootID)
+		fmt.Fprintf(out, "  boot_id:      %s\n", safeCell(d.Host.BootID))
 	}
 	if len(d.Host.Tags) > 0 {
-		fmt.Fprintf(out, "  tags:         %s\n", strings.Join(d.Host.Tags, ", "))
+		fmt.Fprintf(out, "  tags:         %s\n", safeCell(strings.Join(d.Host.Tags, ", ")))
 	}
 	if d.Host.HasCollected {
 		fmt.Fprintf(out, "  collected_at: %s\n", d.Host.CollectedAt.UTC().Format("2006-01-02 15:04 UTC"))
@@ -112,7 +112,7 @@ func renderHostText(out io.Writer, d *HostDossier, title string, color bool) err
 		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  signal\thost_records\tfleet_hosts\tfleet_pct\tdescription")
 		for _, s := range d.SignalPanel {
-			name := s.Signal
+			name := safeCell(s.Signal)
 			if s.IsWarn {
 				name = a.red(name)
 			}
@@ -129,7 +129,7 @@ func renderHostText(out io.Writer, d *HostDossier, title string, color bool) err
 				s.HostRecords,
 				s.FleetHosts, s.FleetTotal,
 				pct,
-				s.Description)
+				safeCell(s.Description))
 		}
 		tw.Flush()
 	}
@@ -143,7 +143,7 @@ func renderHostText(out io.Writer, d *HostDossier, title string, color bool) err
 		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  module\tsite_class\tlocus\texec_target\tsignals")
 		for _, r := range d.Implants {
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n",
+			fprintfSafe(tw, "  %s\t%s\t%s\t%s\t%s\n",
 				r.Module, r.SiteClass, r.Locus, r.ExecTarget,
 				strings.Join(r.Signals, ","))
 		}
@@ -159,7 +159,7 @@ func renderHostText(out io.Writer, d *HostDossier, title string, color bool) err
 		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  module\tsite_class\tlocus\texec_target\ttriage_signals")
 		for _, r := range d.RollCall {
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n",
+			fprintfSafe(tw, "  %s\t%s\t%s\t%s\t%s\n",
 				r.Module, r.SiteClass, r.Locus, r.ExecTarget,
 				strings.Join(r.TriageSignals, ","))
 		}
@@ -176,7 +176,7 @@ func renderHostText(out io.Writer, d *HostDossier, title string, color bool) err
 		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  module\tsite_class\tlocus\tcontent_norm\tsnippet")
 		for _, r := range d.Singletons {
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n",
+			fprintfSafe(tw, "  %s\t%s\t%s\t%s\t%s\n",
 				r.Module, r.SiteClass, r.Locus, r.ContentNorm, r.Snippet)
 		}
 		tw.Flush()
@@ -191,7 +191,7 @@ func renderHostText(out io.Writer, d *HostDossier, title string, color bool) err
 		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  module\tsite_class\tlocus\tcontent_norm\tsnippet")
 		for _, r := range d.LocusSingletons {
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n",
+			fprintfSafe(tw, "  %s\t%s\t%s\t%s\t%s\n",
 				r.Module, r.SiteClass, r.Locus, r.ContentNorm, r.Snippet)
 		}
 		tw.Flush()
@@ -210,7 +210,7 @@ func renderHostText(out io.Writer, d *HostDossier, title string, color bool) err
 			if r.IsOrphan {
 				armed = "no (orphan)"
 			}
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n",
+			fprintfSafe(tw, "  %s\t%s\t%s\t%s\t%s\n",
 				r.Module, r.SiteClass, r.Locus, r.ExecTarget, armed)
 		}
 		tw.Flush()
@@ -226,7 +226,7 @@ func renderHostText(out io.Writer, d *HostDossier, title string, color bool) err
 		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  exec_target\trecords\tmodule\tsite_class\tsample_locus\tsnippet")
 		for _, r := range d.OrphanOutsideTmp {
-			fmt.Fprintf(tw, "  %s\t%d\t%s\t%s\t%s\t%s\n",
+			fprintfSafe(tw, "  %s\t%d\t%s\t%s\t%s\t%s\n",
 				r.ExecTarget, r.Records, r.Module, r.SiteClass,
 				r.SampleLocus, r.SampleSnippet)
 		}
@@ -242,7 +242,7 @@ func renderHostText(out io.Writer, d *HostDossier, title string, color bool) err
 		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  module\trecent_records\trecent_loci")
 		for _, r := range d.MtimeSpikes {
-			fmt.Fprintf(tw, "  %s\t%d\t%d\n", r.Module, r.RecentRecords, r.RecentLoci)
+			fprintfSafe(tw, "  %s\t%d\t%d\n", r.Module, r.RecentRecords, r.RecentLoci)
 		}
 		tw.Flush()
 	}
@@ -269,7 +269,7 @@ func renderHostText(out io.Writer, d *HostDossier, title string, color bool) err
 				note = a.red("GAP — module expected, this host emitted nothing")
 			}
 			fmt.Fprintf(tw, "  %s\t%d\t%d\t%d\t%s\n",
-				r.Module, r.Records, r.SiteClasses, r.FleetMedian, note)
+				safeCell(r.Module), r.Records, r.SiteClasses, r.FleetMedian, note)
 		}
 		tw.Flush()
 	}
