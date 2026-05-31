@@ -1,5 +1,6 @@
-# Lab-realistic v2 implant catalog. 14 implants: 11 carry-over
-# from v1 plus 3 v0.3.0-coverage (linger, tmpfiles, sysusers).
+# Lab-realistic v2 implant catalog. 30 implants: the original 20 plus
+# 10 v0.5.x module-coverage adds (one per previously-uncovered module:
+# ldso, pam, polkit, grub, udev, xdg, sysv, atjobs, motd, netdispatch).
 #
 # All implants are INERT -- the lab containers never invoke them.
 # If invoked, each writes a single trace line to /tmp/.implant-trace
@@ -417,6 +418,173 @@ implants:
       pod_name: ops-bootstrap
       namespace: kube-system
       image: persistor
+
+  # ============ v0.5.x module-coverage expansion (10 new) ============
+  # One implant per previously-uncovered module, so every collector
+  # module has at least one exercising attack. Each drops a real
+  # persistence directive in a scanned locus; most point their payload
+  # under /tmp (interpreter_in_tmp; exec_target_orphan on a booted host).
+
+  - id: ldso-confd-hijack
+    tier: L2
+    variant: armed
+    module: ldso
+    site_class: ldso.confd
+    description: |
+      /etc/ld.so.conf.d drop-in injects an attacker dir into the dynamic
+      linker search path (T1574.006). Non-destructive: a missing search
+      dir is silently ignored by ld.so (unlike ld.so.preload, which errors
+      on every binary and destabilised the lab host). Caught as a fleet
+      singleton.
+    expected_signals: [recent_mtime_7d]
+    expected_caught_by: [Q1, Q2]
+    expected_q7_rule: null
+    template: ldso-confd-hijack.tmpl
+    vars:
+      conf_file: /etc/ld.so.conf.d/zz-ops.conf
+      lib_dir: /tmp/.ld
+
+  - id: pam-module-in-tmp
+    tier: L2
+    variant: orphan
+    module: pam
+    site_class: pam
+    description: |
+      PAM service whose auth stack loads a module from /tmp, run on every
+      authentication (T1556.003).
+    expected_signals: [interpreter_in_tmp]
+    expected_caught_by: [Q1, Q2, Q7]
+    expected_q7_rule: pam_module_in_tmp
+    template: pam-module-in-tmp.tmpl
+    vars:
+      pam_file: /etc/pam.d/zz-ops-helper
+      pam_module: /tmp/.pam/pam_ops.so
+
+  - id: polkit-yes-allow
+    tier: L3
+    variant: armed
+    module: polkit
+    site_class: polkit.rules
+    description: |
+      polkit JS rule returning Result.YES, granting passwordless admin
+      authority (T1548).
+    expected_signals: [polkit_yes_constant, polkit_admin_rule]
+    expected_caught_by: [Q1, Q2]
+    expected_q7_rule: null
+    template: polkit-yes-allow.tmpl
+    vars:
+      rules_file: /etc/polkit-1/rules.d/49-ops.rules
+
+  - id: grub-init-tmp
+    tier: L3
+    variant: orphan
+    module: grub
+    site_class: kernel.grub.config
+    description: |
+      GRUB_CMDLINE_LINUX init= override to a /tmp binary, run as PID 1 at
+      boot (T1542/T1574).
+    expected_signals: [grub_cmdline_init, interpreter_in_tmp, exec_target_orphan]
+    expected_caught_by: [Q1, Q2, Q9]
+    expected_q7_rule: null
+    template: grub-init-tmp.tmpl
+    vars:
+      grub_file: /etc/default/grub
+      init_path: /tmp/.boot/init
+
+  - id: udev-run-tmp
+    tier: L3
+    variant: orphan
+    module: udev
+    site_class: udev
+    description: |
+      udev RUN+= directive executing a /tmp payload on a device event,
+      as root (T1546).
+    expected_signals: [udev_run_directive, interpreter_in_tmp, exec_target_orphan]
+    expected_caught_by: [Q1, Q2, Q7]
+    expected_q7_rule: udev_run_with_non_package
+    template: udev-run-tmp.tmpl
+    vars:
+      rules_file: /etc/udev/rules.d/99-ops.rules
+      payload: /tmp/.udev/agent
+
+  - id: xdg-autostart-tmp
+    tier: L2
+    variant: orphan
+    module: xdg
+    site_class: xdg.autostart
+    description: |
+      System-wide XDG autostart .desktop whose Exec= points under /tmp,
+      run on every desktop login (T1547.013).
+    expected_signals: [interpreter_in_tmp, exec_target_orphan]
+    expected_caught_by: [Q1, Q2, Q9]
+    expected_q7_rule: null
+    template: xdg-autostart-tmp.tmpl
+    vars:
+      desktop_file: /etc/xdg/autostart/zz-ops.desktop
+      payload: /tmp/.xdg/agent
+
+  - id: sysv-init-tmp
+    tier: L2
+    variant: orphan
+    module: sysv
+    site_class: sysv.init
+    description: |
+      SysV init script under /etc/init.d launching a /tmp payload
+      (T1037.005).
+    expected_signals: [interpreter_in_tmp]
+    expected_caught_by: [Q1, Q2]
+    expected_q7_rule: null
+    template: sysv-init-tmp.tmpl
+    vars:
+      init_file: /etc/init.d/ops-cache
+      payload: /tmp/.sysv/agent
+
+  - id: atjobs-tmp
+    tier: L2
+    variant: orphan
+    module: atjobs
+    site_class: at.jobs
+    description: |
+      at(1) spool job running a /tmp payload (T1053.002).
+    expected_signals: [interpreter_in_tmp]
+    expected_caught_by: [Q1, Q2]
+    expected_q7_rule: null
+    template: atjobs-tmp.tmpl
+    vars:
+      job_file: /var/spool/cron/atjobs/a0000010ab12cd
+      payload: /tmp/.at/agent
+
+  - id: motd-script-tmp
+    tier: L2
+    variant: orphan
+    module: motd
+    site_class: motd
+    description: |
+      Executable under /etc/update-motd.d running a /tmp payload as root
+      on every interactive login.
+    expected_signals: [interpreter_in_tmp, exec_target_orphan]
+    expected_caught_by: [Q1, Q2, Q9]
+    expected_q7_rule: null
+    template: motd-script-tmp.tmpl
+    vars:
+      motd_file: /etc/update-motd.d/99-ops
+      payload: /tmp/.motd/agent
+
+  - id: netdispatch-tmp
+    tier: L3
+    variant: orphan
+    module: netdispatch
+    site_class: network.dispatchers
+    description: |
+      NetworkManager dispatcher script (common RHEL enterprise locus) run
+      as root on every network event, invoking a /tmp payload (T1546).
+    expected_signals: [interpreter_in_tmp, exec_target_orphan]
+    expected_caught_by: [Q1, Q2, Q9]
+    expected_q7_rule: null
+    template: netdispatch-tmp.tmpl
+    vars:
+      disp_file: /etc/NetworkManager/dispatcher.d/99-ops
+      payload: /tmp/.nm/agent
 
 # ==========================================================================
 # Placement plan -- generator picks hosts per role to keep TPs measurable.

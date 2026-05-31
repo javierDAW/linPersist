@@ -1,0 +1,19 @@
+# Implant template: xdg-autostart-tmp (L2, orphan)
+#
+# T1547.013 (Boot or Logon Autostart Execution: XDG Autostart). Drops a
+# system-wide autostart .desktop whose Exec= points under /tmp, run on
+# every desktop login. The xdg module fires interpreter_in_tmp /
+# exec_target_orphan on the /tmp Exec target.
+#
+# Variables: ${desktop_file}, ${payload}
+
+RUN mkdir -p /etc/xdg/autostart && \
+    printf '%s\n' \
+        '[Desktop Entry]' \
+        'Type=Application' \
+        'Name=Ops Helper' \
+        'Exec=${payload}' \
+        'X-GNOME-Autostart-enabled=true' \
+        > ${desktop_file} && \
+    chown root:root ${desktop_file} && \
+    chmod 0644 ${desktop_file}
