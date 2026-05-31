@@ -193,6 +193,11 @@ func (m *Module) recordFromConfigEntry(logical string, info os.FileInfo, e Confi
 		rec.Signals = appendUnique(rec.Signals, core.SignalGrubCmdlineInit)
 		rec.ExecTarget = ExtractInit(e.Value)
 		if rec.ExecTarget != "" {
+			if strings.HasPrefix(rec.ExecTarget, "/") {
+				if sum, ok := core.HashFileCapped(m.resolve(rec.ExecTarget), m.opts.MaxFileSize); ok {
+					rec.ExecTargetSHA256 = sum
+				}
+			}
 			if isInterpreterInTmp(rec.ExecTarget) {
 				rec.Signals = appendUnique(rec.Signals, core.SignalInterpreterInTmp)
 			}

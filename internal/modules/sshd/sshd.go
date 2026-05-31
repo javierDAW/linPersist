@@ -228,6 +228,11 @@ func (m *Module) recordFromDirective(logical string, info os.FileInfo, pl parsed
 	}
 	if et := directiveExecTarget(pl.keyword, pl.value); et != "" {
 		rec.ExecTarget = et
+		if strings.HasPrefix(et, "/") {
+			if sum, ok := core.HashFileCapped(m.resolve(et), m.opts.MaxFileSize); ok {
+				rec.ExecTargetSHA256 = sum
+			}
+		}
 	}
 	core.FillFileMeta(&rec, info)
 	signals := m.baseSignals(info, logical)

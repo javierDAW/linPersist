@@ -482,6 +482,42 @@ func TestModuleInClosedSetCheck(t *testing.T) {
 	}
 }
 
+// TestTrapHandlerInTmpDetection guards the trap_handler_payload_in_tmp
+// rule added after the nspawn lab showed a real coverage gap: a shell
+// trap EXIT handler pointing at a /tmp payload was collected with the
+// right signals (trap_command_in_tmp) but matched no Q7 detection.
+func TestTrapHandlerInTmpDetection(t *testing.T) {
+	rs := loadRepoYAML(t)
+
+	hit := core.Record{
+		Module:    "profile",
+		SiteClass: "profile.trap.system",
+		Signals:   []string{"trap_command", "trap_exit_handler", "trap_command_in_tmp", "recent_mtime_7d"},
+	}
+	if !contains(rs.Match(hit), "trap_handler_payload_in_tmp") {
+		t.Fatalf("trap-in-tmp record did not match trap_handler_payload_in_tmp; got %v", rs.Match(hit))
+	}
+
+	// A trap NOT under tmp must not fire the rule (no trap_command_in_tmp).
+	miss := core.Record{
+		Module:    "profile",
+		SiteClass: "profile.trap.system",
+		Signals:   []string{"trap_command", "trap_exit_handler", "recent_mtime_7d"},
+	}
+	if contains(rs.Match(miss), "trap_handler_payload_in_tmp") {
+		t.Fatalf("rule fired without trap_command_in_tmp; got %v", rs.Match(miss))
+	}
+}
+
+func contains(ids []string, want string) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
+}
+
 func equalStrSlice(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

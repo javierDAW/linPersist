@@ -270,6 +270,11 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, raw string, kind 
 					rec.Signals = appendUnique(rec.Signals,
 						core.SignalKmodInstallDirective)
 					rec.ExecTarget = et
+					if strings.HasPrefix(et, "/") {
+						if sum, ok := core.HashFileCapped(m.resolve(et), m.opts.MaxFileSize); ok {
+							rec.ExecTargetSHA256 = sum
+						}
+					}
 					rec.Signals = m.execTargetSignals(rec.Signals, et)
 				}
 			}

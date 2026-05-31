@@ -152,11 +152,17 @@ func signalsForTrapHit(h trapHit) []string {
 		}
 	}
 	// trap_command_in_tmp fires when the first token of the command
-	// resolves to a /tmp/ path. We re-tokenize the command body to find
-	// argv[0]; this matches the convention used by the cron/systemd
-	// `interpreter_in_tmp` heuristic.
-	if cmdFirst, _, ok := extractToken(h.cmd); ok && strings.HasPrefix(cmdFirst, "/tmp/") {
-		out = append(out, core.SignalTrapCommandInTmp)
+	// resolves under any tmp-class dir. We re-tokenize the command body
+	// to find argv[0]; using core.TmpDirs (not a "/tmp/" literal) matches
+	// every other module's interpreter_in_tmp heuristic, so a trap into
+	// /var/tmp, /dev/shm or /run/shm no longer evades the signal.
+	if cmdFirst, _, ok := extractToken(h.cmd); ok {
+		for _, d := range core.TmpDirs {
+			if strings.HasPrefix(cmdFirst, d) {
+				out = append(out, core.SignalTrapCommandInTmp)
+				break
+			}
+		}
 	}
 	return out
 }

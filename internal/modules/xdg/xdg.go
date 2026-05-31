@@ -228,6 +228,11 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 	rec.ContentSnippet = snippet(string(canon))
 	if exec := extractExec(pd); exec != "" {
 		rec.ExecTarget = exec
+		if strings.HasPrefix(exec, "/") {
+			if sum, ok := core.HashFileCapped(m.resolve(exec), m.opts.MaxFileSize); ok {
+				rec.ExecTargetSHA256 = sum
+			}
+		}
 		if !strings.HasPrefix(exec, "/") {
 			rec.Signals = appendUnique(rec.Signals, core.SignalUnqualifiedExecTarget)
 		}
