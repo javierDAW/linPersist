@@ -345,6 +345,7 @@ WHERE
   -- Regenerate with: go run ./cmd/detgen
   -- Release gate:    go run ./cmd/detgen --verify  (or: make detgen-verify)
   /* payload_under_tmp_via_persistence */ (list_contains(signals, 'exec_target_orphan') AND list_contains(signals, 'interpreter_in_tmp'))
+  OR /* trap_handler_payload_in_tmp */ list_contains(signals, 'trap_command_in_tmp')
   OR /* pam_module_in_tmp */ (list_contains(signals, 'interpreter_in_tmp') AND module = 'pam')
   OR /* second_uid_zero_account */ list_contains(signals, 'passwd_uid_zero')
   OR /* sudoers_nopasswd_all_backdoor */ (list_contains(signals, 'sudoers_nopasswd') AND list_contains(signals, 'sudoers_all_commands'))

@@ -90,3 +90,18 @@ func ReadFileCapped(path string, max int64) ([]byte, error) {
 	}
 	return buf, nil
 }
+
+// HashFileCapped returns the lowercase hex sha256 of path's content (up
+// to max bytes), or ("", false) if it cannot be read as a bounded
+// regular file. It is the canonical way to populate exec_target_sha256
+// for an external payload a persistence record points at, so Q6 can
+// stack a worm that drops the same non-package binary across hosts. The
+// read goes through ReadFileCapped, so it inherits the same O_NONBLOCK +
+// fstat-regular + size-bound hardening.
+func HashFileCapped(path string, max int64) (string, bool) {
+	b, err := ReadFileCapped(path, max)
+	if err != nil {
+		return "", false
+	}
+	return HashHex(b), true
+}

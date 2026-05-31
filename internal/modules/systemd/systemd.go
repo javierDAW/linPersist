@@ -392,6 +392,11 @@ func (m *Module) processSymlink(ctx context.Context, logical, real string, info 
 	// resolution against the symlink's target).
 	if rec.ExecTarget == "" {
 		rec.ExecTarget = absTarget
+		if strings.HasPrefix(absTarget, "/") {
+			if sum, ok := core.HashFileCapped(m.resolve(absTarget), m.opts.MaxFileSize); ok {
+				rec.ExecTargetSHA256 = sum
+			}
+		}
 	}
 	emit(rec)
 }
@@ -476,7 +481,11 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, siteClass string,
 		ti, terr := os.Stat(realTarget)
 		switch {
 		case terr == nil && ti.Mode().IsRegular():
-			if sum, ok := hashFile(realTarget); ok {
+			// Use the hardened reader (O_NONBLOCK + fstat-regular +
+			// MaxFileSize bound), consistent with the external-symlink
+			// path below and every other module. realTarget is already
+			// root-resolved.
+			if sum, ok := core.HashFileCapped(realTarget, m.opts.MaxFileSize); ok {
 				rec.ExecTargetSHA256 = sum
 			}
 			tdelta := m.opts.Now().Sub(ti.ModTime().UTC())
@@ -803,22 +812,6 @@ func errnoCode(err error) string {
 	default:
 		return "IO_ERROR"
 	}
-}
-
-// hashFile returns the hex sha256 of the file at real, or false if it
-// could not be read. Streaming via core.HashReader so a multi-megabyte
-// binary referenced by ExecStart= does not balloon memory.
-func hashFile(real string) (string, bool) {
-	f, err := os.Open(real)
-	if err != nil {
-		return "", false
-	}
-	defer f.Close()
-	h, _, err := core.HashReader(f)
-	if err != nil {
-		return "", false
-	}
-	return h, true
 }
 
 func appendUnique(sigs []string, name string) []string {

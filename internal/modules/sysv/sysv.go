@@ -320,6 +320,11 @@ func (m *Module) processRunlevelSymlink(ctx context.Context, logical, real strin
 	rec := m.buildRecord(logical, info, raw)
 	rec.Signals = appendUnique(rec.Signals, core.SignalSysvExternalInitSymlink)
 	rec.ExecTarget = absTarget
+	if strings.HasPrefix(absTarget, "/") {
+		if sum, ok := core.HashFileCapped(m.resolve(absTarget), m.opts.MaxFileSize); ok {
+			rec.ExecTargetSHA256 = sum
+		}
+	}
 	if isInterpreterInTmp(absTarget) {
 		rec.Signals = appendUnique(rec.Signals, core.SignalInterpreterInTmp)
 	}

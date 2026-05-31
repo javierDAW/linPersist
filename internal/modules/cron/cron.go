@@ -310,6 +310,11 @@ func (m *Module) recordFromParsedLine(logical string, info os.FileInfo, siteClas
 		first := firstToken(pl.command)
 		if first != "" {
 			rec.ExecTarget = first
+			if strings.HasPrefix(first, "/") {
+				if sum, ok := core.HashFileCapped(m.resolve(first), m.opts.MaxFileSize); ok {
+					rec.ExecTargetSHA256 = sum
+				}
+			}
 			signals = append(signals, m.execTargetSignals(first)...)
 		}
 	case lineMalformed:

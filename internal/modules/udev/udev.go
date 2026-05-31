@@ -191,6 +191,11 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, raw string) core.
 		first := firstToken(et)
 		if first != "" {
 			rec.ExecTarget = first
+			if strings.HasPrefix(first, "/") {
+				if sum, ok := core.HashFileCapped(m.resolve(first), m.opts.MaxFileSize); ok {
+					rec.ExecTargetSHA256 = sum
+				}
+			}
 			rec.Signals = m.execTargetSignals(rec.Signals, first)
 		}
 	}

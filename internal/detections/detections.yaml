@@ -40,6 +40,13 @@ detections:
     when:
       signals_all: [exec_target_orphan, interpreter_in_tmp]
 
+  - id: trap_handler_payload_in_tmp
+    description: Shell trap handler executes a tmp-class payload — a trap (EXIT/DEBUG/signal) whose command resolves under /tmp, /var/tmp, /dev/shm or /run/shm runs the dropped binary on every shell exit; legitimate traps never target tmp
+    severity: high
+    mitre: [T1546.005]
+    when:
+      signals_all: [trap_command_in_tmp]
+
   - id: pam_module_in_tmp
     description: PAM stack loads a module from a tmp-class directory (Volexity/DFIR Report pattern)
     severity: critical

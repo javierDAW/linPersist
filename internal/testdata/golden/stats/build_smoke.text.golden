@@ -151,7 +151,7 @@ Per (module, signal): hosts that fire it and records carrying it.
 
 Q6 · Cross-host exec_target stacking (0)
 ----------------------------------------
-Identical payload, polymorphic persistence (worm pattern).
+Identical NON-PACKAGE payload across >=2 hosts (worm pattern); packaged fleet binaries excluded.
 
   no rows
 
@@ -198,8 +198,9 @@ Unmanaged payloads under /opt, /var/lib, /srv, /usr/local. LFA-sorted.
 
 Q12 · Campaign basename clusters (0)
 ------------------------------------
-Same basename across >=2 modules on >=2 hosts. Catches multi-arm
-campaigns whose arms each look like Q1 singletons in their own module.
+Same basename across >=2 modules on >=2 hosts, where at least one arm
+carries a persistence-anomaly signal (non-package / orphan / tmp) -- so
+coincidental package baseline (bash, dbus on every host) is excluded.
 Sorted ascending by host count -- rare/coordinated patterns surface first.
 
   no rows

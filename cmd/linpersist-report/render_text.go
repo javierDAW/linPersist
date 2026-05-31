@@ -246,7 +246,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	// --- Q6: cross-host exec_target stacking ------------------------
 	textSection(out, a, fmt.Sprintf("Q6 · Cross-host exec_target stacking (%d)",
 		len(report.Q6ExecTargetStacking)))
-	fmt.Fprintln(out, "Identical payload, polymorphic persistence (worm pattern).")
+	fmt.Fprintln(out, "Identical NON-PACKAGE payload across >=2 hosts (worm pattern); packaged fleet binaries excluded.")
 	fmt.Fprintln(out)
 	if len(report.Q6ExecTargetStacking) == 0 {
 		fmt.Fprintln(out, "  no rows")
@@ -374,8 +374,9 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	// --- Q12: campaign basename clustering ---------------------------
 	textSection(out, a, fmt.Sprintf("Q12 · Campaign basename clusters (%d)",
 		len(report.Q12BasenameClustering)))
-	fmt.Fprintln(out, "Same basename across >=2 modules on >=2 hosts. Catches multi-arm")
-	fmt.Fprintln(out, "campaigns whose arms each look like Q1 singletons in their own module.")
+	fmt.Fprintln(out, "Same basename across >=2 modules on >=2 hosts, where at least one arm")
+	fmt.Fprintln(out, "carries a persistence-anomaly signal (non-package / orphan / tmp) -- so")
+	fmt.Fprintln(out, "coincidental package baseline (bash, dbus on every host) is excluded.")
 	fmt.Fprintln(out, "Sorted ascending by host count -- rare/coordinated patterns surface first.")
 	fmt.Fprintln(out)
 	if len(report.Q12BasenameClustering) == 0 {
