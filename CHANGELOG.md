@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — anti-evasion detection (defender-aware attacker boundary)
+- **Central `recent_ctime_{7d,30d}` anti-timestomp signal.** Computed
+  once at the emit sink (`cmd/linpersist/main.go`) for every record that
+  carries a ctime, rather than wired into each module's `baseSignals` —
+  the sink is the single choke point where `CTime` and `CollectedAt` are
+  already populated, so the signal lands uniformly across all modules
+  with zero per-module edits. `touch -d`/`utimes(2)` back-date mtime but
+  cannot move ctime backward; a record with `recent_ctime_7d` but no
+  `recent_mtime_*` is the timestomp tell, scored by the new
+  `timestomp_recent_ctime_stale_mtime` detection (severity medium;
+  documented FP class: `rsync -a` / `tar -p` / restore-from-backup).
+- **dpkg package-file integrity (`package_file_tampered`).** The
+  provenance resolver gained `VerifyPath`, which compares a package-owned
+  file against the hash dpkg recorded at install. It parses BOTH
+  `/var/lib/dpkg/info/*.md5sums` (regular files) AND the `Conffiles:`
+  stanzas of `/var/lib/dpkg/status` (registered conffiles such as
+  `/etc/crontab`, which are absent from `md5sums` by design) — so the
+  "append a line to a package-owned config" persistence shape, which
+  emits no orphan/tmp/non_package signal, no longer evades on a dpkg
+  host. Drives the `package_owned_file_tampered` detection (severity
+  medium; FP class: legitimate conffile edits, which `dpkg --verify`
+  also reports). Results are memoized per path. **dpkg only**; `rpm -V`
+  and apk `Z:` verification are honest TODO extensions tracked against
+  `Resolver.VerifyPath`. Verification wired via an interface upgrade in
+  the sink, so `--no-provenance` / `NoopProvenance` skip it cleanly.
+- **Three evasion lab implants** (`lab-realistic/implants/`):
+  `evade-timestomp` (back-dated mtime), `evade-pkg-tamper` (append to
+  package-owned `/etc/crontab`) and `evade-fleetwide-clean` (a clean
+  systemd unit planted identically fleet-wide). The last is **expected
+  to evade** — it is the honest boundary of singleton stacking, where a
+  MISS is the documented finding, not a bug. Empirical re-scoring of all
+  three awaits a Debian lab rebuild (the realistic lab is currently torn
+  down); `rpm`/`apk` integrity paths cannot be exercised without a Rocky
+  rebuild and are left unverified by charter.
+
 ### Security — hardening across the report binary, collector and detections loader
 - **`linpersist-report` text output now neutralizes terminal-control
   sequences in untrusted, record-derived fields.** The fleet report,

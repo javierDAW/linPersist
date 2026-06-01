@@ -25,6 +25,26 @@ const (
 	// on the resolved file directly; symlinks should be followed.
 	SignalRecentTargetMtime7d = "recent_target_mtime_7d"
 
+	// SignalRecentCtime7d set when the artifact's inode change time
+	// (ctime) is within the last 7 days (UTC, evaluated against
+	// collected_at). Computed CENTRALLY at the emit sink for every
+	// record that carries a ctime, so it needs no per-module wiring
+	// (unlike recent_mtime_*, which each module's baseSignals derives).
+	// Its purpose is anti-timestomp: `touch -d` and the utimes(2)
+	// family back-date mtime/atime but CANNOT move ctime backwards --
+	// only the kernel sets ctime, to "now", on any inode change. A
+	// record carrying recent_ctime_7d but NOT recent_mtime_7d is the
+	// textbook timestomp tell (a freshly planted file wearing an old
+	// mtime). Benign on its own -- every package upgrade, chmod and
+	// rsync/tar restore touches ctime -- so the backend pairs it with
+	// the mtime signals (see the timestomp detection) and LFA stacking.
+	SignalRecentCtime7d = "recent_ctime_7d"
+
+	// SignalRecentCtime30d set when ctime is within the last 30 days
+	// but outside the 7-day window. Same central computation and
+	// anti-timestomp rationale as SignalRecentCtime7d.
+	SignalRecentCtime30d = "recent_ctime_30d"
+
 	// SignalWorldWritable set when the artifact has the 0o002 mode bit.
 	SignalWorldWritable = "world_writable"
 
@@ -32,6 +52,23 @@ const (
 	// owned by any installed package (dpkg/rpm). Requires the provenance
 	// helper to have run successfully.
 	SignalNonPackagePath = "non_package_path"
+
+	// SignalPackageFileTampered set when a record's locus is a file
+	// owned by an installed package whose on-disk content no longer
+	// matches the hash the package manager recorded at install time.
+	// On dpkg the recorded hash is the MD5 in
+	// /var/lib/dpkg/info/<pkg>.md5sums, or -- for a registered
+	// conffile such as /etc/crontab -- in the Conffiles: stanza of
+	// /var/lib/dpkg/status (the two must BOTH be parsed; conffiles are
+	// absent from *.md5sums by design). Catches the "append a line to
+	// a package-owned config" persistence shape that emits no orphan /
+	// interpreter_in_tmp / non_package_path signal because every path
+	// involved is package-managed. Residual FP class: legitimate admin
+	// edits to registered conffiles (which `dpkg --verify` likewise
+	// reports); the durable discriminator remains LFA -- the tampered
+	// content is a fleet singleton. v1.0 implements the dpkg path only;
+	// rpm (`rpm -V`) and apk verification are honest TODO extensions.
+	SignalPackageFileTampered = "package_file_tampered"
 
 	// SignalLiveProcessAttached set when exec_target matches the
 	// resolved executable path of a process visible to the agent when

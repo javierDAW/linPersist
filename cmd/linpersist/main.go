@@ -172,6 +172,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if rec.CollectedAt.IsZero() {
 			rec.CollectedAt = time.Now().UTC()
 		}
+		// Central anti-timestomp signal. ctime cannot be back-dated by
+		// touch -d / utimes(2), so recent_ctime_* is derived once here
+		// for every module instead of being wired into 20+ baseSignals.
+		rec.Signals = append(rec.Signals,
+			core.RecentCtimeSignals(rec.CTime, rec.CollectedAt)...)
+		// Package-file integrity (dpkg). Type-asserted so the
+		// NoopProvenance installed under --no-provenance simply skips
+		// the check rather than forcing a method onto the small
+		// Provenance interface every module would have to stub.
+		if v, ok := prov.(interface {
+			VerifyPath(string) core.PkgVerifyStatus
+		}); ok && rec.Locus != "" {
+			rec.Signals = append(rec.Signals,
+				core.TamperSignal(v.VerifyPath(rec.Locus))...)
+		}
+		rec.Signals = core.DedupSignals(rec.Signals)
 		if err := emitter.Emit(rec); err != nil {
 			logger.Error("emit", "err", err)
 		}

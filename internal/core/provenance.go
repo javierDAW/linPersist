@@ -11,6 +11,8 @@ package core
 import (
 	"bufio"
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -156,7 +158,54 @@ type Resolver struct {
 	pkgMgr     PackageManager
 	pathMap    map[string]string
 	buildErr   error
+
+	// dpkgHashes maps an absolute package-owned path to the lowercase
+	// hex MD5 the dpkg database recorded for it at install time. Built
+	// during Warmup on dpkg hosts from BOTH /var/lib/dpkg/info/*.md5sums
+	// (regular packaged files) and the Conffiles: stanzas of
+	// /var/lib/dpkg/status (registered conffiles, which are absent from
+	// *.md5sums by design). Nil on non-dpkg hosts or when integrity
+	// data could not be read; VerifyPath then degrades to
+	// PkgVerifyUnknown rather than guessing. Read-only after Warmup.
+	dpkgHashes map[string]string
+
+	// verifyCache memoizes VerifyPath results per absolute path so the
+	// per-line records the modules emit for one config file (a crontab
+	// with N entries, an sshd_config with N directives) hash the file
+	// at most once per run. sync.Map because the runner's sink is
+	// serialized today but VerifyPath makes no such assumption.
+	verifyCache sync.Map // map[string]PkgVerifyStatus
 }
+
+// PkgVerifyStatus describes the result of a package-file integrity
+// check (VerifyPath).
+type PkgVerifyStatus string
+
+const (
+	// PkgVerifyUnknown: integrity was not evaluated -- resolver not
+	// warmed, no integrity database (non-dpkg host or unreadable
+	// metadata), or the path is not absolute. Distinct from NotOwned
+	// (the resolver checked and the path has no recorded hash).
+	PkgVerifyUnknown PkgVerifyStatus = "unknown"
+
+	// PkgVerifyNotOwned: the path has no hash recorded by any package
+	// (it is not a packaged file, or is a packaged file the manager
+	// does not hash). No tamper claim can be made.
+	PkgVerifyNotOwned PkgVerifyStatus = "not_owned"
+
+	// PkgVerifyMatched: the on-disk content matches the recorded hash.
+	PkgVerifyMatched PkgVerifyStatus = "matched"
+
+	// PkgVerifyMismatched: the on-disk content differs from the
+	// recorded hash -- the file has been modified since install. This
+	// is the state that drives SignalPackageFileTampered.
+	PkgVerifyMismatched PkgVerifyStatus = "mismatched"
+
+	// PkgVerifyError: a hash was recorded but the on-disk file could
+	// not be read (deleted, EACCES, I/O error). No tamper claim is
+	// made; surfaced separately so it never masquerades as Matched.
+	PkgVerifyError PkgVerifyStatus = "error"
+)
 
 // ResolverOption tunes a Resolver at construction time.
 type ResolverOption func(*Resolver)
@@ -286,9 +335,24 @@ func (r *Resolver) Warmup(ctx context.Context) {
 			return
 		}
 		r.pathMap = m
+
+		// Integrity (package-file tamper) database. dpkg-only in v1.0;
+		// best-effort -- a read failure leaves dpkgHashes nil and
+		// VerifyPath degrades to PkgVerifyUnknown rather than failing
+		// the whole provenance build (ownership lookups still work).
+		if r.pkgMgr == PkgMgrDpkg {
+			if h, herr := r.buildDpkgHashes(buildCtx); herr != nil {
+				r.logger.Warn("provenance integrity unavailable",
+					"pkg_mgr", "dpkg", "err", herr)
+			} else {
+				r.dpkgHashes = h
+			}
+		}
+
 		r.logger.Info("provenance built",
 			"pkg_mgr", r.pkgMgr.String(),
 			"entries", len(m),
+			"integrity_entries", len(r.dpkgHashes),
 			"elapsed", elapsed)
 	})
 }
@@ -555,6 +619,221 @@ func (r *Resolver) scanDpkgList(path, pkgName string, out map[string]string) err
 		out[p] = pkgName
 	}
 	return sc.Err()
+}
+
+// buildDpkgHashes builds the absolute-path → recorded-MD5 map used by
+// VerifyPath. It reads TWO sources, because dpkg records integrity in
+// two places:
+//
+//   - /var/lib/dpkg/info/<pkg>.md5sums — one line per regular packaged
+//     file, "<md5>␣␣<relative-path>" (path has no leading slash).
+//   - /var/lib/dpkg/status Conffiles: stanzas — registered conffiles
+//     (e.g. /etc/crontab), which are DELIBERATELY absent from md5sums
+//     so an admin edit does not make dpkg report the file as modified
+//     during a verify of the regular file list. Parsing only md5sums
+//     would therefore miss exactly the "append to /etc/crontab" shape
+//     this signal exists to catch.
+//
+// File-conflict policy: first occurrence wins (md5sums scanned first).
+// A failure to enumerate the info directory is fatal to the integrity
+// build (it is the bulk source); a failure to read status is logged and
+// tolerated (conffiles are a supplement).
+func (r *Resolver) buildDpkgHashes(ctx context.Context) (map[string]string, error) {
+	infoDir := r.resolveRoot("/var/lib/dpkg/info")
+	entries, err := os.ReadDir(infoDir)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", infoDir, err)
+	}
+	out := make(map[string]string, 200_000)
+	for _, e := range entries {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".md5sums") {
+			continue
+		}
+		if err := scanMd5sums(filepath.Join(infoDir, name), out); err != nil {
+			r.logger.Debug("provenance: skip md5sums",
+				"file", name, "err", err)
+		}
+	}
+	if err := r.scanDpkgConffiles(out); err != nil {
+		r.logger.Debug("provenance: conffiles parse partial", "err", err)
+	}
+	return out, nil
+}
+
+// scanMd5sums reads one *.md5sums file. Each line is "<md5>␣␣<path>"
+// where the path is relative to / with no leading slash and MAY contain
+// spaces, so the md5 is taken as the fixed 32-char prefix and the
+// remainder (trimmed) is the path. Malformed lines are skipped.
+func scanMd5sums(path string, out map[string]string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		if len(line) < 34 { // 32 hex + at least "  /x"
+			continue
+		}
+		sum := strings.ToLower(line[:32])
+		if !isHex32(sum) {
+			continue
+		}
+		rel := strings.TrimSpace(line[32:])
+		if rel == "" {
+			continue
+		}
+		abs := "/" + rel
+		if _, dup := out[abs]; !dup {
+			out[abs] = sum
+		}
+	}
+	return sc.Err()
+}
+
+// scanDpkgConffiles walks /var/lib/dpkg/status and extracts every
+// registered conffile's recorded MD5. The status file is deb822: a
+// "Conffiles:" field header is followed by continuation lines that
+// begin with a space, each " <abs-path> <md5> [obsolete|newconffile]".
+// A line that does not begin with a space ends the block. Entries whose
+// hash token is not a 32-hex digest (e.g. the "newconffile" marker) are
+// skipped. md5sums entries already present win (scanned first).
+func (r *Resolver) scanDpkgConffiles(out map[string]string) error {
+	statusPath := r.resolveRoot("/var/lib/dpkg/status")
+	f, err := os.Open(statusPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	inConffiles := false
+	for sc.Scan() {
+		line := sc.Text()
+		if line == "" || line[0] != ' ' && line[0] != '\t' {
+			inConffiles = strings.HasPrefix(line, "Conffiles:")
+			continue
+		}
+		if !inConffiles {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		sum := strings.ToLower(fields[1])
+		if !isHex32(sum) {
+			continue
+		}
+		if _, dup := out[fields[0]]; !dup {
+			out[fields[0]] = sum
+		}
+	}
+	return sc.Err()
+}
+
+// isHex32 reports whether s is exactly 32 lowercase-or-uppercase hex
+// digits (the shape of an MD5 digest). Caller lowercases for storage.
+func isHex32(s string) bool {
+	if len(s) != 32 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// VerifyPath reports whether the file at an absolute package-owned path
+// still matches the hash the package manager recorded at install time.
+// It is the integrity counterpart to LookupPath (which answers
+// ownership only) and drives SignalPackageFileTampered at the emit sink.
+//
+// Returns PkgVerifyUnknown when integrity cannot be evaluated (resolver
+// not warmed, non-dpkg host, integrity DB unreadable, relative path) so
+// callers never confuse "could not check" with "checked, clean". Results
+// are memoized per path: the N per-line records a single config file
+// produces hash it at most once per run.
+//
+// dpkg-only in v1.0. rpm hosts would use `rpm -V` (mtime+size+md5 per
+// file) and apk the Z: content hashes in /lib/apk/db/installed; both are
+// honest TODO extensions tracked against this method.
+func (r *Resolver) VerifyPath(path string) PkgVerifyStatus {
+	if !r.warmedUp.Load() || r.pkgMgr != PkgMgrDpkg || r.buildErr != nil {
+		return PkgVerifyUnknown
+	}
+	if r.dpkgHashes == nil || !filepath.IsAbs(path) {
+		return PkgVerifyUnknown
+	}
+	if cached, ok := r.verifyCache.Load(path); ok {
+		return cached.(PkgVerifyStatus)
+	}
+	st := r.verifyUncached(path)
+	r.verifyCache.Store(path, st)
+	return st
+}
+
+// verifyUncached performs the recorded-hash lookup and on-disk MD5
+// comparison for VerifyPath, applying the same usr-merge sibling
+// fallback as LookupPath so /usr/bin/X resolves to a manifest entry
+// recorded as /bin/X (and vice versa).
+func (r *Resolver) verifyUncached(path string) PkgVerifyStatus {
+	recorded, ok := r.dpkgHashes[path]
+	if !ok {
+		for _, alt := range usrMergeAlternates(path) {
+			if recorded, ok = r.dpkgHashes[alt]; ok {
+				break
+			}
+		}
+	}
+	if !ok {
+		return PkgVerifyNotOwned
+	}
+	got, err := fileMD5(r.resolveRoot(path))
+	if err != nil {
+		return PkgVerifyError
+	}
+	if got == recorded {
+		return PkgVerifyMatched
+	}
+	return PkgVerifyMismatched
+}
+
+// fileMD5 streams path through MD5 and returns the lowercase hex digest.
+// Streaming keeps memory constant regardless of file size; the caller
+// only invokes this for package-owned loci (overwhelmingly small config
+// files) and memoizes the result.
+func fileMD5(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// TamperSignal maps a VerifyPath result to the signal slice the emit
+// sink appends to a Record. Only a confirmed Mismatched yields
+// SignalPackageFileTampered; every other status (including Error and
+// NotOwned) yields nil so the signal never fires on uncertainty.
+func TamperSignal(status PkgVerifyStatus) []string {
+	if status == PkgVerifyMismatched {
+		return []string{SignalPackageFileTampered}
+	}
+	return nil
 }
 
 // buildApkMap parses /lib/apk/db/installed and returns a path → pkg
