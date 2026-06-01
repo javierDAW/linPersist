@@ -586,6 +586,72 @@ implants:
       disp_file: /etc/NetworkManager/dispatcher.d/99-ops
       payload: /tmp/.nm/agent
 
+  # ================= evasion implants (anti-detection) =================
+  # Built to probe linpersist's real limits: what does a defender-aware
+  # attacker get away with? Scored honestly -- a MISS here is a finding.
+
+  - id: evade-timestomp
+    tier: L4
+    variant: orphan
+    module: cron
+    site_class: cron.d
+    description: |
+      cron.d directive with mtime back-dated via touch -d to defeat
+      recent_mtime_*. ctime stays current, so the v1.0 central
+      recent_ctime_7d signal fires while recent_mtime_* does NOT -- the
+      timestomp_recent_ctime_stale_mtime rule catches exactly that gap.
+      The unique content is also still an LFA singleton. (recent_ctime_7d
+      assertion awaits lab rebuild for empirical re-scoring.)
+    expected_signals: [interpreter_in_tmp, exec_target_orphan, recent_ctime_7d]
+    expected_caught_by: [Q1, Q2, Q4, Q7, Q9]
+    expected_q7_rule: payload_under_tmp_via_persistence
+    template: evade-timestomp.tmpl
+    vars:
+      cron_file: /etc/cron.d/zz-archive-sync
+      schedule: "*/9 * * * *"
+      payload: /tmp/.ts/agent
+      fake_date: "2023-02-01 03:14:00"
+
+  - id: evade-pkg-tamper
+    tier: L4
+    variant: armed
+    module: cron
+    site_class: cron.d
+    description: |
+      Appends a malicious line to the PACKAGE-OWNED /etc/crontab running a
+      packaged LOLBin (/usr/bin/bash) -- no non_package/orphan/tmp signal.
+      Pre-v1.0 this was caught ONLY by the LFA singleton. v1.0 adds dpkg
+      integrity verification: /etc/crontab is a registered conffile, so its
+      recorded hash lives in the Conffiles: stanza of /var/lib/dpkg/status;
+      the appended line makes the file mismatch -> package_file_tampered ->
+      package_owned_file_tampered rule. dpkg hosts ONLY (rpm/apk are honest
+      TODO); on a non-dpkg host this still evades down to the LFA singleton.
+      (package_file_tampered assertion awaits Debian lab rebuild.)
+    expected_signals: [package_file_tampered]
+    expected_caught_by: [Q1, Q2, Q7]
+    expected_q7_rule: package_owned_file_tampered
+    template: evade-pkg-tamper.tmpl
+    vars:
+      schedule: "*/13 * * * *"
+      cmd: "/usr/bin/bash -c true"
+
+  - id: evade-fleetwide-clean
+    tier: L5
+    variant: armed
+    module: systemd
+    site_class: systemd.unit
+    description: |
+      Persistent systemd unit with a PACKAGED ExecStart (/usr/bin/bash),
+      no orphan/tmp/non_package signal, planted IDENTICALLY on every host.
+      Not a singleton (Q1 misses), no triage signal (Q7 misses) -> the
+      honest boundary of LFA. EXPECTED TO EVADE; a MISS is the finding.
+    expected_signals: []
+    expected_caught_by: []
+    expected_q7_rule: null
+    template: evade-fleetwide-clean.tmpl
+    vars:
+      unit_file: /etc/systemd/system/system-telemetry.service
+
 # ==========================================================================
 # Placement plan -- generator picks hosts per role to keep TPs measurable.
 

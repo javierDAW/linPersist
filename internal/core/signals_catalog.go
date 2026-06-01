@@ -81,6 +81,16 @@ var Signals = []SignalDef{
 		},
 	},
 	{
+		Name:        SignalRecentCtime7d,
+		Description: "artifact ctime within the last 7 days (central anti-timestomp signal; mtime is forgeable, ctime is not)",
+		EmittedBy:   []string{"core/filemeta"},
+	},
+	{
+		Name:        SignalRecentCtime30d,
+		Description: "artifact ctime within the last 30 days but outside the 7-day window",
+		EmittedBy:   []string{"core/filemeta"},
+	},
+	{
 		Name:        SignalWorldWritable,
 		Description: "artifact has the 0o002 mode bit set",
 		EmittedBy: []string{
@@ -96,6 +106,11 @@ var Signals = []SignalDef{
 	{
 		Name:        SignalNonPackagePath,
 		Description: "exec_target resolves to a path not owned by any installed dpkg/rpm package",
+		EmittedBy:   []string{"core/provenance"},
+	},
+	{
+		Name:        SignalPackageFileTampered,
+		Description: "locus is a package-owned file whose content no longer matches the dpkg-recorded hash (md5sums or Conffiles)",
 		EmittedBy:   []string{"core/provenance"},
 	},
 	{

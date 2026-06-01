@@ -256,8 +256,48 @@ Closed in the v0.5.x consolidation sprint (6 follow-ups in chain):
   — first time the lab is clean across every implant family under
   signal-exact scoring.
 
+Landed on branch `detect-lab-hardening` (v1.0 candidate, NOT yet
+lab-re-validated — the realistic lab is torn down):
+
+- **Anti-evasion detection sprint.** Three "defender-aware attacker"
+  lab implants (`evade-timestomp`, `evade-pkg-tamper`,
+  `evade-fleetwide-clean`) were built to probe linpersist's real
+  limits, and two of the gaps they expose were closed:
+  - `recent_ctime_{7d,30d}` — central anti-timestomp signal computed at
+    the emit sink (`cmd/linpersist/main.go`), NOT per-module. The sink
+    is the choke point where every record already carries `CTime` +
+    `CollectedAt`, so it lands uniformly with zero edits across the 20+
+    module `baseSignals`. Helper: `core.RecentCtimeSignals`. Detection:
+    `timestomp_recent_ctime_stale_mtime` (`recent_ctime_7d` AND NOT
+    `recent_mtime_*`). Tested in `filemeta_test.go`.
+  - `package_file_tampered` — `Resolver.VerifyPath` (dpkg) compares a
+    package-owned file against its recorded hash, parsing BOTH
+    `*.md5sums` AND the `Conffiles:` stanza of `/var/lib/dpkg/status`
+    (conffiles like `/etc/crontab` are absent from `md5sums`). Wired
+    into the sink via an interface upgrade so `NoopProvenance` skips it.
+    Detection: `package_owned_file_tampered`. Tested with synthetic
+    dpkg fixtures in `provenance_verify_test.go`.
+  - `evade-fleetwide-clean` is **expected to evade** — the honest LFA
+    boundary; its MISS is the documented finding.
+  - Both detections are severity **medium** with documented residual-FP
+    classes (timestomp: rsync/tar/backup; tamper: legit conffile edits).
+    The durable discriminator stays LFA singleton stacking.
+  - **Pending**: empirical re-score against a rebuilt Debian lab
+    (catalog `expected_signals` updated to assert the new signals but
+    not yet observed end-to-end). `rpm -V` and apk `Z:` verification are
+    honest TODO extensions tracked against `Resolver.VerifyPath` — left
+    unverified by charter (no Rocky/Alpine rebuild available this
+    sprint). See [[rhel_lab_plan]] for the Rocky-lab follow-up that
+    would exercise the rpm path.
+
 Still OPEN:
 
+- **rpm / apk package-file integrity** (extension of the v1.0 dpkg
+  tamper signal). `Resolver.VerifyPath` returns `PkgVerifyUnknown` on
+  non-dpkg hosts today. rpm: `rpm -V` (or read the header file digests);
+  apk: the `Z:` content hashes already in `/lib/apk/db/installed`.
+  Needs a real Rocky/Alpine host to validate, same constraint that
+  deferred it this sprint.
 - **eBPF state inspection** (deferred from v0.5.0 candidate
   backlog). Requires vetting the cilium/ebpf dependency vs. the
   project's "no CGO, no daemons, pure Go" invariant. Could surface

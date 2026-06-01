@@ -372,6 +372,8 @@ WHERE
   OR /* dbus_exec_under_tmp */ (list_contains(signals, 'interpreter_in_tmp') AND module = 'dbus')
   OR /* cloudinit_script_non_package_path */ (list_contains(signals, 'non_package_path') AND site_class = 'cloudinit.script')
   OR /* k8s_static_pod_unqualified_image */ (list_contains(signals, 'unqualified_exec_target') AND module = 'k8sstatic')
+  OR /* timestomp_recent_ctime_stale_mtime */ (NOT list_contains(signals, 'recent_mtime_7d') AND NOT list_contains(signals, 'recent_mtime_30d') AND list_contains(signals, 'recent_ctime_7d'))
+  OR /* package_owned_file_tampered */ list_contains(signals, 'package_file_tampered')
   -- END GENERATED
 ORDER BY host, module, locus;
 

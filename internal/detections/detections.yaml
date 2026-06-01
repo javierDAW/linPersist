@@ -285,3 +285,25 @@ detections:
     when:
       module_in: [k8sstatic]
       signals_all: [unqualified_exec_target]
+
+  # ---------- Anti-evasion (defender-aware attacker) ----------------
+  # These two rules close the gaps the lab-realistic evade-* implants
+  # were built to probe. Both carry a documented residual-FP class and
+  # are scored medium accordingly: they are triage prompts, not
+  # verdicts, and the durable discriminator stays LFA singleton stacking
+  # (the tampered/timestomped content is still a fleet singleton).
+
+  - id: timestomp_recent_ctime_stale_mtime
+    description: Persistence artifact's inode changed recently (recent_ctime_7d) while its mtime claims it is old — the touch -d / utimes back-dating tell, since mtime/atime are forgeable but ctime is not. Residual FP class —rsync -a, tar -p extraction and restore-from-backup also pair a fresh ctime with an old mtime
+    severity: medium
+    mitre: [T1070.006]
+    when:
+      signals_all: [recent_ctime_7d]
+      signals_none: [recent_mtime_7d, recent_mtime_30d]
+
+  - id: package_owned_file_tampered
+    description: A package-owned file no longer matches the hash dpkg recorded at install (md5sums or Conffiles) — catches the append-to-/etc/crontab persistence shape that emits no orphan/tmp/non_package signal. Residual FP class —legitimate admin edits to registered conffiles, which dpkg --verify likewise reports
+    severity: medium
+    mitre: [T1554]
+    when:
+      signals_all: [package_file_tampered]
