@@ -397,6 +397,9 @@ lab-re-validated — the realistic lab is torn down):
       (critical) (1b994bb).
     - DONE sshd `SetEnv`/`AcceptEnv`/`PermitUserEnvironment` →
       `sshd_login_env_injection` (73e2b58).
+    - LAB-VALIDATED (round 27, Debian): sshrc, kmod-`.ko`, sshd-env each
+      fire only on their implant host, zero clean-host FPs (apt2-sshrc-hook,
+      apt2-kmod-rootkit, apt2-sshd-setenv).
     - DONE scope.md §8.1 boundaries doc (73e2b58).
     - STILL TODO (heavier, fresh-session): **BASH_ENV in /etc/environment**
       (profile env-file parse → exec_target); **initramfs/dracut hook
