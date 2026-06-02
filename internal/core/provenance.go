@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -316,22 +317,34 @@ var rpmBulkQueryArgs = []string{
 	"--nodigest",
 }
 
-// rpmDigestQueryArgs dump every file's recorded content digest, one
-// "<path> <hexdigest>" pair per line. FILEDIGESTS is the per-file digest
-// rpm stored at install (SHA-256 on RHEL7+/Rocky/Fedora, MD5 on EL5/6);
-// the algorithm is recovered from the hex length at compare time, so we
-// do NOT need FILEDIGESTALGO (which is a header scalar that does not
-// broadcast reliably across the `[]` array iterator in older rpm). Files
-// with no content digest (directories, symlinks, %ghost) emit an empty
-// field and are skipped. A space separates the two fields; rpm file
-// paths never contain spaces in practice, and the digest is a trailing
-// hex token, so a last-space split is unambiguous.
+// rpmDigestQueryArgs dump every file's recorded content digest plus its
+// per-file verify flags, one "<path> <hexdigest> <verifyflags>" triple
+// per line. FILEDIGESTS is the digest rpm stored at install (SHA-256 on
+// RHEL7+/Rocky/Fedora, MD5 on EL5/6); the algorithm is recovered from the
+// hex length at compare time, so we do NOT need FILEDIGESTALGO (a header
+// scalar that does not broadcast reliably across the `[]` array iterator
+// in older rpm).
+//
+// FILEVERIFYFLAGS is the crux of matching `rpm -V` semantics: the `setup`
+// package ships /etc/passwd, /etc/group, /etc/shadow, /etc/gshadow etc.
+// with `%verify(not md5 ...)` because they are EXPECTED to change after
+// install, so rpm clears their digest-verify bit and `rpm -V` stays
+// silent. Honoring the bit (RPMVERIFY_FILEDIGEST = 1) skips exactly those
+// files; comparing their digest anyway produced a ~6-file / ~108-record
+// false-positive flood on every Rocky host (the nspawn lab caught this).
+// Files with no content digest (dirs, symlinks, %ghost) emit an empty
+// digest field and are skipped too.
 var rpmDigestQueryArgs = []string{
 	"-qa",
-	"--qf", "[%{FILENAMES} %{FILEDIGESTS}\n]",
+	"--qf", "[%{FILENAMES} %{FILEDIGESTS} %{FILEVERIFYFLAGS}\n]",
 	"--nosignature",
 	"--nodigest",
 }
+
+// rpmVerifyFileDigestBit is RPMVERIFY_FILEDIGEST: when this bit is clear
+// in a file's FILEVERIFYFLAGS, rpm does not digest-verify the file and
+// neither do we.
+const rpmVerifyFileDigestBit = 1
 
 // Warmup detects the package manager and builds the path-to-package
 // map. Idempotent. After Warmup returns, LookupPath becomes a
@@ -1146,21 +1159,38 @@ func (r *Resolver) buildRpmDigests(ctx context.Context) (map[string]string, erro
 	return out, nil
 }
 
-// scanRpmDigestStream parses "<path> <hexdigest>" lines (the digest is
-// the trailing token; rpm paths do not contain spaces). Empty or
-// non-hex digests and non-absolute paths are skipped. First occurrence
-// wins, matching the ownership map's conflict policy.
+// scanRpmDigestStream parses "<path> <hexdigest> <verifyflags>" lines.
+// The two trailing tokens are the verify flags and the digest (rpm paths
+// do not contain spaces), so a two-step right split is unambiguous. A
+// file is recorded only when its digest is a usable hex digest AND its
+// FILEVERIFYFLAGS still has the digest-verify bit set -- mirroring
+// `rpm -V`, which never reports files the package marked `%verify(not
+// md5)` (e.g. setup's /etc/passwd). Non-absolute paths, empty/non-hex
+// digests, and unparseable flags are skipped. First occurrence wins.
 func scanRpmDigestStream(stream io.Reader, out map[string]string) error {
 	sc := bufio.NewScanner(stream)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		line := sc.Text()
-		sp := strings.LastIndexByte(line, ' ')
-		if sp <= 0 || sp == len(line)-1 {
+		i := strings.LastIndexByte(line, ' ')
+		if i <= 0 {
 			continue
 		}
-		path, digest := line[:sp], strings.ToLower(line[sp+1:])
+		flagsStr := line[i+1:]
+		rest := line[:i]
+		j := strings.LastIndexByte(rest, ' ')
+		if j <= 0 {
+			continue
+		}
+		path := rest[:j]
+		digest := strings.ToLower(rest[j+1:])
 		if !strings.HasPrefix(path, "/") || !isHexDigest(digest) {
+			continue
+		}
+		flags, err := strconv.ParseInt(flagsStr, 10, 64)
+		if err != nil || flags&rpmVerifyFileDigestBit == 0 {
+			// Unparseable flags, or rpm itself does not digest-verify
+			// this file -> do not flag it (matches `rpm -V`).
 			continue
 		}
 		if _, dup := out[path]; !dup {
