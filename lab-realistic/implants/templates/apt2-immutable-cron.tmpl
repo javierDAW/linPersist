@@ -1,0 +1,9 @@
+# APT2 implant: apt2-immutable-cron (anti-remediation chattr +i)
+# A cron.d persistence file locked immutable so rm/edit fail until the
+# responder clears +i -> immutable_flag (anti-remediation enrichment). The
+# unique content is also a Q1 singleton. NOTE: lab teardown must `chattr -i`
+# before rm -rf, else the rootfs dir lingers. Variables: ${cron_file}
+RUN mkdir -p /etc/cron.d && \
+    printf '%s\n' '*/7 * * * * root /usr/bin/id' > ${cron_file} && \
+    chown root:root ${cron_file} && chmod 0644 ${cron_file} && \
+    (chattr +i ${cron_file} 2>/dev/null || echo "apt2-immutable-cron: chattr +i failed (FS support)" >&2)
