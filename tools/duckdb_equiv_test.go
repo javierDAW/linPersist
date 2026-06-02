@@ -146,9 +146,13 @@ var baselineDrift = map[int]struct{ sql, goV int }{
 	// Q5 sql=3 go=6: SQL groups by signal-only; Go groups by
 	// (module, signal) producing more rows.
 	5: {sql: 3, goV: 6},
-	// Q6 sql=6 go=3: SQL stacks exec_target_sha256 hosts at the
-	// record level; the Go computeQ6 aggregates by exec_target.
-	6: {sql: 6, goV: 3},
+	// Q6 sql=6 go=1: SQL stacks exec_target_sha256 hosts at the record
+	// level; the Go computeQ6 aggregates by exec_target AND, since the
+	// v0.5.x worm/baseline-noise cut (commit 39e999d), applies the
+	// q6Suspicious filter (only non_package/orphan/tmp exec_targets
+	// stack), which the synthetic fixture satisfies for just one target.
+	// The demo SQL was intentionally not tightened to match.
+	6: {sql: 6, goV: 1},
 	// Q7 sql=0 go=3: SQL Q7 requires loci-bearing detection rules
 	// that the synthetic fixture does not satisfy; Go emits 3 rows
 	// because its detection matcher fires on signal presence.
@@ -168,6 +172,12 @@ var baselineDrift = map[int]struct{ sql, goV int }{
 	// Q11 sql=6 go=1: SQL emits one row per orphan-outside-tmp record;
 	// Go aggregates by exec_target and emits one row per target.
 	11: {sql: 6, goV: 1},
+	// Q12 sql=1 go=0: the v0.5.x baseline-noise cut (commit 39e999d) added
+	// the q12Suspicious filter (a campaign arm must carry
+	// non_package/orphan/tmp to count); the synthetic fixture's basename
+	// cluster is benign, so Go emits 0 while the un-tightened demo SQL
+	// still emits 1. Divergence is intentional, same as Q6.
+	12: {sql: 1, goV: 0},
 }
 
 // splitSQLBlocks splits stack_demo.sql by the canonical separator. The
