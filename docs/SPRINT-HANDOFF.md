@@ -6,8 +6,26 @@
 > developer), start here. It is intentionally dense: everything that
 > is non-obvious from the code lives in this doc.
 >
-> Last updated: 2026-05-24 after the v0.5.0 release ("cloud-native
-> coverage") and at the close of the v0.4.x line.
+> Last updated: 2026-06-02 — the **detect-lab-hardening** sprint is
+> MERGED to main (PR #2): anti-evasion v1.0 (dpkg/rpm/apk package-file
+> integrity + central anti-timestomp), two 4-agent red/blue duels, and
+> 6 backlog items. Detections 27 → 40; new site_classes systemd.generator,
+> filecap, ssh.sshrc; xattr + ioctl layers. All lab-validated on real
+> Debian + Rocky nspawn hosts. (Earlier: v0.5.0 "cloud-native coverage",
+> 2026-05-24.)
+>
+> ### START HERE (next session)
+> 1. State: everything below "What is OPEN after v0.5.0" is current.
+>    `make all` is green on main (includes `duckdb-equiv`, the new Go↔SQL
+>    gate — run it before touching Q6/Q12/stats.go or stack_demo.sql).
+> 2. Next work = the **4 remaining duel-2 backlog items** (BASH_ENV in
+>    /etc/environment; initramfs/dracut hook MODULE; ld.so.conf.d library
+>    shadowing; systemd OnFailure=/.path Q12 relationship edges) — full
+>    specs in the "Deferred backlog" block. All other backlog items shipped.
+> 3. Detection-add recipe + the recurring discipline (gate every new Q7
+>    rule on a tamper/orphan/non-package co-indicator; recent_ctime floods
+>    on image-built hosts; lab the change before trusting it) are in the
+>    body + memory ([[nspawn-lab]], [[tooling-gotchas]]).
 >
 > The body of this doc (architectural canon, lessons learned,
 > known gotchas, conventions, iterate-fast cookbook, debug map)
@@ -256,8 +274,14 @@ Closed in the v0.5.x consolidation sprint (6 follow-ups in chain):
   — first time the lab is clean across every implant family under
   signal-exact scoring.
 
-Landed on branch `detect-lab-hardening` (v1.0 candidate, NOT yet
-lab-re-validated — the realistic lab is torn down):
+MERGED to main via PR #2 (the `detect-lab-hardening` sprint,
+2026-06-02). Everything in this block is now on main, lab-validated on
+real Debian + Rocky nspawn hosts (signal-exact `lab-nspawn/validate-evade.py`,
+rounds 20–27, zero clean-host FPs). Detections 27 → 40. The `apt*`/`apt2*`
+lab implants in `lab-realistic/implants/catalog.yaml` are the regression
+set; re-run any `lab-nspawn/fleet.sh --round N --implants <ids>` to
+re-validate. The narrative below is the WHAT + WHY (each fix names the
+real FP the lab caught and how it was fixed at the root):
 
 - **Anti-evasion detection sprint.** Three "defender-aware attacker"
   lab implants (`evade-timestomp`, `evade-pkg-tamper`,
@@ -401,13 +425,39 @@ lab-re-validated — the realistic lab is torn down):
       fire only on their implant host, zero clean-host FPs (apt2-sshrc-hook,
       apt2-kmod-rootkit, apt2-sshd-setenv).
     - DONE scope.md §8.1 boundaries doc (73e2b58).
-    - STILL TODO (heavier, fresh-session): **BASH_ENV in /etc/environment**
-      (profile env-file parse → exec_target); **initramfs/dracut hook
-      module** (NEW module — biggest; cpio stays OOS); **ld.so.conf.d
-      library-SHADOW signal** (trickiest — emit only when a planted .so
-      basename collides with a packaged SONAME on the standard path);
-      **systemd `OnFailure=`/`.path Unit=` relationship EDGES** as
-      Q12-correlation signals (NOT Q7 rules).
+    - STILL TODO (heavier, fresh-session — each with the architect-agreed
+      approach so it can start cold):
+      1. **BASH_ENV / ENV in /etc/environment** (profile module). The
+         profile module already walks /etc/environment; extend its
+         extractor (or a sibling) to recognize `BASH_ENV=`/`ENV=`
+         assignments and treat the RHS path as an exec_target candidate,
+         so the existing orphan/non_package/tmp signals fire on
+         `/opt/.envhook`. Reuse `core.ExtractExecTarget` patterns.
+         PROMPT_COMMAND stays signal+LFA (arbitrary inline code).
+      2. **initramfs/dracut hook module** (NEW module — biggest). Walk
+         Debian `/etc/initramfs-tools/scripts/{init-top,init-premount,
+         init-bottom,local-top,...}` + `/etc/initramfs-tools/hooks`, and
+         Rocky `/etc/dracut.conf.d/` + `/usr/lib/dracut/modules.d/`. Each
+         executable hook = an ExecTarget=self record (site_class
+         `boot.initramfs.hook`) with provenance + the central ctime/tamper.
+         The compiled `/boot/initrd.img` cpio stays OOS (documented).
+         Register in modset, matrix.yaml (both copies), a detection gated
+         on non_package/orphan. Mirror the suidbits/dbus module shape.
+      3. **ld.so.conf.d library SHADOW** (ldso module, trickiest — keep
+         it precise). Do NOT make the search-path dir an exec_target (that
+         FP-floods on /usr/local/lib). Instead: for each ld.so.conf.d
+         directory entry that is non-standard AND package-unowned,
+         enumerate its `*.so*` and emit `ld_library_shadows_packaged` ONLY
+         when a planted .so's SONAME/basename collides with a
+         package-owned library on the standard path. Bare path-injection
+         stays LFA-only.
+      4. **systemd OnFailure= / .path Unit= relationship EDGES** (systemd
+         module). Parse OnFailure=/Requires=/Wants= and the [Path]
+         PathModified=/PathChanged=/Unit= into a relationship-edge signal
+         (e.g. `systemd_has_onfailure` + the named target) for BACKEND/Q12
+         correlation — NOT a new Q7 rule (the payload arm already fires
+         via interpreter/orphan rules; this just emits the trigger→payload
+         edge so the backend reconstructs the chain).
   - **scope boundaries now documented in scope.md §8.1** (recent_ctime
     live-FS limit, initrd cpio OOS, %config edits report tampered, inline
     interpreter code is signal+LFA).
