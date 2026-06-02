@@ -294,11 +294,11 @@ detections:
   # (the tampered/timestomped content is still a fleet singleton).
 
   - id: timestomp_recent_ctime_stale_mtime
-    description: Persistence artifact's inode changed recently (recent_ctime_7d) while its mtime claims it is old — the touch -d / utimes back-dating tell, since mtime/atime are forgeable but ctime is not. Residual FP class —rsync -a, tar -p extraction and restore-from-backup also pair a fresh ctime with an old mtime
-    severity: medium
+    description: A package-owned file was modified (package_file_tampered) AND its mtime back-dated to look old (recent_ctime_7d without recent_mtime_*) — the touch -d / utimes anti-forensic combo. Requiring the tamper co-signal makes it immune to the benign fresh-ctime+old-mtime that EVERY image/tarball-provisioned host shows (cloud images, containers, debootstrap, rsync -a, restore-from-backup) since extraction never alters content. The dropped-payload timestomp variant is covered by payload_under_tmp_via_persistence
+    severity: high
     mitre: [T1070.006]
     when:
-      signals_all: [recent_ctime_7d]
+      signals_all: [recent_ctime_7d, package_file_tampered]
       signals_none: [recent_mtime_7d, recent_mtime_30d]
 
   - id: package_owned_file_tampered

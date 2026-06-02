@@ -282,13 +282,35 @@ lab-re-validated — the realistic lab is torn down):
   - Both detections are severity **medium** with documented residual-FP
     classes (timestomp: rsync/tar/backup; tamper: legit conffile edits).
     The durable discriminator stays LFA singleton stacking.
-  - **Pending**: empirical re-score against a rebuilt Debian lab
-    (catalog `expected_signals` updated to assert the new signals but
-    not yet observed end-to-end). `rpm -V` and apk `Z:` verification are
-    honest TODO extensions tracked against `Resolver.VerifyPath` — left
-    unverified by charter (no Rocky/Alpine rebuild available this
-    sprint). See [[rhel_lab_plan]] for the Rocky-lab follow-up that
-    would exercise the rpm path.
+  - **VALIDATED end-to-end on the nspawn lab** (rounds 20 Debian + 21
+    Rocky via `lab-nspawn/fleet.sh`; signal-exact checker
+    `lab-nspawn/validate-evade.py`). All assertions PASS:
+    `evade-pkg-tamper` -> `package_file_tampered` + the Q7 rule on
+    `/etc/crontab` (Debian), zero tamper FPs fleet-wide; on Rocky/rpm it
+    correctly does NOT fire (still a Q1 singleton). A real Ubuntu host
+    built 81,134 dpkg integrity entries with zero tamper FPs.
+    `evade-timestomp` -> `recent_ctime_7d` fires on BOTH dpkg and rpm
+    (distro-agnostic, as designed). `evade-fleetwide-clean` -> evades on
+    all 6 hosts (the honest LFA boundary, as predicted).
+  - **Calibration the lab forced:** the first cut of
+    `timestomp_recent_ctime_stale_mtime` (bare `recent_ctime_7d` AND NOT
+    `recent_mtime_*`) flooded Q7 with ~1,850 rows/host on every host --
+    and the real Ubuntu host matched (2,114/3,579 records). Cause: tar/
+    image extraction (debootstrap, cloud images, containers, `rsync -a`,
+    backups) resets ctime to "now" but preserves the old mtime, so every
+    packaged file looks timestomped. Fix: the rule is now **tamper-gated**
+    (`signals_all: [recent_ctime_7d, package_file_tampered]`, severity
+    high) -- immune to extraction by construction. The dropped-payload
+    timestomp stays covered by `payload_under_tmp_via_persistence`; the
+    bare signal is still emitted for backend stacking. `detections_test.go`
+    pins the three shapes. Re-check: timestomp Q7 rows 1,850/host -> 0,
+    recall intact. **Lesson reinforced: fix the CLASS, validate on real
+    distro data before trusting a fresh detection rule.**
+  - **Still open**: `rpm -V` and apk `Z:` verification (honest TODO
+    extensions tracked against `Resolver.VerifyPath`). The Rocky lab now
+    exists and exercises the rpm *boundary* (correctly Unknown); a future
+    sprint implements + validates the positive rpm path. See
+    [[rhel_lab_plan]].
 
 Still OPEN:
 

@@ -15,9 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already populated, so the signal lands uniformly across all modules
   with zero per-module edits. `touch -d`/`utimes(2)` back-date mtime but
   cannot move ctime backward; a record with `recent_ctime_7d` but no
-  `recent_mtime_*` is the timestomp tell, scored by the new
-  `timestomp_recent_ctime_stale_mtime` detection (severity medium;
-  documented FP class: `rsync -a` / `tar -p` / restore-from-backup).
+  `recent_mtime_*` is the timestomp tell. Scored by the
+  `timestomp_recent_ctime_stale_mtime` detection — **calibrated against
+  the nspawn lab to severity high and gated on `package_file_tampered`**:
+  validation showed the bare ctime-vs-mtime rule fires on ~2000
+  records/host on ANY image- or tarball-provisioned host (cloud images,
+  containers, debootstrap, `rsync -a`, restore-from-backup) because tar
+  extraction resets ctime while preserving the old mtime. Requiring the
+  tamper co-signal makes the rule immune to that benign class by
+  construction (extraction never alters content), while the
+  dropped-payload timestomp variant stays covered by
+  `payload_under_tmp_via_persistence`. The `recent_ctime_*` signal
+  itself is still emitted for backend stacking.
 - **dpkg package-file integrity (`package_file_tampered`).** The
   provenance resolver gained `VerifyPath`, which compares a package-owned
   file against the hash dpkg recorded at install. It parses BOTH
