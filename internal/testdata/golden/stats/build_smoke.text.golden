@@ -88,7 +88,7 @@ dormant_module_silent = no covering module emitted any record fleet-wide,
   T1547.006  dormant_module_silent  0        0      kmod
   T1547.013  dormant_module_silent  0        0      xdg.autostart
   T1548      dormant_module_silent  0        0      polkit.rules
-  T1548.001  dormant_module_silent  0        0      sgid.system, sgid.user, suid.system, suid.user
+  T1548.001  dormant_module_silent  0        0      filecap, sgid.system, sgid.user, suid.system, suid.user
   T1548.003  dormant_module_silent  0        0      sudoers
   T1556      dormant_module_silent  0        0      sshd.config
   T1556.003  dormant_module_silent  0        0      pam

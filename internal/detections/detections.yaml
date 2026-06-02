@@ -202,6 +202,14 @@ detections:
       signals_all: [udev_run_directive]
       signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
 
+  - id: file_capability_outside_package
+    description: a file carries privileged file capabilities (cap_setuid/setgid/dac_override/sys_admin/...) and is outside the package universe — a setcap privesc/persistence primitive that find -perm -4000 and mode-only scans miss entirely. Gated on non_package_path so the legitimate packaged caps set (ping/cap_net_raw, etc.) stays silent
+    severity: critical
+    mitre: [T1548.001]
+    when:
+      signals_all: [file_cap_privileged]
+      signals_any: [non_package_path, exec_target_orphan]
+
   - id: systemd_generator_unmanaged
     description: a systemd generator (executable that runs as root at early boot under */systemd/system-generators) is outside the package universe — a planted generator is enable-free boot persistence the unit walker never saw (Sandworm/AA22). Gated on non_package/orphan so the handful of package-shipped vendor generators stay silent
     severity: critical
