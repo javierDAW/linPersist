@@ -1,0 +1,15 @@
+# APT2 implant: apt2-kmod-rootkit (autoloaded planted LKM, Diamorphine shape)
+# Drop a non-package .ko into /lib/modules, register it in modules.dep so
+# it resolves, and schedule it to autoload via modules-load.d. The .ko is
+# package-unowned -> kmod_autoload + non_package_path ->
+# kmod_autoload_unpackaged_module. NOTE: if the host runs depmod at boot it
+# may drop the fake entry (then only kmod_autoload + LFA). Variables: (none)
+RUN kver="$$(ls /lib/modules 2>/dev/null | head -n1)"; \
+    [ -n "$$kver" ] || { echo "apt2-kmod-rootkit: no /lib/modules kver" >&2; exit 0; }; \
+    mkdir -p "/lib/modules/$$kver/kernel/drivers/lab" && \
+    printf 'lab-implant inert diamorphine .ko\n' > "/lib/modules/$$kver/kernel/drivers/lab/diamorphine.ko" && \
+    chown root:root "/lib/modules/$$kver/kernel/drivers/lab/diamorphine.ko" && \
+    printf '%s\n' 'kernel/drivers/lab/diamorphine.ko:' >> "/lib/modules/$$kver/modules.dep" && \
+    mkdir -p /etc/modules-load.d && \
+    printf '%s\n' 'diamorphine' > /etc/modules-load.d/zz-lab.conf && \
+    chown root:root /etc/modules-load.d/zz-lab.conf && chmod 0644 /etc/modules-load.d/zz-lab.conf

@@ -1,0 +1,9 @@
+# APT2 implant: apt2-sshrc-hook (per-ssh-session exec via /etc/ssh/sshrc)
+# sshd runs /etc/ssh/sshrc on every successful session; this one launches
+# a non-package /opt payload. sshrc_present + non_package_path on the
+# extracted exec target -> ssh_sshrc_unmanaged_exec. Variables: (none)
+RUN mkdir -p /opt/.sshhook && \
+    printf '%s\n' '#!/bin/sh' 'sleep 1' > /opt/.sshhook/agent && \
+    chown root:root /opt/.sshhook/agent && chmod 0755 /opt/.sshhook/agent && \
+    printf '%s\n' '#!/bin/sh' '/opt/.sshhook/agent &' > /etc/ssh/sshrc && \
+    chown root:root /etc/ssh/sshrc && chmod 0755 /etc/ssh/sshrc
