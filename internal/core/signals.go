@@ -63,11 +63,14 @@ const (
 	// absent from *.md5sums by design). Catches the "append a line to
 	// a package-owned config" persistence shape that emits no orphan /
 	// interpreter_in_tmp / non_package_path signal because every path
-	// involved is package-managed. Residual FP class: legitimate admin
-	// edits to registered conffiles (which `dpkg --verify` likewise
-	// reports); the durable discriminator remains LFA -- the tampered
-	// content is a fleet singleton. v1.0 implements the dpkg path only;
-	// rpm (`rpm -V`) and apk verification are honest TODO extensions.
+	// involved is package-managed. Covers all three package managers:
+	// dpkg (MD5 from md5sums + Conffiles), rpm (per-file FILEDIGESTS,
+	// SHA-256 on RHEL7+/Rocky/Fedora) and apk (Q1 SHA-1 from the
+	// installed DB); the digest algorithm is inferred from the recorded
+	// hex length. Residual FP class: legitimate admin edits to config
+	// files (which `dpkg --verify` / `rpm -V` likewise report); the
+	// durable discriminator remains LFA -- the tampered content is a
+	// fleet singleton.
 	SignalPackageFileTampered = "package_file_tampered"
 
 	// SignalLiveProcessAttached set when exec_target matches the

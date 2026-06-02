@@ -306,20 +306,20 @@ lab-re-validated — the realistic lab is torn down):
     pins the three shapes. Re-check: timestomp Q7 rows 1,850/host -> 0,
     recall intact. **Lesson reinforced: fix the CLASS, validate on real
     distro data before trusting a fresh detection rule.**
-  - **Still open**: `rpm -V` and apk `Z:` verification (honest TODO
-    extensions tracked against `Resolver.VerifyPath`). The Rocky lab now
-    exists and exercises the rpm *boundary* (correctly Unknown); a future
-    sprint implements + validates the positive rpm path. See
-    [[rhel_lab_plan]].
+  - **rpm + apk integrity now implemented too** (no longer dpkg-only).
+    One `Resolver.VerifyPath` serves all three: it stores the
+    package-recorded digest (dpkg MD5; rpm `FILEDIGESTS` via a bulk
+    `rpm -qa --qf '[%{FILENAMES} %{FILEDIGESTS}\n]'`; apk `Q1` SHA-1 from
+    `/lib/apk/db/installed`) in one map and **infers the hash algorithm
+    from the recorded hex length** (32→MD5, 40→SHA-1, 64→SHA-256) — so no
+    `FILEDIGESTALGO` parsing and no per-manager compare path. rpm/apk
+    unit-tested with fixture commands / installed DB
+    (`provenance_verify_test.go`). The Rocky lab exercises the positive
+    rpm path end-to-end (re-run round 21 with the new binary to observe
+    `package_file_tampered` on `/etc/crontab` via FILEDIGESTS).
 
 Still OPEN:
 
-- **rpm / apk package-file integrity** (extension of the v1.0 dpkg
-  tamper signal). `Resolver.VerifyPath` returns `PkgVerifyUnknown` on
-  non-dpkg hosts today. rpm: `rpm -V` (or read the header file digests);
-  apk: the `Z:` content hashes already in `/lib/apk/db/installed`.
-  Needs a real Rocky/Alpine host to validate, same constraint that
-  deferred it this sprint.
 - **eBPF state inspection** (deferred from v0.5.0 candidate
   backlog). Requires vetting the cilium/ebpf dependency vs. the
   project's "no CGO, no daemons, pure Go" invariant. Could surface
