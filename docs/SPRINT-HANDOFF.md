@@ -386,20 +386,28 @@ lab-re-validated — the realistic lab is torn down):
   - **immutable flag** → `core.InodeFlagSignals` (FS_IOC_GETFLAGS) at the
     sink → `immutable_flag`/`append_only_flag` enrichment (no detection;
     anti-remediation; defeats the immutable-aged implant via LFA).
-  - **Deferred backlog (architect-proposed, NOT built)**: initramfs/dracut
-    hook module (already backlogged below); `/etc/ssh/sshrc` + `~/.ssh/rc`
-    (extend ssh module); `ld.so.conf.d` library-SHADOW signal (only when a
-    planted .so collides with a packaged SONAME); `BASH_ENV`/`ENV` +
-    sshd `SetEnv`/`PermitUserEnvironment`/`AcceptEnv` modeling; kmod
-    softdep/options + resolve the named `.ko` and provenance-check it;
-    systemd `OnFailure=`/`.path Unit=` relationship EDGES as Q12-correlation
-    signals (NOT Q7). Expand the sudoers GTFOBin set (rsync/socat/openssl/
-    busybox) — stable dataset, keep the residual single-binary gap LFA-only.
-  - **Document as scope boundaries (scope.md, not "fix")**: `recent_ctime`'s
-    anti-timestomp guarantee holds only on a LIVE FS (attacker-controlled
-    image-build ordering + byte-identical fleet-wide content is the conceded
-    LFA boundary); the compiled `/boot/initrd.img` cpio is OOS (disk-walk
-    model); PROMPT_COMMAND inline code stays signal+LFA.
+  - **Deferred backlog — progress (detections 37→40):**
+    - DONE `/etc/ssh/sshrc` + `~/.ssh/rc` → site_class `ssh.sshrc` +
+      `ssh_sshrc_unmanaged_exec` (commit 8a877f0).
+    - DONE sudoers GTFOBin set expanded (rsync/socat/openssl/busybox/…),
+      systemctl/docker still LFA-only (8a877f0).
+    - DONE `ExtractExecTarget` lifted profile → `core` (shared) (8a877f0).
+    - DONE kmod autoload + resolve named module to its `.ko` via
+      modules.dep + provenance → `kmod_autoload_unpackaged_module`
+      (critical) (1b994bb).
+    - DONE sshd `SetEnv`/`AcceptEnv`/`PermitUserEnvironment` →
+      `sshd_login_env_injection` (73e2b58).
+    - DONE scope.md §8.1 boundaries doc (73e2b58).
+    - STILL TODO (heavier, fresh-session): **BASH_ENV in /etc/environment**
+      (profile env-file parse → exec_target); **initramfs/dracut hook
+      module** (NEW module — biggest; cpio stays OOS); **ld.so.conf.d
+      library-SHADOW signal** (trickiest — emit only when a planted .so
+      basename collides with a packaged SONAME on the standard path);
+      **systemd `OnFailure=`/`.path Unit=` relationship EDGES** as
+      Q12-correlation signals (NOT Q7 rules).
+  - **scope boundaries now documented in scope.md §8.1** (recent_ctime
+    live-FS limit, initrd cpio OOS, %config edits report tampered, inline
+    interpreter code is signal+LFA).
 
 Still OPEN:
 
