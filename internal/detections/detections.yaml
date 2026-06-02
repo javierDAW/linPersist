@@ -164,20 +164,20 @@ detections:
       signals_all: [ld_preload_set, package_file_tampered]
 
   - id: polkit_admin_rule_implant
-    description: polkit rule contains addAdminRule( and was recently modified (mtime, OR ctime since touch -d cannot forge it) or is non-root-owned. recent_ctime_7d closes the timestomp bypass but co-fires with image age on freshly-provisioned fleets — LFA singleton stacking stays the discriminator there
+    description: polkit rule contains addAdminRule( and was recently modified (recent_mtime_7d) or is non-root-owned. NOTE recent_ctime_7d was trialled here to close the touch -d timestomp bypass but the nspawn lab showed it fires on the image-extracted stock vendor rules under /usr/share/polkit-1 on every freshly-provisioned host — so the touch -d bypass is left to LFA singleton stacking (the attacker drop-in is a content singleton; vendor rules are fleet-common)
     severity: high
     mitre: [T1548]
     when:
       signals_all: [polkit_admin_rule]
-      signals_any: [recent_mtime_7d, recent_ctime_7d, non_root_owner]
+      signals_any: [recent_mtime_7d, non_root_owner]
 
   - id: polkit_yes_constant_implant
-    description: polkit rule grants polkit.Result.YES unconditionally and was recently modified (mtime, OR ctime which touch -d cannot back-date) or is non-root-owned. recent_ctime_7d co-fires with image age on freshly-provisioned fleets, so lean on LFA singleton stacking there
+    description: polkit rule grants polkit.Result.YES unconditionally and was recently modified (recent_mtime_7d) or is non-root-owned. recent_ctime_7d is deliberately NOT in the gate — it floods on image-extracted stock vendor YES rules (lab-confirmed); the touch -d timestomp bypass is caught by LFA singleton stacking instead
     severity: high
     mitre: [T1548]
     when:
       signals_all: [polkit_yes_constant]
-      signals_any: [recent_mtime_7d, recent_ctime_7d, non_root_owner]
+      signals_any: [recent_mtime_7d, non_root_owner]
 
   - id: sshd_root_login_enabled
     description: sshd_config explicitly enables PermitRootLogin yes (rare on hardened fleets; high on a hosts-where-most-have-no flag)
