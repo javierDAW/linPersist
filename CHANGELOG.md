@@ -25,13 +25,15 @@ detection fixes; all consensus across both architects, FP-gated:
   script (root on every network event), but NO rule was scoped to the
   module, so it was Q7-blind. Pure detections.yaml, mirrors
   `udev_run_with_non_package` (same config-mgmt/VPN residual FP class).
-- **polkit rules now consume `recent_ctime_7d`.** `polkit_admin_rule_implant`
-  and `polkit_yes_constant_implant` gated only on `recent_mtime_7d`/owner,
-  trivially defeated by `touch -d`. Adding the unforgeable `recent_ctime_7d`
-  to their `signals_any` closes the timestomp bypass. Documented caveat
-  (and why both architects flagged it): `recent_ctime_7d` co-fires with
-  image age on freshly-provisioned fleets, so LFA singleton stacking
-  stays the discriminator — to be validated against a real imaged fleet.
+- **polkit timestomp: left to LFA (the `recent_ctime_7d` gate was trialled
+  and reverted).** Adding `recent_ctime_7d` to the polkit rules' gate to
+  close the `touch -d` bypass was implemented, then the nspawn lab (round
+  22) showed it fires on the image-extracted stock vendor YES/admin rules
+  under `/usr/share/polkit-1` on every host — the same image-extraction
+  flood that tamper-gated the timestomp rule. Reverted: a `touch -d`
+  timestomp of a polkit drop-in is caught by LFA singleton stacking (the
+  attacker rule is content-unique; vendor rules are fleet-common), not by
+  a Q7 freshness gate. `recent_ctime_7d` is still recorded for the backend.
 - Three APT lab implants added to exercise the above
   (`apt-netdispatch-orphan-hook`, `apt-ldso-preload-inplace`,
   `apt-polkit-yes-timestomp`). Items the architects explicitly left as

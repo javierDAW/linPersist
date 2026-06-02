@@ -394,20 +394,20 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			want: []string{"netdispatch_run_unmanaged"},
 		},
 		{
-			name: "polkit YES rule timestomped (fresh ctime, mtime back-dated) -> caught via recent_ctime gate",
+			name: "polkit YES rule timestomped (fresh ctime, mtime back-dated) -> NOT a Q7 hit (recent_ctime deliberately not gated; LFA catches it)",
 			rec: core.Record{
 				Module:  "polkit",
 				Signals: []string{core.SignalPolkitYesConstant, core.SignalRecentCtime7d},
 			},
-			want: []string{"polkit_yes_constant_implant"},
+			want: nil,
 		},
 		{
-			name: "pristine packaged polkit YES rule, old ctime/mtime -> NOT flagged",
+			name: "polkit YES rule recently modified by mtime -> flagged (legit freshness gate)",
 			rec: core.Record{
 				Module:  "polkit",
-				Signals: []string{core.SignalPolkitYesConstant},
+				Signals: []string{core.SignalPolkitYesConstant, core.SignalRecentMtime7d},
 			},
-			want: nil,
+			want: []string{"polkit_yes_constant_implant"},
 		},
 	}
 	for _, tc := range cases {

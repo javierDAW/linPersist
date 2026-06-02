@@ -714,15 +714,18 @@ implants:
     description: |
       polkit rules.d drop-in returning Result.YES + addAdminRule for
       wheel/sudo, mtime back-dated with touch -d to defeat the polkit
-      recent_mtime_7d gate. ctime cannot be moved back -> recent_ctime_7d
-      fires -> the polkit rules (now consuming recent_ctime_7d) catch the
-      bypass. NOTE: validates the calibration tension -- recent_ctime also
-      fires on image-extracted stock polkit YES rules, so the lab will
-      show whether this floods on clean hosts (LFA singleton is the
-      discriminator). Not package-owned -> timestomp rule correctly silent.
+      recent_mtime_7d gate. ctime cannot be moved back, so recent_ctime_7d
+      still fires (recorded for backend/LFA). LAB FINDING (round 22):
+      adding recent_ctime_7d to the polkit Q7 gate flooded on the
+      image-extracted stock vendor YES rules under /usr/share/polkit-1 on
+      every host, so it was reverted -- the touch -d timestomp bypass is
+      caught by LFA singleton stacking (this drop-in is content-unique;
+      vendor rules are fleet-common), NOT by a Q7 freshness rule. The
+      honest boundary: a defender-aware timestomp on polkit evades Q7 and
+      relies on LFA.
     expected_signals: [polkit_yes_constant, polkit_admin_rule, recent_ctime_7d]
-    expected_caught_by: [Q1, Q7]
-    expected_q7_rule: polkit_yes_constant_implant
+    expected_caught_by: [Q1]
+    expected_q7_rule: null
     template: apt-polkit-yes-timestomp.tmpl
     vars:
       rules_file: /etc/polkit-1/rules.d/49-ops-orchestration.rules
