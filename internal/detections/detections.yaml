@@ -302,7 +302,7 @@ detections:
       signals_none: [recent_mtime_7d, recent_mtime_30d]
 
   - id: package_owned_file_tampered
-    description: A package-owned file no longer matches the hash dpkg recorded at install (md5sums or Conffiles) — catches the append-to-/etc/crontab persistence shape that emits no orphan/tmp/non_package signal. Residual FP class —legitimate admin edits to registered conffiles, which dpkg --verify likewise reports
+    description: A package-owned file no longer matches the digest its package manager recorded at install (dpkg md5sums/Conffiles, rpm FILEDIGESTS, apk Z:) — catches the append-to-/etc/crontab persistence shape that emits no orphan/tmp/non_package signal. Residual FP class —legitimate admin edits to config files, which dpkg --verify / rpm -V likewise report
     severity: medium
     mitre: [T1554]
     when:

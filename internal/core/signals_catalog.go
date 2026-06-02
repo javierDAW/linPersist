@@ -110,7 +110,7 @@ var Signals = []SignalDef{
 	},
 	{
 		Name:        SignalPackageFileTampered,
-		Description: "locus is a package-owned file whose content no longer matches the dpkg-recorded hash (md5sums or Conffiles)",
+		Description: "locus is a package-owned file whose content no longer matches the package-recorded digest (dpkg md5sums/Conffiles, rpm FILEDIGESTS, or apk Z:)",
 		EmittedBy:   []string{"core/provenance"},
 	},
 	{

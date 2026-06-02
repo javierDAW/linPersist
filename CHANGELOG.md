@@ -36,10 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "append a line to a package-owned config" persistence shape, which
   emits no orphan/tmp/non_package signal, no longer evades on a dpkg
   host. Drives the `package_owned_file_tampered` detection (severity
-  medium; FP class: legitimate conffile edits, which `dpkg --verify`
-  also reports). Results are memoized per path. **dpkg only**; `rpm -V`
-  and apk `Z:` verification are honest TODO extensions tracked against
-  `Resolver.VerifyPath`. Verification wired via an interface upgrade in
+  medium; FP class: legitimate config-file edits, which `dpkg --verify`
+  / `rpm -V` also report). Results are memoized per path. **Covers
+  dpkg, rpm and apk**: one `Resolver.VerifyPath` serves all three by
+  storing the package-recorded digest (dpkg MD5 from md5sums+Conffiles,
+  rpm `FILEDIGESTS` SHA-256, apk `Q1` SHA-1) in a single map and
+  inferring the hash algorithm from the recorded hex length (32→MD5,
+  40→SHA-1, 64→SHA-256). Verification wired via an interface upgrade in
   the sink, so `--no-provenance` / `NoopProvenance` skip it cleanly.
 - **Three evasion lab implants** (`lab-realistic/implants/`):
   `evade-timestomp` (back-dated mtime), `evade-pkg-tamper` (append to

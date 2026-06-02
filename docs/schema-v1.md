@@ -98,7 +98,7 @@ scores. The agent does NOT compute scores. Canonical names:
 | `recent_ctime_30d` | ctime within 30 days but outside the 7-day window. |
 | `world_writable` | `0o002` bit set on mode. |
 | `non_package_path` | `exec_target_pkg_status == "orphan"`. |
-| `package_file_tampered` | `locus` is a package-owned file whose content no longer matches the dpkg-recorded hash (`md5sums` for regular files, the `Conffiles:` stanza of `/var/lib/dpkg/status` for conffiles). dpkg-only in v1.0; rpm/apk are TODO. |
+| `package_file_tampered` | `locus` is a package-owned file whose content no longer matches the package-recorded digest. Sources: dpkg `md5sums` + `Conffiles:` stanza (MD5), rpm `FILEDIGESTS` (SHA-256 on RHEL7+/Rocky/Fedora, MD5 on EL5/6), apk `Z:` (SHA-1). Digest algorithm inferred from the recorded hex length. |
 | `interpreter_in_tmp` | `exec_target` under `/tmp`, `/var/tmp`, `/dev/shm`, `/run/shm`. |
 | `ld_preload_set` | `/etc/ld.so.preload` non-empty. |
 | `exec_target_orphan` | `exec_target` does not exist on disk. |
