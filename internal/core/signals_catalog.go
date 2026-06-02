@@ -276,6 +276,16 @@ var Signals = []SignalDef{
 		EmittedBy:   []string{"sshd"},
 	},
 	{
+		Name:        SignalSSHDPermitUserEnvironment,
+		Description: "sshd_config PermitUserEnvironment yes (lets ~/.ssh/environment set BASH_ENV/LD_PRELOAD -> login code exec)",
+		EmittedBy:   []string{"sshd"},
+	},
+	{
+		Name:        SignalSSHDEnvInjection,
+		Description: "sshd_config SetEnv/AcceptEnv references a code-exec env var (BASH_ENV/ENV/LD_PRELOAD/LD_LIBRARY_PATH/LD_AUDIT)",
+		EmittedBy:   []string{"sshd"},
+	},
+	{
 		Name:        SignalSSHDMatchBlockDirective,
 		Description: "sshd_config record lives inside a Match block (Match line itself or any directive under it)",
 		EmittedBy:   []string{"sshd"},

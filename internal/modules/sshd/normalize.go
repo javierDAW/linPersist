@@ -199,5 +199,38 @@ func directiveSignals(keyword, value string) []string {
 	if kw == "authorizedkeyscommand" {
 		out = append(out, core.SignalSSHDAuthorizedKeysCommand)
 	}
+	if kw == "permituserenvironment" && val == "yes" {
+		out = append(out, core.SignalSSHDPermitUserEnvironment)
+	}
+	if (kw == "setenv" || kw == "acceptenv") && mentionsDangerousEnv(value) {
+		out = append(out, core.SignalSSHDEnvInjection)
+	}
 	return out
+}
+
+// dangerousEnvVars are environment variables whose value sshd should
+// never let a client control: they turn a login into code execution
+// (shell startup files) or library injection (the linker hooks).
+var dangerousEnvVars = []string{
+	"BASH_ENV", "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT",
+}
+
+// mentionsDangerousEnv reports whether a SetEnv/AcceptEnv value references
+// a dangerous variable. Case-sensitive (env var names are): a SetEnv
+// "BASH_ENV=/x" or an AcceptEnv "LD_PRELOAD" both match. The bare "ENV"
+// var is matched as a whole token to avoid firing on every "*_ENV" name.
+func mentionsDangerousEnv(value string) bool {
+	for _, v := range dangerousEnvVars {
+		if strings.Contains(value, v) {
+			return true
+		}
+	}
+	for _, tok := range strings.FieldsFunc(value, func(r rune) bool {
+		return r == ' ' || r == '\t' || r == '='
+	}) {
+		if tok == "ENV" {
+			return true
+		}
+	}
+	return false
 }
