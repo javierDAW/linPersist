@@ -598,10 +598,15 @@ implants:
     description: |
       cron.d directive with mtime back-dated via touch -d to defeat
       recent_mtime_*. ctime stays current, so the v1.0 central
-      recent_ctime_7d signal fires while recent_mtime_* does NOT -- the
-      timestomp_recent_ctime_stale_mtime rule catches exactly that gap.
-      The unique content is also still an LFA singleton. (recent_ctime_7d
-      assertion awaits lab rebuild for empirical re-scoring.)
+      recent_ctime_7d signal fires while recent_mtime_* does NOT.
+      VALIDATED on the nspawn lab (round 20 Debian / round 21 Rocky):
+      recent_ctime_7d fires on both dpkg and rpm; the dropped payload
+      makes it a Q7 catch via payload_under_tmp_via_persistence (orphan +
+      tmp) and an LFA singleton. NOTE: the dedicated timestomp rule is
+      tamper-gated (package_file_tampered) to avoid the image-extraction
+      FP flood, so it does NOT fire on this pristine-content dropped file
+      -- that is by design; this implant's job is to confirm the
+      recent_ctime_7d SIGNAL, which it does on both distros.
     expected_signals: [interpreter_in_tmp, exec_target_orphan, recent_ctime_7d]
     expected_caught_by: [Q1, Q2, Q4, Q7, Q9]
     expected_q7_rule: payload_under_tmp_via_persistence
@@ -626,7 +631,11 @@ implants:
       the appended line makes the file mismatch -> package_file_tampered ->
       package_owned_file_tampered rule. dpkg hosts ONLY (rpm/apk are honest
       TODO); on a non-dpkg host this still evades down to the LFA singleton.
-      (package_file_tampered assertion awaits Debian lab rebuild.)
+      VALIDATED on the nspawn lab: round 20 (Debian) emits
+      package_file_tampered on /etc/crontab + the Q7 rule, zero tamper FPs
+      fleet-wide; round 21 (Rocky/rpm) correctly does NOT flag it (still a
+      Q1 singleton). 81k dpkg integrity entries also verified FP-free on a
+      real Ubuntu host.
     expected_signals: [package_file_tampered]
     expected_caught_by: [Q1, Q2, Q7]
     expected_q7_rule: package_owned_file_tampered

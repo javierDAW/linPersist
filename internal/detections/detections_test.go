@@ -346,6 +346,37 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			},
 			want: nil,
 		},
+		{
+			name: "package file tampered (append, fresh mtime) -> tamper rule only, NOT timestomp",
+			rec: core.Record{
+				Module: "cron",
+				Signals: []string{
+					core.SignalPackageFileTampered,
+					core.SignalRecentCtime7d,
+					core.SignalRecentMtime7d,
+				},
+			},
+			want: []string{"package_owned_file_tampered"},
+		},
+		{
+			name: "package file tampered AND mtime back-dated -> timestomp (high-precision) + tamper",
+			rec: core.Record{
+				Module: "cron",
+				Signals: []string{
+					core.SignalPackageFileTampered,
+					core.SignalRecentCtime7d,
+				},
+			},
+			want: []string{"timestomp_recent_ctime_stale_mtime", "package_owned_file_tampered"},
+		},
+		{
+			name: "pristine image-extracted package file (fresh ctime, old mtime, NO tamper) -> nothing",
+			rec: core.Record{
+				Module:  "udev",
+				Signals: []string{core.SignalRecentCtime7d},
+			},
+			want: nil,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
