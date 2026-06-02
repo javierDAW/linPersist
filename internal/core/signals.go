@@ -45,6 +45,22 @@ const (
 	// anti-timestomp rationale as SignalRecentCtime7d.
 	SignalRecentCtime30d = "recent_ctime_30d"
 
+	// SignalImmutableFlag set when the artifact's inode carries the
+	// ext/xfs/btrfs FS_IMMUTABLE_FL flag (chattr +i), queried centrally
+	// at the emit sink via FS_IOC_GETFLAGS. Dual purpose: (1) anti-
+	// remediation -- an immutable persistence locus cannot be `rm`'d or
+	// edited until the flag is cleared, so the responder needs to know;
+	// (2) anti-forensic -- attackers set +i to lock a planted file.
+	// Enrichment only (legitimate +i exists on hardened hosts, e.g.
+	// /etc/resolv.conf), so it is recorded for LFA/triage, NOT a
+	// standalone detection; it pairs with content-singleton stacking.
+	SignalImmutableFlag = "immutable_flag"
+
+	// SignalAppendOnlyFlag set when the inode carries FS_APPEND_FL
+	// (chattr +a) -- the file can only be appended to. Same central
+	// query and enrichment-only treatment as SignalImmutableFlag.
+	SignalAppendOnlyFlag = "append_only_flag"
+
 	// SignalWorldWritable set when the artifact has the 0o002 mode bit.
 	SignalWorldWritable = "world_writable"
 
@@ -435,6 +451,21 @@ const (
 	// the unmistakable implant shape.
 	SignalSuidBitSet = "suid_bit_set"
 	SignalSgidBitSet = "sgid_bit_set"
+
+	// SignalFileCapabilitySet set on a suidbits record whose file carries
+	// a security.capability xattr (file capabilities). MITRE T1548.001:
+	// a 0755 binary with cap_setuid+ep is a privesc primitive that NO
+	// suid-bit scan (find -perm -4000) and -- until this -- linpersist's
+	// mode-only suidbits walker ever saw. Pair with non_package_path (a
+	// packaged binary legitimately carrying caps, e.g. ping/cap_net_raw,
+	// is fleet-baseline; a dropped /opt binary with caps is the implant).
+	SignalFileCapabilitySet = "file_capability_set"
+
+	// SignalFileCapPrivileged set when the file's permitted capability
+	// set includes a directly-privesc-capable capability (cap_setuid,
+	// cap_setgid, cap_dac_override, cap_dac_read_search, cap_sys_admin,
+	// cap_sys_module, cap_sys_ptrace, cap_sys_rawio, cap_setfcap).
+	SignalFileCapPrivileged = "file_cap_privileged"
 
 	// SignalTrapCommand and friends fire on profile.trap.{system,user}
 	// records emitted by the profile module's trap walker (v0.4.0).

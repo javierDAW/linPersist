@@ -559,7 +559,7 @@ footer a { color: var(--accent); }
             <td><span style="color:var(--muted)">dormant_module_silent</span></td>
             <td class="num">0</td>
             <td class="num">0</td>
-            <td><code>sgid.system</code>, <code>sgid.user</code>, <code>suid.system</code>, <code>suid.user</code></td>
+            <td><code>filecap</code>, <code>sgid.system</code>, <code>sgid.user</code>, <code>suid.system</code>, <code>suid.user</code></td>
           </tr>
         
           <tr>

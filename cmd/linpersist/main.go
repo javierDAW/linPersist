@@ -163,6 +163,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	runner := core.NewRunner(modset.All(prov, liveProcs)...)
 
 	agentVersion := fmt.Sprintf("linpersist-%s", version)
+	// Per-locus cache for the inode-flag ioctl: many records share one
+	// locus (a crontab with N lines, an sshd_config with N directives),
+	// so each file's chattr flags are queried at most once per run. The
+	// runner serializes the sink, so a plain map needs no lock.
+	inodeFlagCache := map[string][]string{}
 	sink := func(rec core.Record) {
 		rec.SchemaV = core.SchemaVersion
 		rec.HostID = hostID
@@ -186,6 +191,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}); ok && rec.Locus != "" {
 			rec.Signals = append(rec.Signals,
 				core.TamperSignal(v.VerifyPath(rec.Locus))...)
+		}
+		// Inode chattr flags (immutable/append-only) -- anti-remediation
+		// enrichment, computed once per locus. Skips cleanly on any FS
+		// that does not support the ioctl.
+		if rec.Locus != "" {
+			flags, ok := inodeFlagCache[rec.Locus]
+			if !ok {
+				flags = core.InodeFlagSignals(rec.Locus)
+				inodeFlagCache[rec.Locus] = flags
+			}
+			rec.Signals = append(rec.Signals, flags...)
 		}
 		rec.Signals = core.DedupSignals(rec.Signals)
 		if err := emitter.Emit(rec); err != nil {

@@ -91,6 +91,16 @@ var Signals = []SignalDef{
 		EmittedBy:   []string{"core/filemeta"},
 	},
 	{
+		Name:        SignalImmutableFlag,
+		Description: "inode carries FS_IMMUTABLE_FL (chattr +i) -- anti-remediation/anti-forensic; queried centrally at the sink",
+		EmittedBy:   []string{"core/inode_flags"},
+	},
+	{
+		Name:        SignalAppendOnlyFlag,
+		Description: "inode carries FS_APPEND_FL (chattr +a) -- append-only; queried centrally at the sink",
+		EmittedBy:   []string{"core/inode_flags"},
+	},
+	{
 		Name:        SignalWorldWritable,
 		Description: "artifact has the 0o002 mode bit set",
 		EmittedBy: []string{
@@ -413,6 +423,16 @@ var Signals = []SignalDef{
 	{
 		Name:        SignalSgidBitSet,
 		Description: "file has the setgid bit (02000); pair with non_package_path for the T1548.001 implant shape",
+		EmittedBy:   []string{"suidbits"},
+	},
+	{
+		Name:        SignalFileCapabilitySet,
+		Description: "file carries a security.capability xattr (file capabilities) -- a privesc primitive no suid-bit scan sees",
+		EmittedBy:   []string{"suidbits"},
+	},
+	{
+		Name:        SignalFileCapPrivileged,
+		Description: "file capability permitted set includes a directly-privesc-capable cap (setuid/setgid/dac_override/sys_admin/sys_module/...)",
 		EmittedBy:   []string{"suidbits"},
 	},
 	{
