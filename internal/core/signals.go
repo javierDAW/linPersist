@@ -516,4 +516,20 @@ const (
 	SignalTrapCommand      = "trap_command"
 	SignalTrapExitHandler  = "trap_exit_handler"
 	SignalTrapCommandInTmp = "trap_command_in_tmp"
+
+	// SignalEnvHookSet fires on a profile-class file (most dangerously
+	// /etc/environment, which PAM's pam_env reads for EVERY login,
+	// interactive or not) that assigns BASH_ENV= or ENV= to an
+	// absolute path. bash sources $BASH_ENV at the start of every
+	// non-interactive shell, and POSIX sh sources $ENV — so the named
+	// file is an exec primitive that runs on every script/cron/login
+	// invocation. The assignment is recorded with the RHS as ExecTarget
+	// so the existing exec_target signals (non_package_path /
+	// exec_target_orphan / interpreter_in_tmp) co-fire. Existence alone
+	// is informational (some dev setups set BASH_ENV legitimately); the
+	// verdict comes from pairing it with those co-indicators and LFA
+	// singleton stacking. PROMPT_COMMAND and non-absolute / $-expanded
+	// RHS values stay signal-free (arbitrary inline code, not a
+	// resolvable target) — left to LFA. MITRE T1546.004.
+	SignalEnvHookSet = "env_hook_set"
 )

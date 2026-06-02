@@ -156,8 +156,8 @@ var Signals = []SignalDef{
 		Name:        SignalInterpreterInTmp,
 		Description: "exec_target lives under /tmp, /var/tmp, /dev/shm or /run/shm",
 		EmittedBy: []string{
-			"cron", "dbus", "grub", "kmod", "ldso", "pam", "passwd", "ssh", "sshd",
-			"systemd", "sysv", "udev", "xdg",
+			"cron", "dbus", "grub", "kmod", "ldso", "pam", "passwd", "profile",
+			"ssh", "sshd", "systemd", "sysv", "udev", "xdg",
 		},
 	},
 	{
@@ -468,6 +468,11 @@ var Signals = []SignalDef{
 	{
 		Name:        SignalTrapCommandInTmp,
 		Description: "profile-class trap directive's CMD resolves under /tmp / /var/tmp / /dev/shm",
+		EmittedBy:   []string{"profile"},
+	},
+	{
+		Name:        SignalEnvHookSet,
+		Description: "profile-class file assigns BASH_ENV=/ENV= to an absolute path (per-shell source hook; T1546.004)",
 		EmittedBy:   []string{"profile"},
 	},
 }
