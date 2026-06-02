@@ -1,0 +1,35 @@
+# Implant template: apt-ldso-preload-tampered-lib (L5, armed)
+#
+# APT TTP mirror: HiddenWasp / Symbiote / Winnti-Linux LD_PRELOAD
+# userland rootkits (T1574.006). These families register a malicious .so
+# in /etc/ld.so.preload, but the sophisticated variant does NOT point at
+# a fresh non-package path under /tmp -- that is exactly what
+# ld_preload_set_with_non_package catches (ld_preload_set +
+# non_package_path). Instead the attacker OVERWRITES an existing
+# PACKAGE-OWNED shared library in place (here libnss_files is a stand-in:
+# we copy a real packaged .so to a packaged-looking path and preload it),
+# so the preload target resolves to a managed path and non_package_path
+# does NOT fire. The only thing that should betray it is
+# package_file_tampered (the on-disk lib content != recorded digest) --
+# BUT shared libraries under /usr/lib are NOT cron.d-style conffiles, and
+# whether dpkg md5sums / rpm FILEDIGESTS cover this exact library on the
+# lab base image is the open question. If provenance VerifyPath does not
+# carry a digest for the preloaded lib (or the attacker preloads a path
+# the package db has no entry for), package_file_tampered stays silent and
+# ld_preload_set fires ALONE -- which no rule consumes without the
+# non_package co-signal. Finding: an in-place library preload tests the
+# integrity path's coverage of shared objects, the real rootkit shape.
+#
+# Variables: ${preload_file}, ${lib_path}
+
+# Stage a packaged-looking .so. We copy an existing system library so the
+# bytes are plausible; appending a NUL-free comment-marker changes the
+# content so an integrity check (if it covers this path) would flag it.
+RUN cp /bin/true ${lib_path} 2>/dev/null || cp /usr/bin/true ${lib_path} && \
+    printf '\n# lab-implant apt-ldso-preload-tampered-lib marker\n' >> ${lib_path} && \
+    chown root:root ${lib_path} && \
+    chmod 0644 ${lib_path}
+
+RUN printf '%s\n' '${lib_path}' > ${preload_file} && \
+    chown root:root ${preload_file} && \
+    chmod 0644 ${preload_file}
