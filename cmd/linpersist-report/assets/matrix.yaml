@@ -200,6 +200,26 @@ site_classes:
       ssh_options_present and ssh_forced_command added to the core
       catalog for this module.
 
+  - site_class: ssh.sshrc
+    module: ssh
+    mitre: [T1546.004]
+    loci:
+      - /etc/ssh/sshrc
+      - /root/.ssh/rc
+      - /home/*/.ssh/rc
+    status: implemented
+    test_coverage: unit
+    notes: |
+      sshd runs /etc/ssh/sshrc (server-side) and ~/.ssh/rc (per-user) as
+      a shell script on EVERY successful session -- a per-login exec hook
+      that ships with no file by default. One record per file:
+      sshrc_present always (existence is the recorded fact), plus the
+      body is scanned by core.ExtractExecTarget so a hook that sources/
+      execs an orphan/tmp/non-package payload trips the existing
+      exec_target_orphan / interpreter_in_tmp / non_package_path signals.
+      Detection ssh_sshrc_unmanaged_exec gates on that co-indicator;
+      bare existence stays signal+LFA (legitimate admin use exists).
+
   - site_class: sshd.config
     module: sshd
     mitre: [T1098.004, T1556]

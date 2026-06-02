@@ -270,7 +270,7 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 	// /usr/local/bin/sync split into two Q12 rows because the profile
 	// arm carried no ExecTarget. See v0.4.0 sprint task #14.
 	var execTargetSigs []string
-	if target := ExtractExecTarget(raw); target != "" {
+	if target := core.ExtractExecTarget(raw); target != "" {
 		rec.ExecTarget = target
 		execTargetSigs = m.execTargetStatSignals(target)
 		// Hash the payload so Q6 can stack a worm that drops the same

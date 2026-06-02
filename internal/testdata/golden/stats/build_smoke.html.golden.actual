@@ -447,7 +447,7 @@ footer a { color: var(--accent); }
             <td><span style="color:var(--tail)">dormant_coverage_gap</span></td>
             <td class="num">0</td>
             <td class="num">0</td>
-            <td><code>profile.system</code>, <code>profile.user</code></td>
+            <td><code>profile.system</code>, <code>profile.user</code>, <code>ssh.sshrc</code></td>
           </tr>
         
           <tr>

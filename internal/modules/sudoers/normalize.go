@@ -232,6 +232,17 @@ var gtfoShellEscape = map[string]bool{
 	"perl": true, "ruby": true, "lua": true, "php": true, "node": true,
 	"gdb": true, "nmap": true, "tmux": true, "screen": true,
 	"ftp": true, "tclsh": true, "expect": true, "byebug": true,
+	// duel-2 backlog: stable documented GTFOBins-sudo shell-escapes the
+	// curated set was missing. rsync (-e/--rsh), socat (EXEC), openssl
+	// (engine/prime via enc), busybox (applet shells), cpulimit (-f),
+	// flock/ionice/nice/nohup/timeout/stdbuf/setarch/taskset/unshare/env
+	// run an arbitrary command as the target user. Deliberately STILL
+	// excludes systemctl/service/docker/git (ubiquitous legit NOPASSWD
+	// grants -> LFA, not Q7).
+	"rsync": true, "socat": true, "openssl": true, "busybox": true,
+	"cpulimit": true, "flock": true, "ionice": true, "nice": true,
+	"nohup": true, "timeout": true, "stdbuf": true, "setarch": true,
+	"taskset": true, "unshare": true, "watch": true, "make": true,
 }
 
 // nopasswdGtfobin reports whether any command in the user-spec's command

@@ -231,6 +231,9 @@ func TestNopasswdGtfobin(t *testing.T) {
 		{"webops ALL=(root) NOPASSWD: /usr/bin/find /var/log -name '*.gz'", true},
 		{"deploy ALL=(ALL) NOPASSWD: /bin/tar, /usr/bin/awk", true},
 		{"dev ALL=NOPASSWD:/usr/bin/python3 /opt/app/run.py", true},
+		// duel-2 additions to the curated set.
+		{"bk ALL=(root) NOPASSWD: /usr/bin/rsync -av /srv /backup", true},
+		{"net ALL=(root) NOPASSWD: /usr/bin/socat - TCP:localhost:25", true},
 		// Excluded common-legit binaries -> no signal (left to LFA).
 		{"svc ALL=(root) NOPASSWD: /usr/bin/systemctl restart nginx", false},
 		{"ci ALL=(root) NOPASSWD: /usr/bin/docker", false},

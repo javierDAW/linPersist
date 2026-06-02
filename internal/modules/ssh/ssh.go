@@ -38,6 +38,10 @@ import (
 // MITRE ATT&CK technique applied to every record this module emits.
 const mitreSSHAuthKeys = "T1098.004"
 
+// mitreSSHRC: sshrc / ~/.ssh/rc are shell-config-triggered execution
+// (Unix Shell Configuration Modification).
+const mitreSSHRC = "T1546.004"
+
 // Options configures a Module instance.
 type Options struct {
 	Root        string
@@ -87,7 +91,7 @@ func (m *Module) Name() string { return "ssh" }
 // sshd.config will land in a follow-up iteration as a separate
 // site_class.
 func (m *Module) SiteClasses() []string {
-	return []string{"ssh.authkeys"}
+	return []string{"ssh.authkeys", "ssh.sshrc"}
 }
 
 // Collect walks every configured authorized_keys locus.
@@ -113,8 +117,84 @@ func (m *Module) Collect(ctx context.Context, emit func(core.Record)) error {
 	if err := m.collectHomeAuthkeys(ctx, "/home", emit); err != nil {
 		errs = append(errs, err)
 	}
+	// sshrc / ~/.ssh/rc -- per-session exec hooks.
+	if err := m.collectSSHRCFile(ctx, "/etc/ssh/sshrc", emit); err != nil {
+		errs = append(errs, err)
+	}
+	if err := m.collectSSHRCFile(ctx, "/root/.ssh/rc", emit); err != nil {
+		errs = append(errs, err)
+	}
+	if err := m.collectHomeSSHRC(ctx, "/home", emit); err != nil {
+		errs = append(errs, err)
+	}
 
 	return errors.Join(errs...)
+}
+
+// collectSSHRCFile emits a record for an sshrc / ~/.ssh/rc shell hook if
+// it exists. sshd runs these on every successful session, so the file's
+// existence is itself recorded (SignalSSHRCPresent); the body is scanned
+// for an exec target so a hook that sources/execs an orphan/tmp/non-
+// package payload trips the existing exec_target signals.
+func (m *Module) collectSSHRCFile(ctx context.Context, logical string, emit func(core.Record)) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	real := m.resolve(logical)
+	info, err := os.Lstat(real)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return nil // EACCES etc.: best-effort, skip
+	}
+	if !info.Mode().IsRegular() {
+		return nil
+	}
+	body, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
+	if err != nil {
+		return nil
+	}
+	rec := core.Record{
+		Module:            m.Name(),
+		SiteClass:         "ssh.sshrc",
+		MITRE:             []string{mitreSSHRC},
+		Locus:             logical,
+		ContentSHA256:     core.HashHexString(string(body)),
+		ContentNormSHA256: core.HashHexString(string(body)),
+	}
+	core.FillFileMeta(&rec, info)
+	signals := []string{core.SignalSSHRCPresent}
+	if target := core.ExtractExecTarget(body); target != "" {
+		rec.ExecTarget = target
+		signals = append(signals, m.execTargetSignals(target)...)
+	}
+	rec.Signals = core.DedupSignals(signals)
+	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
+	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
+	emit(rec)
+	return nil
+}
+
+// collectHomeSSHRC walks /home/<user>/.ssh/rc for every home subdir.
+func (m *Module) collectHomeSSHRC(ctx context.Context, logicalDir string, emit func(core.Record)) error {
+	realDir := m.resolve(logicalDir)
+	entries, err := os.ReadDir(realDir)
+	if err != nil {
+		return nil // missing /home or unreadable: best-effort
+	}
+	for _, e := range entries {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if !e.IsDir() {
+			continue
+		}
+		if err := m.collectSSHRCFile(ctx, filepath.Join(logicalDir, e.Name(), ".ssh", "rc"), emit); err != nil {
+			_ = err
+		}
+	}
+	return nil
 }
 
 // resolve prepends Options.Root to a logical path for unit tests.
