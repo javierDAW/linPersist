@@ -189,6 +189,16 @@ const (
 	// specific command" signal.
 	SignalSSHOptionsPresent = "ssh_options_present"
 
+	// SignalSSHRCPresent set on every ssh.sshrc record. /etc/ssh/sshrc
+	// and ~/.ssh/rc are shell scripts sshd runs on EVERY successful ssh
+	// session (server-side and per-user respectively) -- a per-login root
+	// or user exec primitive that ships with no file by default, so its
+	// mere existence is worth recording. Informational on its own
+	// (legitimate admin use exists); the verdict comes from pairing it
+	// with the body's exec_target signals (non_package_path /
+	// exec_target_orphan / interpreter_in_tmp) and LFA singleton stacking.
+	SignalSSHRCPresent = "sshrc_present"
+
 	// SignalSSHForcedCommand set on ssh.authkeys records whose options
 	// list contains command="..." (case-insensitive). The forced
 	// command is a well-known persistence pattern: any key carrying

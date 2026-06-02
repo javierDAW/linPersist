@@ -229,6 +229,11 @@ var Signals = []SignalDef{
 		Description: "ssh.authkeys options list contains command=\"...\" forcing a specific command on login",
 		EmittedBy:   []string{"ssh"},
 	},
+	{
+		Name:        SignalSSHRCPresent,
+		Description: "/etc/ssh/sshrc or ~/.ssh/rc exists -- a per-ssh-session exec hook not shipped by default",
+		EmittedBy:   []string{"ssh"},
+	},
 
 	// --- Sudoers ---
 
