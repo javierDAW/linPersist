@@ -846,6 +846,54 @@ implants:
     vars:
       cron_file: /etc/cron.d/zz-locked
 
+  # ===== duel-2 backlog validation implants =====
+
+  - id: apt2-sshrc-hook
+    tier: L4
+    variant: armed
+    module: ssh
+    site_class: ssh.sshrc
+    description: |
+      /etc/ssh/sshrc runs on every ssh session and launches a non-package
+      /opt payload -> sshrc_present + non_package_path ->
+      ssh_sshrc_unmanaged_exec.
+    expected_signals: [sshrc_present, non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: ssh_sshrc_unmanaged_exec
+    template: apt2-sshrc-hook.tmpl
+    vars: {}
+
+  - id: apt2-kmod-rootkit
+    tier: L5
+    variant: armed
+    module: kmod
+    site_class: kmod
+    description: |
+      Diamorphine shape: a non-package .ko planted in /lib/modules,
+      registered in modules.dep, scheduled to autoload via modules-load.d.
+      kmod resolves the named module to its unowned .ko -> kmod_autoload +
+      non_package_path -> kmod_autoload_unpackaged_module (critical).
+    expected_signals: [kmod_autoload, non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: kmod_autoload_unpackaged_module
+    template: apt2-kmod-rootkit.tmpl
+    vars: {}
+
+  - id: apt2-sshd-setenv
+    tier: L4
+    variant: armed
+    module: sshd
+    site_class: sshd.config
+    description: |
+      sshd_config drop-in enabling PermitUserEnvironment + SetEnv BASH_ENV
+      -> sshd_permit_user_environment + sshd_env_injection ->
+      sshd_login_env_injection. Config-only persistence via a trusted daemon.
+    expected_signals: [sshd_permit_user_environment, sshd_env_injection]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: sshd_login_env_injection
+    template: apt2-sshd-setenv.tmpl
+    vars: {}
+
 # ==========================================================================
 # Placement plan -- generator picks hosts per role to keep TPs measurable.
 
