@@ -73,7 +73,7 @@ dormant_module_silent = no covering module emitted any record fleet-wide,
   T1053.006  dormant_coverage_gap   0        0      systemd.timer
   T1098.007  dormant_coverage_gap   0        0      passwd.group.privileged
   T1136.001  dormant_coverage_gap   0        0      passwd.group, passwd.group.privileged, passwd.gshadow, passwd.shadow, passwd.user, systemd.sysusers
-  T1543.002  dormant_coverage_gap   0        0      systemd.tmpfiles, systemd.unit
+  T1543.002  dormant_coverage_gap   0        0      systemd.generator, systemd.tmpfiles, systemd.unit
   T1546.004  dormant_coverage_gap   0        0      profile.system, profile.user
   T1546.005  dormant_coverage_gap   0        0      profile.trap.system, profile.trap.user
   T1037      dormant_module_silent  0        0      motd

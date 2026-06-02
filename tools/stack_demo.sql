@@ -362,6 +362,8 @@ WHERE
   OR /* sshd_root_login_enabled */ list_contains(signals, 'sshd_permit_root_login_yes')
   OR /* sshd_authorized_keys_command_external */ (list_contains(signals, 'sshd_authorized_keys_command') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')))
   OR /* udev_run_with_non_package */ (list_contains(signals, 'udev_run_directive') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')))
+  OR /* systemd_generator_unmanaged */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan')) AND module = 'systemd' AND site_class = 'systemd.generator')
+  OR /* systemd_aux_exec_unmanaged */ list_contains(signals, 'systemd_aux_exec_unmanaged')
   OR /* interpreter_executes_unmanaged_script */ (list_contains(signals, 'interpreter_runs_orphan_script') AND (module = 'cron' OR module = 'systemd'))
   OR /* sudoers_nopasswd_shell_escape */ (list_contains(signals, 'sudoers_nopasswd') AND list_contains(signals, 'sudoers_nopasswd_gtfobin'))
   OR /* netdispatch_run_unmanaged */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')) AND module = 'netdispatch')

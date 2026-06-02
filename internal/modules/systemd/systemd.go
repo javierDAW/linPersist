@@ -132,7 +132,7 @@ func (m *Module) Name() string { return "systemd" }
 // emits. Drop-in records inherit the site_class of their parent unit
 // type, so the list is just the two top-level classes.
 func (m *Module) SiteClasses() []string {
-	return []string{"systemd.unit", "systemd.timer"}
+	return []string{"systemd.unit", "systemd.timer", "systemd.generator"}
 }
 
 // Collect walks every system-mode and user-mode locus and emits one
@@ -163,8 +163,73 @@ func (m *Module) Collect(ctx context.Context, emit func(core.Record)) error {
 	if err := m.collectHomeUserUnits(ctx, emit); err != nil {
 		errs = append(errs, err)
 	}
+	// Generator dirs: executables (not unit files) that run as root at
+	// early boot. A separate walk because they carry no unit extension.
+	for _, dir := range generatorLoci {
+		if err := m.collectGenerators(ctx, dir, emit); err != nil {
+			errs = append(errs, err)
+		}
+	}
 
 	return errors.Join(errs...)
+}
+
+// generatorLoci are the system-generator directories systemd executes at
+// early boot. See systemd.generator(7).
+var generatorLoci = []string{
+	"/etc/systemd/system-generators",
+	"/usr/lib/systemd/system-generators",
+	"/run/systemd/system-generators",
+}
+
+// collectGenerators emits one record per regular file in a generator dir.
+// Generators are executables with no unit extension, so the unit walker
+// skips them entirely; here ExecTarget is the generator itself, so
+// AnnotateExecTargetProvenance surfaces a planted (unowned) generator via
+// non_package_path and the central sink integrity-checks it via the locus.
+func (m *Module) collectGenerators(ctx context.Context, logicalDir string, emit func(core.Record)) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	realDir := m.resolve(logicalDir)
+	entries, err := os.ReadDir(realDir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("readdir %s: %w", logicalDir, err)
+	}
+	for _, e := range entries {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if e.IsDir() {
+			continue
+		}
+		logical := filepath.Join(logicalDir, e.Name())
+		info, err := os.Lstat(filepath.Join(realDir, e.Name()))
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		rec := core.Record{
+			Module:     m.Name(),
+			SiteClass:  "systemd.generator",
+			MITRE:      []string{mitreSystemdUnit},
+			Locus:      logical,
+			ExecTarget: logical,
+		}
+		core.FillFileMeta(&rec, info)
+		rec.Signals = appendUnique(rec.Signals, core.SignalSystemdGenerator)
+		if sum, ok := core.HashFileCapped(filepath.Join(realDir, e.Name()), m.opts.MaxFileSize); ok {
+			rec.ContentSHA256 = sum
+			rec.ContentNormSHA256 = sum
+		}
+		core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, logical)
+		core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, logical)
+		rec.Signals = core.DedupSignals(rec.Signals)
+		emit(rec)
+	}
+	return nil
 }
 
 func (m *Module) resolve(logical string) string {
@@ -497,10 +562,23 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, siteClass string,
 		}
 	}
 	// A packaged interpreter ExecStart (/usr/bin/python3 /opt/x.py) running
-	// a parked, non-package script: exec_target is the owned interpreter,
-	// so the orphan payload is otherwise invisible.
-	if core.InterpreterScriptOrphan(m.opts.Provenance, m.firstExecStartFields(sections)) {
-		rec.Signals = appendUnique(rec.Signals, core.SignalInterpreterRunsOrphanScript)
+	// a parked payload: exec_target is the owned interpreter, so the SCRIPT
+	// ARGUMENT is otherwise invisible. Resolve it and check both halves of
+	// the ownership/integrity asymmetry -- orphan AND owned-but-tampered.
+	if arg, ok := core.InterpreterScriptArg(m.firstExecStartFields(sections)); ok {
+		if _, st := m.opts.Provenance.LookupPath(arg); st == core.PkgStatusOrphan {
+			rec.Signals = appendUnique(rec.Signals, core.SignalInterpreterRunsOrphanScript)
+		}
+		if v, ok := m.opts.Provenance.(interface {
+			VerifyPath(string) core.PkgVerifyStatus
+		}); ok {
+			for _, s := range core.TamperSignal(v.VerifyPath(arg)) {
+				rec.Signals = appendUnique(rec.Signals, s)
+			}
+		}
+	}
+	if m.auxExecUnmanaged(sections) {
+		rec.Signals = appendUnique(rec.Signals, core.SignalSystemdAuxExecUnmanaged)
 	}
 	if hasExec && multi {
 		rec.Signals = appendUnique(rec.Signals, core.SignalSystemdMultiExecStart)
@@ -600,6 +678,55 @@ func (m *Module) errorEnvelope(logical string, info os.FileInfo, siteClass strin
 //   - resolved: true if the path is absolute OR a relative command
 //     was found on the default PATH.
 //
+// auxExecUnmanaged reports whether any auxiliary Exec directive
+// (ExecStartPre/StartPost/StopPost/Stop/Reload/Condition) names a first
+// token that is orphan (missing), package-unowned, or under a tmp-class
+// dir. resolveExecTarget only ever inspected the first ExecStart=, so
+// these hooks -- the Turla drop-in `ExecStartPre=/opt/payload` injected
+// into a vendor unit -- were unresolved. Gated on the suspicious
+// co-indicator so legitimate ExecStartPre=/usr/bin/<packaged> stays quiet.
+func (m *Module) auxExecUnmanaged(sections []Section) bool {
+	isAux := func(k string) bool {
+		switch {
+		case strings.EqualFold(k, "ExecStartPre"),
+			strings.EqualFold(k, "ExecStartPost"),
+			strings.EqualFold(k, "ExecStopPost"),
+			strings.EqualFold(k, "ExecStop"),
+			strings.EqualFold(k, "ExecReload"),
+			strings.EqualFold(k, "ExecCondition"):
+			return true
+		}
+		return false
+	}
+	for _, s := range sections {
+		for _, e := range s.Entries {
+			if !isAux(e.Key) {
+				continue
+			}
+			fields := strings.Fields(stripExecPrefixes(e.Value))
+			if len(fields) == 0 {
+				continue
+			}
+			tok := fields[0]
+			if !strings.HasPrefix(tok, "/") {
+				continue // bare/relative aux command: not resolved here
+			}
+			for _, d := range core.TmpDirs {
+				if strings.HasPrefix(tok, d) {
+					return true
+				}
+			}
+			if _, err := os.Stat(m.resolve(tok)); errors.Is(err, fs.ErrNotExist) {
+				return true // orphan target
+			}
+			if _, st := m.opts.Provenance.LookupPath(tok); st == core.PkgStatusOrphan {
+				return true // package-unowned target
+			}
+		}
+	}
+	return false
+}
+
 // firstExecStartFields returns the whitespace-split tokens of the first
 // surviving ExecStart= value (systemd prefixes stripped), or nil. Used by
 // the interpreter_runs_orphan_script check, which needs the script

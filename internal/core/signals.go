@@ -292,6 +292,32 @@ const (
 	// hashes.
 	SignalSystemdMultiExecStart = "systemd_multi_execstart"
 
+	// SignalSystemdGenerator set on every record emitted from a systemd
+	// GENERATOR -- an executable under /etc|/usr/lib|/run/systemd/system-
+	// generators/. Generators run as root at EARLY boot on every boot,
+	// with no unit file, no ExecStart and no enable step, so they are a
+	// first-class persistence primitive that the unit walker (which keys
+	// on .service/.timer extensions in the four unit loci) never saw.
+	// Structural marker; pair with non_package_path / exec_target_orphan
+	// (a planted generator is unowned, the ~half-dozen vendor generators
+	// like systemd-fstab-generator are package-shipped) for the verdict.
+	SignalSystemdGenerator = "systemd_generator"
+
+	// SignalSystemdAuxExecUnmanaged set when a unit (or, classically, a
+	// drop-in injected into a legitimate vendor unit) carries an
+	// ExecStartPre / ExecStartPost / ExecStopPost / ExecStop / ExecReload
+	// / ExecCondition directive whose first token resolves to a path that
+	// is orphan (missing), package-unowned, or under a tmp-class dir. The
+	// systemd module historically resolved only the first ExecStart=, so
+	// these auxiliary exec hooks were a behavior-injection blind spot
+	// (Turla-style: a `<vendor>.service.d/10-hook.conf` drop-in that adds
+	// ExecStartPre=/opt/payload runs as root before the real daemon every
+	// boot, carrying no ExecStart= of its own). Gated on the orphan/
+	// non_package/tmp co-indicator so the ubiquitous legitimate
+	// ExecStartPre=/usr/bin/<packaged> and ExecStartPre=-/bin/sh -c '...'
+	// vendor shapes stay silent.
+	SignalSystemdAuxExecUnmanaged = "systemd_aux_exec_unmanaged"
+
 	// SignalSystemdExecUnresolved set when a unit's first ExecStart=
 	// is a bare command (no leading slash) that did not resolve
 	// against systemd's documented default PATH

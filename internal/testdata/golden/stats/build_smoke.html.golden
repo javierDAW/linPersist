@@ -439,7 +439,7 @@ footer a { color: var(--accent); }
             <td><span style="color:var(--tail)">dormant_coverage_gap</span></td>
             <td class="num">0</td>
             <td class="num">0</td>
-            <td><code>systemd.tmpfiles</code>, <code>systemd.unit</code></td>
+            <td><code>systemd.generator</code>, <code>systemd.tmpfiles</code>, <code>systemd.unit</code></td>
           </tr>
         
           <tr>

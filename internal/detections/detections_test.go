@@ -378,6 +378,14 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			want: nil,
 		},
 		{
+			name: "systemd drop-in ExecStartPre to an unmanaged target -> systemd_aux_exec_unmanaged",
+			rec: core.Record{
+				Module:  "systemd",
+				Signals: []string{core.SignalSystemdAuxExecUnmanaged},
+			},
+			want: []string{"systemd_aux_exec_unmanaged"},
+		},
+		{
 			name: "cron packaged interpreter runs an orphan script -> interpreter_executes_unmanaged_script",
 			rec: core.Record{
 				Module:  "cron",
