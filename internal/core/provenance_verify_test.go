@@ -218,11 +218,23 @@ func rpmVerifyFixture(t *testing.T, confContent string) *Resolver {
 	}
 	writeFile(t, filepath.Join(root, "etc/os-release"), "ID=rocky\nID_LIKE=rhel\n")
 	writeFile(t, filepath.Join(root, "etc/crontab"), confContent)
+	// A passwd that does NOT match the (bogus) recorded digest, to prove
+	// the verify-flag skip holds even on a content mismatch.
+	writeFile(t, filepath.Join(root, "etc/passwd"), "root:x:0:0:root:/root:/bin/bash\n")
 
 	sum := sha256.Sum256([]byte(confContent))
 	dig := hex.EncodeToString(sum[:])
-	own := []string{"/bin/sh", "-c", "printf '%s\\n' 'crontabs: /etc/crontab'"}
-	digc := []string{"/bin/sh", "-c", fmt.Sprintf("printf '%%s\\n' '/etc/crontab %s'", dig)}
+	own := []string{"/bin/sh", "-c",
+		"printf '%s\\n' 'crontabs: /etc/crontab' 'setup: /etc/passwd'"}
+	// Digest query emits "<path> <digest> <verifyflags>". /etc/crontab is
+	// fully verified (-1 = all bits). /etc/passwd carries a fixed bogus
+	// digest with the digest-verify bit CLEARED (setup's %verify(not md5),
+	// modelled as -2 = ~RPMVERIFY_FILEDIGEST) -> must be skipped, so a
+	// modified /etc/passwd never flags (matches `rpm -V`).
+	digc := []string{"/bin/sh", "-c", fmt.Sprintf(
+		"printf '%%s\\n' '/etc/crontab %s -1' "+
+			"'/etc/passwd 0000000000000000000000000000000000000000000000000000000000000000 -2'",
+		dig)}
 
 	r := NewResolver(nullLogger(),
 		WithProvenanceRoot(root),
@@ -255,6 +267,18 @@ func TestVerifyPath_RpmMismatched(t *testing.T) {
 	}
 	if sigs := TamperSignal(r.VerifyPath("/etc/crontab")); len(sigs) != 1 {
 		t.Errorf("TamperSignal = %v; want package_file_tampered", sigs)
+	}
+}
+
+// TestVerifyPath_RpmRespectsVerifyFlags: a file rpm marks with the
+// digest-verify bit cleared (setup's /etc/passwd, %verify(not md5)) is
+// NOT in the digest map, so even a content mismatch yields NotOwned --
+// never a tamper claim. This is the fix for the ~108-record/host Rocky
+// false-positive flood the nspawn lab surfaced.
+func TestVerifyPath_RpmRespectsVerifyFlags(t *testing.T) {
+	r := rpmVerifyFixture(t, "SHELL=/bin/bash\n")
+	if got := r.VerifyPath("/etc/passwd"); got != PkgVerifyNotOwned {
+		t.Errorf("/etc/passwd (%%verify(not md5)) VerifyPath = %q; want not_owned", got)
 	}
 }
 

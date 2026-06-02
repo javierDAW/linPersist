@@ -42,8 +42,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   storing the package-recorded digest (dpkg MD5 from md5sums+Conffiles,
   rpm `FILEDIGESTS` SHA-256, apk `Q1` SHA-1) in a single map and
   inferring the hash algorithm from the recorded hex length (32→MD5,
-  40→SHA-1, 64→SHA-256). Verification wired via an interface upgrade in
-  the sink, so `--no-provenance` / `NoopProvenance` skip it cleanly.
+  40→SHA-1, 64→SHA-256). The rpm path honors each file's
+  `FILEVERIFYFLAGS` and skips files whose digest-verify bit is clear
+  (the `setup` package's `/etc/passwd`, `/etc/group`, `/etc/shadow`,
+  `/etc/gshadow`, marked `%verify(not md5)`) — exactly as `rpm -V`
+  does; the nspawn Rocky lab caught that comparing them anyway produced
+  a ~6-file / ~108-record false-positive flood per host. Verification
+  wired via an interface upgrade in the sink, so `--no-provenance` /
+  `NoopProvenance` skip it cleanly.
 - **Three evasion lab implants** (`lab-realistic/implants/`):
   `evade-timestomp` (back-dated mtime), `evade-pkg-tamper` (append to
   package-owned `/etc/crontab`) and `evade-fleetwide-clean` (a clean
