@@ -20,6 +20,7 @@ import (
 	"github.com/jarmidaw/linpersist/internal/modules/cron"
 	"github.com/jarmidaw/linpersist/internal/modules/dbus"
 	"github.com/jarmidaw/linpersist/internal/modules/grub"
+	"github.com/jarmidaw/linpersist/internal/modules/initramfs"
 	"github.com/jarmidaw/linpersist/internal/modules/k8sstatic"
 	"github.com/jarmidaw/linpersist/internal/modules/kmod"
 	"github.com/jarmidaw/linpersist/internal/modules/ldso"
@@ -60,6 +61,7 @@ func All(prov core.Provenance, liveProcs core.LiveProcessSet) []core.Module {
 		cron.New(cron.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		dbus.New(dbus.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		grub.New(grub.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		initramfs.New(initramfs.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		k8sstatic.New(k8sstatic.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		kmod.New(kmod.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		ldso.New(ldso.Options{Provenance: prov, LiveProcessSet: liveProcs}),

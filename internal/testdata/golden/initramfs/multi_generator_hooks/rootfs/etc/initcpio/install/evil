@@ -1,0 +1,3 @@
+#!/bin/bash
+# mkinitcpio install hook
+build() { add_binary /sbin/payload; }

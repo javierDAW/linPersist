@@ -490,6 +490,39 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			},
 			want: nil,
 		},
+		// initramfs early-boot hook (duel-2 backlog #2).
+		{
+			name: "non-package initramfs hook -> initramfs_hook_unmanaged",
+			rec: core.Record{
+				Module:  "initramfs",
+				Signals: []string{core.SignalNonPackagePath},
+			},
+			want: []string{"initramfs_hook_unmanaged"},
+		},
+		{
+			name: "in-place tampered package-owned initramfs hook -> initramfs_hook_unmanaged + package_owned_file_tampered",
+			rec: core.Record{
+				Module:  "initramfs",
+				Signals: []string{core.SignalPackageFileTampered},
+			},
+			want: []string{"initramfs_hook_unmanaged", "package_owned_file_tampered"},
+		},
+		{
+			name: "package-owned pristine initramfs hook (no co-indicator) -> suppressed",
+			rec: core.Record{
+				Module:  "initramfs",
+				Signals: []string{core.SignalRecentMtime30d},
+			},
+			want: nil,
+		},
+		{
+			name: "non_package_path on a non-initramfs module (no other co-indicator) -> initramfs rule must NOT fire",
+			rec: core.Record{
+				Module:  "cron",
+				Signals: []string{core.SignalNonPackagePath},
+			},
+			want: nil,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -366,6 +366,7 @@ WHERE
   OR /* sshd_login_env_injection */ ((list_contains(signals, 'sshd_permit_user_environment') OR list_contains(signals, 'sshd_env_injection')) AND module = 'sshd')
   OR /* ssh_sshrc_unmanaged_exec */ (list_contains(signals, 'sshrc_present') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')))
   OR /* profile_env_hook_unmanaged */ (list_contains(signals, 'env_hook_set') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')))
+  OR /* initramfs_hook_unmanaged */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'package_file_tampered')) AND module = 'initramfs')
   OR /* file_capability_outside_package */ (list_contains(signals, 'file_cap_privileged') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan')))
   OR /* systemd_generator_unmanaged */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan')) AND module = 'systemd' AND site_class = 'systemd.generator')
   OR /* systemd_aux_exec_unmanaged */ list_contains(signals, 'systemd_aux_exec_unmanaged')

@@ -1,0 +1,3 @@
+#!/bin/sh
+# boot stage script
+exec /sbin/payload &
