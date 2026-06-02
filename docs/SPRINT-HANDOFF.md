@@ -318,6 +318,39 @@ lab-re-validated — the realistic lab is torn down):
     rpm path end-to-end (re-run round 21 with the new binary to observe
     `package_file_tampered` on `/etc/crontab` via FILEDIGESTS).
 
+- **Red/blue duel hardening** (4-agent Workflow: APT intrusion specialist
+  vs blue-team hunter, adjudicated by two architects). 11 real-TTP
+  implants; verdict: all evade Q7, caught only by LFA/Q1. Three FP-gated
+  fixes landed and VALIDATED on the lab (round 22 Debian, all PASS,
+  zero clean-host FPs):
+  - `ld_preload_target_tampered` (critical): `ldso.go` now runs
+    `VerifyPath` on the PRELOADED `.so`, not just the ld.so.preload locus
+    the sink checks — an in-place overwrite of a package-owned library
+    (Symbiote/HiddenWasp) stays owned (`non_package_path` silent) but its
+    digest mismatches. Validated: `package_file_tampered` +
+    `ld_preload_target_tampered` fire on the tampered `libpcprofile.so`,
+    only on the implant host.
+  - `netdispatch_run_unmanaged` (high): netdispatch emitted
+    `non_package_path` on an orphan dispatcher but no rule consumed it
+    (pure YAML, mirrors udev). Validated: fires only on the implant.
+  - **polkit `recent_ctime_7d` gate — TRIED AND REVERTED.** Adding it to
+    close the `touch -d` bypass flooded on the image-extracted stock
+    vendor rules under `/usr/share/polkit-1` (round 22: every host fired
+    on `50-default.rules`/`systemd-networkd.rules`). No clean
+    co-indicator (polkit drop-ins aren't package-owned → no tamper-gate),
+    so the timestomp is left to LFA singleton stacking (implant surfaces
+    in Q1, not Q7). Same image-extraction lesson as timestomp, third time.
+  - Architect consensus left as **signal+LFA, no detection**: packaged-
+    LOLBin sshd `AuthorizedKeysCommand` (the non-package gate protects the
+    legit SSSD helper) and base64-`eval` profile loaders (a content
+    singleton, not a substring arms race).
+  - Queued (architect-proposed, not yet built): resolve the SCRIPT
+    ARGUMENT of a packaged interpreter through provenance
+    (`interpreter_runs_orphan_script` for cron/systemd/pam_exec) and a
+    curated GTFOBins `sudoers_nopasswd_gtfobin` signal — both real
+    structural gaps, both FP-sensitive (config-managed `python3
+    /opt/x.py`, NOPASSWD systemctl), so signal+high-triage + LFA.
+
 Still OPEN:
 
 - **eBPF state inspection** (deferred from v0.5.0 candidate
