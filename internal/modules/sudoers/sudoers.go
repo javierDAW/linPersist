@@ -202,6 +202,9 @@ func (m *Module) recordFromLine(logical string, info os.FileInfo, pl parsedLine)
 	case lineAlias, lineDefaults, lineUserSpec:
 		if hasNoPasswd(pl.canon) {
 			signals = append(signals, core.SignalSudoersNoPasswd)
+			if nopasswdGtfobin(pl.canon) {
+				signals = append(signals, core.SignalSudoersNopasswdGtfobin)
+			}
 		}
 		if hasAllCommands(pl.canon) {
 			signals = append(signals, core.SignalSudoersAllCommands)

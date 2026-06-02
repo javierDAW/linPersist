@@ -233,6 +233,16 @@ var Signals = []SignalDef{
 		EmittedBy:   []string{"sudoers"},
 	},
 	{
+		Name:        SignalInterpreterRunsOrphanScript,
+		Description: "a packaged script interpreter (python3/perl/bash/...) runs a script-file argument that resolves to an orphan package-unowned path",
+		EmittedBy:   []string{"cron", "systemd"},
+	},
+	{
+		Name:        SignalSudoersNopasswdGtfobin,
+		Description: "NOPASSWD sudoers grant on a curated shell-escape GTFOBin (vi/less/awk/find/python/...), equivalent to NOPASSWD:ALL",
+		EmittedBy:   []string{"sudoers"},
+	},
+	{
 		Name:        SignalSudoersIncludeDirective,
 		Description: "sudoers record emitted from a #include or #includedir directive",
 		EmittedBy:   []string{"sudoers"},

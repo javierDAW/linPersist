@@ -496,6 +496,12 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, siteClass string,
 			rec.Signals = appendUnique(rec.Signals, core.SignalExecTargetOrphan)
 		}
 	}
+	// A packaged interpreter ExecStart (/usr/bin/python3 /opt/x.py) running
+	// a parked, non-package script: exec_target is the owned interpreter,
+	// so the orphan payload is otherwise invisible.
+	if core.InterpreterScriptOrphan(m.opts.Provenance, m.firstExecStartFields(sections)) {
+		rec.Signals = appendUnique(rec.Signals, core.SignalInterpreterRunsOrphanScript)
+	}
 	if hasExec && multi {
 		rec.Signals = appendUnique(rec.Signals, core.SignalSystemdMultiExecStart)
 	}
@@ -593,6 +599,27 @@ func (m *Module) errorEnvelope(logical string, info os.FileInfo, siteClass strin
 //   - hasExec: true if any ExecStart= entry was present.
 //   - resolved: true if the path is absolute OR a relative command
 //     was found on the default PATH.
+//
+// firstExecStartFields returns the whitespace-split tokens of the first
+// surviving ExecStart= value (systemd prefixes stripped), or nil. Used by
+// the interpreter_runs_orphan_script check, which needs the script
+// argument that resolveExecTarget discards.
+func (m *Module) firstExecStartFields(sections []Section) []string {
+	var values []string
+	for _, s := range sections {
+		for _, e := range s.Entries {
+			if strings.EqualFold(e.Key, "ExecStart") {
+				values = append(values, e.Value)
+			}
+		}
+	}
+	survivors := applyEmptyReset(values)
+	if len(survivors) == 0 {
+		return nil
+	}
+	return strings.Fields(stripExecPrefixes(survivors[0]))
+}
+
 func (m *Module) resolveExecTarget(sections []Section) (path string, multi, hasExec, resolved bool) {
 	var values []string
 	for _, s := range sections {

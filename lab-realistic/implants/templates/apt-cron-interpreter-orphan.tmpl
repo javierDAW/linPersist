@@ -1,0 +1,23 @@
+# APT implant: apt-cron-interpreter-orphan (packaged interpreter, parked payload)
+#
+# Real shape (T1059.006 / T1543.002, Kinsing/TeamTNT-style): a cron.d job
+# whose command is a PACKAGED interpreter (/usr/bin/python3) running a
+# parked, non-package script under a dot-dir in /opt. exec_target resolves
+# to the owned python3 (no non_package_path / orphan / tmp), so pre-duel
+# this only surfaced via LFA. The new interpreter_runs_orphan_script
+# signal resolves the SCRIPT ARGUMENT through provenance -> orphan ->
+# interpreter_executes_unmanaged_script (high). The inline `-c base64`
+# variant has no script path and stays LFA-only by design.
+#
+# Variables: ${cron_file}, ${schedule}, ${script}
+
+RUN mkdir -p /etc/cron.d /opt/.sysmon && \
+    printf '%s\n' \
+        'import time' \
+        'time.sleep(3600)' \
+        > ${script} && \
+    chown root:root ${script} && \
+    chmod 0755 ${script} && \
+    printf '%s\n' '${schedule} root /usr/bin/python3 ${script}' > ${cron_file} && \
+    chown root:root ${cron_file} && \
+    chmod 0644 ${cron_file}

@@ -202,6 +202,21 @@ detections:
       signals_all: [udev_run_directive]
       signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
 
+  - id: interpreter_executes_unmanaged_script
+    description: A packaged script interpreter (python3/perl/bash/...) runs a script-file argument outside the package universe — the "live off the packaged interpreter, park the payload" shape where exec_target is the owned interpreter and the orphan script is otherwise invisible. Residual FP class —config-management (Ansible/Salt) drops legitimate python3 /opt/<co>/maintenance.py cron jobs and units; the durable discriminator is LFA (a parked payload is a fleet content singleton, a managed script is not)
+    severity: high
+    mitre: [T1059.006, T1543.002]
+    when:
+      module_in: [cron, systemd]
+      signals_all: [interpreter_runs_orphan_script]
+
+  - id: sudoers_nopasswd_shell_escape
+    description: NOPASSWD sudo grant on a shell-escape GTFOBin (vi/less/awk/find/python/tar/...) — a single-command rule that is really a password-less root shell (sudo vi -> :!sh), which sudoers_all_commands never matches. Curated set excludes commonly-legit systemctl/service/docker/git. Residual FP class —ops/CI accounts granted NOPASSWD tar/find for backups; LFA singleton stacking discriminates the attacker's fresh-account grant from a fleet-common one
+    severity: high
+    mitre: [T1548.003]
+    when:
+      signals_all: [sudoers_nopasswd, sudoers_nopasswd_gtfobin]
+
   - id: netdispatch_run_unmanaged
     description: NetworkManager dispatcher.d script runs a target outside the package universe — root executes on every network up/down event. The non_package_path/orphan signal already fired on the dropped script; this rule (mirroring udev_run_with_non_package) is what consumes it. Residual FP class —VPN clients and config-management that install dispatcher hooks outside the package manager; LFA singleton stacking discriminates the planted-once script
     severity: high

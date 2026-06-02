@@ -378,6 +378,22 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			want: nil,
 		},
 		{
+			name: "cron packaged interpreter runs an orphan script -> interpreter_executes_unmanaged_script",
+			rec: core.Record{
+				Module:  "cron",
+				Signals: []string{core.SignalInterpreterRunsOrphanScript},
+			},
+			want: []string{"interpreter_executes_unmanaged_script"},
+		},
+		{
+			name: "NOPASSWD on a GTFOBin shell-escape -> sudoers_nopasswd_shell_escape",
+			rec: core.Record{
+				Module:  "sudoers",
+				Signals: []string{core.SignalSudoersNoPasswd, core.SignalSudoersNopasswdGtfobin},
+			},
+			want: []string{"sudoers_nopasswd_shell_escape"},
+		},
+		{
 			name: "ld.so.preload target is an in-place-tampered owned .so -> critical (Symbiote shape)",
 			rec: core.Record{
 				Module:  "ldso",
