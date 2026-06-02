@@ -316,11 +316,20 @@ func (m *Module) recordFromParsedLine(logical string, info os.FileInfo, siteClas
 				}
 			}
 			signals = append(signals, m.execTargetSignals(first)...)
-			// A packaged interpreter (python3/perl/...) running a parked,
-			// non-package script: exec_target is the owned interpreter, so
-			// the orphan payload is otherwise invisible.
-			if core.InterpreterScriptOrphan(m.opts.Provenance, strings.Fields(pl.command)) {
-				signals = append(signals, core.SignalInterpreterRunsOrphanScript)
+			// A packaged interpreter (python3/bash/...) running a parked
+			// payload: exec_target is the owned interpreter, so the SCRIPT
+			// ARGUMENT is otherwise invisible. Resolve it and check both
+			// halves of the ownership/integrity asymmetry -- orphan (not
+			// packaged) AND owned-but-tampered (digest mismatch).
+			if arg, ok := core.InterpreterScriptArg(strings.Fields(pl.command)); ok {
+				if _, st := m.opts.Provenance.LookupPath(arg); st == core.PkgStatusOrphan {
+					signals = append(signals, core.SignalInterpreterRunsOrphanScript)
+				}
+				if v, ok := m.opts.Provenance.(interface {
+					VerifyPath(string) core.PkgVerifyStatus
+				}); ok {
+					signals = append(signals, core.TamperSignal(v.VerifyPath(arg))...)
+				}
 			}
 		}
 	case lineMalformed:

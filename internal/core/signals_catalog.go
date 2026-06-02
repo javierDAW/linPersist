@@ -312,6 +312,16 @@ var Signals = []SignalDef{
 		EmittedBy:   []string{"systemd"},
 	},
 	{
+		Name:        SignalSystemdGenerator,
+		Description: "record is an executable systemd generator (runs as root at early boot; no unit file) under a system-generators dir",
+		EmittedBy:   []string{"systemd"},
+	},
+	{
+		Name:        SignalSystemdAuxExecUnmanaged,
+		Description: "systemd ExecStartPre/Post/StopPost/Reload/Condition target is orphan, package-unowned or under a tmp dir (drop-in behavior injection)",
+		EmittedBy:   []string{"systemd"},
+	},
+	{
 		Name:        SignalSystemdInstallAliasExternal,
 		Description: "systemd unit's [Install] Alias= lists a target that resolves outside the walked loci",
 		EmittedBy:   []string{"systemd"},

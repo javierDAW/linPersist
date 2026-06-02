@@ -202,6 +202,22 @@ detections:
       signals_all: [udev_run_directive]
       signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
 
+  - id: systemd_generator_unmanaged
+    description: a systemd generator (executable that runs as root at early boot under */systemd/system-generators) is outside the package universe — a planted generator is enable-free boot persistence the unit walker never saw (Sandworm/AA22). Gated on non_package/orphan so the handful of package-shipped vendor generators stay silent
+    severity: critical
+    mitre: [T1543.002]
+    when:
+      module_in: [systemd]
+      site_class_in: [systemd.generator]
+      signals_any: [non_package_path, exec_target_orphan]
+
+  - id: systemd_aux_exec_unmanaged
+    description: systemd ExecStartPre/Post/StopPost/Reload/Condition runs an orphan, package-unowned or tmp-class target — root-context behavior injection that carries no ExecStart= of its own, classically a drop-in into a legitimate vendor unit (Turla). The first-ExecStart-only resolver missed it. Gated on the orphan/non_package/tmp co-indicator, so legitimate packaged ExecStartPre hooks stay silent
+    severity: high
+    mitre: [T1543.002, T1574]
+    when:
+      signals_all: [systemd_aux_exec_unmanaged]
+
   - id: interpreter_executes_unmanaged_script
     description: A packaged script interpreter (python3/perl/bash/...) runs a script-file argument outside the package universe — the "live off the packaged interpreter, park the payload" shape where exec_target is the owned interpreter and the orphan script is otherwise invisible. Residual FP class —config-management (Ansible/Salt) drops legitimate python3 /opt/<co>/maintenance.py cron jobs and units; the durable discriminator is LFA (a parked payload is a fleet content singleton, a managed script is not)
     severity: high

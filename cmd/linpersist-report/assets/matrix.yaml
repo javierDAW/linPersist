@@ -125,6 +125,24 @@ site_classes:
       timers under /home/*/.config/systemd/user/ collected (linger
       hosts).
 
+  - site_class: systemd.generator
+    module: systemd
+    mitre: [T1543.002]
+    loci:
+      - /etc/systemd/system-generators/
+      - /usr/lib/systemd/system-generators/
+      - /run/systemd/system-generators/
+    status: implemented
+    test_coverage: unit
+    notes: |
+      Executable generators run as root at early boot (systemd.generator(7))
+      with no unit file, no ExecStart and no enable step -- a persistence
+      primitive the unit walker (keyed on .service/.timer in the unit loci)
+      never saw. One record per regular file; ExecTarget is the generator
+      itself, so a planted (unowned) generator trips non_package_path and the
+      central integrity check. Detection systemd_generator_unmanaged gates on
+      non_package/orphan so the ~half-dozen vendor generators stay quiet.
+
   - site_class: sysv.init
     module: sysv
     mitre: [T1037.004]
