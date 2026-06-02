@@ -202,6 +202,14 @@ detections:
       signals_all: [udev_run_directive]
       signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
 
+  - id: kmod_autoload_unpackaged_module
+    description: a kernel module scheduled to auto-load at boot (/etc/modules, modules-load.d, or a modprobe options/softdep directive) resolves to a .ko outside the package universe — the planted-LKM rootkit shape (Diamorphine/Reptile) where the autoload config points at a module no package shipped. Gated on non_package_path so the host's packaged autoloaded modules stay silent
+    severity: critical
+    mitre: [T1547.006]
+    when:
+      module_in: [kmod]
+      signals_all: [kmod_autoload, non_package_path]
+
   - id: ssh_sshrc_unmanaged_exec
     description: an /etc/ssh/sshrc or ~/.ssh/rc per-session hook sources/execs a target outside the package universe (orphan, tmp-class, or non-package) — runs on every ssh login. Existence alone is signal+LFA (legit admin use); this fires only with the unmanaged-exec co-indicator
     severity: high

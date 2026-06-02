@@ -387,6 +387,18 @@ const (
 	// kernel security modules).
 	SignalKmodBlacklistDirective = "kmod_blacklist_directive"
 
+	// SignalKmodAutoload set on a kmod record whose line schedules a
+	// kernel module to load at boot -- a bare module name in /etc/modules
+	// or modules-load.d/*.conf (systemd-modules-load), or a modprobe.d
+	// options/softdep directive that names a module. The module is
+	// resolved to its compiled .ko under /lib/modules/<ver>/ (via
+	// modules.dep) and set as exec_target, so AnnotateExecTargetProvenance
+	// raises non_package_path when the .ko is unowned -- the planted-LKM
+	// rootkit shape (Diamorphine/Reptile) where the autoload config points
+	// at a .ko no package shipped. Benign alone (every host autoloads
+	// packaged modules); the verdict pairs it with non_package_path.
+	SignalKmodAutoload = "kmod_autoload"
+
 	// SignalUdevRunDirective set on udev records that carry a RUN+=
 	// or RUN= assignment. RUN runs the named program when the rule
 	// matches; arbitrary command execution under whatever uid udevd
