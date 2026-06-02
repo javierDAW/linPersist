@@ -34,9 +34,23 @@ detection fixes; all consensus across both architects, FP-gated:
   timestomp of a polkit drop-in is caught by LFA singleton stacking (the
   attacker rule is content-unique; vendor rules are fleet-common), not by
   a Q7 freshness gate. `recent_ctime_7d` is still recorded for the backend.
-- Three APT lab implants added to exercise the above
+- **`interpreter_runs_orphan_script` (+ `interpreter_executes_unmanaged_script`,
+  high).** A packaged script interpreter (python3/perl/bash/...) only
+  exposes the interpreter as `exec_target` — which is owned, so the
+  parked non-package script it runs was invisible. cron and systemd now
+  resolve the SCRIPT ARGUMENT through provenance (shared
+  `core.InterpreterScriptOrphan`) and flag it when orphan. Inline `-c`
+  code carries no script path and stays LFA-only. FP class: config-managed
+  `python3 /opt/x.py` jobs → high-triage, LFA discriminates.
+- **`sudoers_nopasswd_gtfobin` (+ `sudoers_nopasswd_shell_escape`, high).**
+  NOPASSWD on a single shell-escape GTFOBin (`vi`/`less`/`awk`/`find`/
+  `python`/`tar`/...) is a password-less root shell that
+  `sudoers_all_commands` never matched. Curated set deliberately excludes
+  commonly-legit `systemctl`/`service`/`docker`/`git` (left to LFA).
+- Four APT lab implants added to exercise the above
   (`apt-netdispatch-orphan-hook`, `apt-ldso-preload-inplace`,
-  `apt-polkit-yes-timestomp`). Items the architects explicitly left as
+  `apt-polkit-yes-timestomp`, `apt-cron-interpreter-orphan`). Items the
+  architects explicitly left as
   signal+LFA (no detection): packaged-LOLBin sshd AuthorizedKeysCommand
   (the non-package gate protects SSSD), and base64-`eval` profile loaders
   (a content singleton, not a substring arms race).

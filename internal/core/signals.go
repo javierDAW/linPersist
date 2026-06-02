@@ -129,6 +129,21 @@ const (
 	// lives inside a -c argument the agent does not parse.
 	SignalShellIndirect = "shell_indirect"
 
+	// SignalInterpreterRunsOrphanScript set when a record's command runs
+	// a PACKAGED script interpreter (python3, perl, bash, ...) against a
+	// script-file argument that resolves to an orphan (package-unowned)
+	// path. exec_target only captures the interpreter, which is owned --
+	// so non_package_path / exec_target_orphan stay silent even though the
+	// actual payload (the script) is unmanaged. Catches the "live off the
+	// packaged interpreter, park the payload" shape (a cron job or systemd
+	// unit running /usr/bin/python3 /opt/.cache/x.py). Inline `-c <code>`
+	// invocations carry no script path and are intentionally NOT flagged
+	// (left to LFA). Residual FP class: config-management (Ansible/Salt)
+	// drops legitimate `python3 /opt/<co>/maintenance.py` cron jobs whose
+	// script is non-package; the durable discriminator is LFA -- a parked
+	// payload is a fleet content singleton, a managed script is not.
+	SignalInterpreterRunsOrphanScript = "interpreter_runs_orphan_script"
+
 	// SignalUnqualifiedExecTarget set when exec_target is a bare
 	// executable name (no leading slash). v0.1.0 does not resolve
 	// such names against PATH; the backend can choose to ignore or
@@ -182,6 +197,22 @@ const (
 	// groups; combined with sudoers_nopasswd and an unexpected
 	// principal it surfaces immediately under LFA.
 	SignalSudoersAllCommands = "sudoers_all_commands"
+
+	// SignalSudoersNopasswdGtfobin set on a sudoers user-spec that grants
+	// NOPASSWD on a command whose basename is a curated shell-escape
+	// "GTFOBin" (vi/vim/less/awk/find/sed/python/perl/tar/...). A NOPASSWD
+	// grant on one of these is semantically equivalent to NOPASSWD:ALL --
+	// `sudo vi` -> `:!sh`, `sudo find . -exec sh \;`, `sudo awk 'BEGIN{system(...)}'`
+	// -- so it is a password-less root shell hiding behind a
+	// single-command rule that sudoers_all_commands never matches. The
+	// curated set deliberately EXCLUDES commonly-scoped-legit binaries
+	// (systemctl, service, docker, git, package managers): those are real
+	// GTFOBins too but NOPASSWD grants on them are everywhere on managed
+	// fleets, so they are left to LFA singleton stacking rather than a
+	// Q7 row. Residual FP class: ops/CI accounts legitimately granted
+	// NOPASSWD on tar/find for backups -- pair with LFA (a fleet-common
+	// grant is not a singleton; an attacker's fresh-account grant is).
+	SignalSudoersNopasswdGtfobin = "sudoers_nopasswd_gtfobin"
 
 	// SignalSudoersIncludeDirective set on records emitted from a
 	// #include or #includedir line in sudoers. Lets backends filter

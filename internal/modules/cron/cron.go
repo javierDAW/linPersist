@@ -316,6 +316,12 @@ func (m *Module) recordFromParsedLine(logical string, info os.FileInfo, siteClas
 				}
 			}
 			signals = append(signals, m.execTargetSignals(first)...)
+			// A packaged interpreter (python3/perl/...) running a parked,
+			// non-package script: exec_target is the owned interpreter, so
+			// the orphan payload is otherwise invisible.
+			if core.InterpreterScriptOrphan(m.opts.Provenance, strings.Fields(pl.command)) {
+				signals = append(signals, core.SignalInterpreterRunsOrphanScript)
+			}
 		}
 	case lineMalformed:
 		rec.Errors = append(rec.Errors, core.RecordError{Field: "schedule", Code: pl.parseErr})
