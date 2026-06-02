@@ -737,13 +737,14 @@ implants:
     module: cron
     site_class: cron.d
     description: |
-      Kinsing/TeamTNT shape: a cron.d job running a PACKAGED interpreter
-      (/usr/bin/python3) against a parked non-package script under
-      /opt/.sysmon. exec_target = the owned python3 (no
+      Kinsing/TeamTNT shape: a cron.d job running a PACKAGE-OWNED
+      interpreter (/bin/bash, Essential) against a parked non-package
+      script under /opt/.sysmon. exec_target = the owned bash (no
       non_package/orphan/tmp). The new interpreter_runs_orphan_script
       signal resolves the SCRIPT ARGUMENT via provenance -> orphan ->
-      interpreter_executes_unmanaged_script (high). FP-sensitive (config-
-      mgmt python3 /opt jobs) so high-triage + LFA discriminator.
+      interpreter_executes_unmanaged_script (high). bash not python3 so the
+      owned-interpreter premise holds in the booted lab. FP-sensitive
+      (config-mgmt bash /opt jobs) so high-triage + LFA discriminator.
     expected_signals: [interpreter_runs_orphan_script]
     expected_caught_by: [Q1, Q7]
     expected_q7_rule: interpreter_executes_unmanaged_script
@@ -751,7 +752,7 @@ implants:
     vars:
       cron_file: /etc/cron.d/zz-sysmon
       schedule: "*/15 * * * *"
-      script: /opt/.sysmon/agent.py
+      script: /opt/.sysmon/agent.sh
 
 # ==========================================================================
 # Placement plan -- generator picks hosts per role to keep TPs measurable.
