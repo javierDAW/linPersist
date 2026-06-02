@@ -360,6 +360,38 @@ lab-re-validated — the realistic lab is torn down):
       docker/git (left to LFA). Unit-tested.
   - Detections: 27 (pre-duel) → 34.
 
+- **Red/blue duel #2 (harder)** — 8+6 novel/complex implants; the blue
+  team found whole-module coverage holes and unparsed fields. Both
+  architects converged; the 5 high-ROI fixes were IMPLEMENTED (detections
+  34→37, all gated on orphan/non_package/tamper co-indicators, lab implants
+  `apt2-*` added to validate):
+  - script-ARG integrity: cron/systemd now VerifyPath the resolved
+    interpreter script argument (not just rec.Locus) → closes the
+    owned-but-tampered-script asymmetry (uniform with ldso preload).
+  - systemd `ExecStartPre/Post/...` resolution → `systemd_aux_exec_unmanaged`
+    (Turla drop-in behavior injection).
+  - systemd **generators** → new site_class `systemd.generator` +
+    `systemd_generator_unmanaged` (was a zero-record primitive).
+  - **file capabilities** → suidbits reads `security.capability` xattr,
+    new site_class `filecap`, `file_capability_outside_package`.
+  - **immutable flag** → `core.InodeFlagSignals` (FS_IOC_GETFLAGS) at the
+    sink → `immutable_flag`/`append_only_flag` enrichment (no detection;
+    anti-remediation; defeats the immutable-aged implant via LFA).
+  - **Deferred backlog (architect-proposed, NOT built)**: initramfs/dracut
+    hook module (already backlogged below); `/etc/ssh/sshrc` + `~/.ssh/rc`
+    (extend ssh module); `ld.so.conf.d` library-SHADOW signal (only when a
+    planted .so collides with a packaged SONAME); `BASH_ENV`/`ENV` +
+    sshd `SetEnv`/`PermitUserEnvironment`/`AcceptEnv` modeling; kmod
+    softdep/options + resolve the named `.ko` and provenance-check it;
+    systemd `OnFailure=`/`.path Unit=` relationship EDGES as Q12-correlation
+    signals (NOT Q7). Expand the sudoers GTFOBin set (rsync/socat/openssl/
+    busybox) — stable dataset, keep the residual single-binary gap LFA-only.
+  - **Document as scope boundaries (scope.md, not "fix")**: `recent_ctime`'s
+    anti-timestomp guarantee holds only on a LIVE FS (attacker-controlled
+    image-build ordering + byte-identical fleet-wide content is the conceded
+    LFA boundary); the compiled `/boot/initrd.img` cpio is OOS (disk-walk
+    model); PROMPT_COMMAND inline code stays signal+LFA.
+
 Still OPEN:
 
 - **eBPF state inspection** (deferred from v0.5.0 candidate
