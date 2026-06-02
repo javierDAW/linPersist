@@ -39,11 +39,21 @@ func InterpreterScriptOrphan(prov Provenance, cmd []string) bool {
 		return false
 	}
 	for _, arg := range cmd[1:] {
+		switch arg {
+		case "-c", "-e", "-E", "-eval", "--eval", "--command":
+			// Inline-code switch: everything after is shell/interp source,
+			// NOT a script-file path. A naive scan would wrongly treat an
+			// absolute path INSIDE the inline code (a redirect target, an
+			// argument) as "the script" -- the exact false positive that
+			// fires on the ubiquitous `ExecStart=/bin/sh -c '...'` vendor
+			// unit shape. Inline code is LFA-only by design, so bail.
+			return false
+		}
 		if strings.HasPrefix(arg, "-") {
-			continue // flag, including -c / -e inline-code switches
+			continue // other flag (e.g. python3 -u <script>)
 		}
 		if !strings.HasPrefix(arg, "/") {
-			continue // relative / non-path token
+			continue // relative / non-path token (awk program text, etc.)
 		}
 		_, st := prov.LookupPath(arg)
 		return st == PkgStatusOrphan

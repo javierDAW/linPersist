@@ -29,6 +29,12 @@ func TestInterpreterScriptOrphan(t *testing.T) {
 		{"bare interpreter name + orphan", []string{"python3", "/opt/.cache/x.py"}, true},
 		{"flags before orphan script", []string{"/usr/bin/python3", "-u", "/opt/.cache/x.py"}, true},
 		{"inline -c, no script path", []string{"/usr/bin/python3", "-c", "import os"}, false},
+		// `sh -c '...'` with absolute paths INSIDE the inline code (the
+		// ubiquitous vendor-unit shape) must NOT flag -- the abs paths are
+		// redirect/arg targets, not a script file. Regression: round 24
+		// fired on labcollect.service's `/bin/sh -c '... < /opt/...'`.
+		{"sh -c with abs paths inside inline code", []string{"/bin/sh", "-c", "run", "/opt/.cache/x.py"}, false},
+		{"perl -e inline code", []string{"/usr/bin/perl", "-e", "system('/opt/.cache/x.py')"}, false},
 		{"non-interpreter command", []string{"/usr/sbin/cron", "-f"}, false},
 		{"interpreter, no args", []string{"/bin/bash"}, false},
 		{"relative script arg (not abs) ignored", []string{"/usr/bin/perl", "script.pl"}, false},
