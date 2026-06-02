@@ -897,6 +897,24 @@ implants:
     template: apt2-env-hook.tmpl
     vars: {}
 
+  - id: apt2-initramfs-hook
+    tier: L5
+    variant: armed
+    module: initramfs
+    site_class: boot.initramfs.hook
+    description: |
+      Early-boot persistence: a package-unowned hook planted in
+      /etc/initramfs-tools/hooks (empty on a stock host) that copy_exec's
+      a /opt payload into the initrd; it runs AS ROOT before the real
+      rootfs mounts. The hook file itself is the ExecTarget -> non_package_path
+      -> initramfs_hook_unmanaged. Generator-agnostic module also covers
+      dracut (/usr/lib/dracut/modules.d) and mkinitcpio (/etc/initcpio).
+    expected_signals: [non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: initramfs_hook_unmanaged
+    template: apt2-initramfs-hook.tmpl
+    vars: {}
+
   - id: apt2-sshd-setenv
     tier: L4
     variant: armed

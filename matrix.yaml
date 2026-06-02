@@ -960,3 +960,42 @@ site_classes:
       path instead of direct /etc/passwd edit. Pair with passwd.user
       records (cross-record correlation in the backend) to spot the
       double-write attack pattern.
+
+  # =================== duel-2 backlog: early-boot ========================
+
+  - site_class: boot.initramfs.hook
+    module: initramfs
+    mitre: [T1542]
+    loci:
+      - /etc/initramfs-tools/hooks/
+      - /etc/initramfs-tools/scripts/
+      - /usr/share/initramfs-tools/hooks/
+      - /usr/share/initramfs-tools/scripts/
+      - /usr/lib/dracut/modules.d/
+      - /etc/dracut/modules.d/
+      - /etc/initcpio/hooks/
+      - /etc/initcpio/install/
+      - /usr/lib/initcpio/hooks/
+      - /usr/lib/initcpio/install/
+    status: implemented
+    test_coverage: golden
+    notes: |
+      Generator-agnostic early-boot hook surface, covering the three
+      initramfs generators that span essentially all mainstream Linux:
+      initramfs-tools (Debian/Ubuntu/Mint/Devuan/Kali), dracut
+      (RHEL/Rocky/Alma/Fedora/SUSE/Gentoo) and mkinitcpio
+      (Arch/Manjaro/Artix). One record per regular file in any of the
+      hook/script dirs (walked recursively: dracut nests under
+      modules.d/<NN>name/, initramfs-tools under scripts/<stage>/). Each
+      such file is copied into the initrd and run/sourced AS ROOT before
+      the real rootfs mounts. ExecTarget is the file itself, so provenance
+      flags a non-package hook (non_package_path) and the sink's
+      package_file_tampered covers an in-place overwrite of a packaged
+      hook (Bootkit shape). Local /etc dirs are empty on a stock host so
+      any file there is an admin/attacker addition; /usr dirs hold the
+      package-owned hooks that stack fleet-identically. MITRE has no
+      Linux-specific initramfs sub-technique, so the parent T1542 (Pre-OS
+      Boot) is used. OUT OF SCOPE (documented boundary): the compiled
+      initrd cpio (/boot/initrd.img*) is not unpacked, and the config
+      file-baking vector (dracut.conf.d install_items+=, mkinitcpio.conf
+      FILES=/BINARIES=) is a different shape left to a future extension.

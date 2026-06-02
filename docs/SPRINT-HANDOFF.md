@@ -448,15 +448,37 @@ real FP the lab caught and how it was fixed at the root):
       orphan) + profile_env_hook_unmanaged in Q7 on the implant host only;
       env_hook_set on 1/6 hosts, profile_env_hook_unmanaged fires exactly
       once fleet-wide, ZERO clean-host FP on the 5 baseline hosts.
-      2. **initramfs/dracut hook module** (NEW module — biggest). Walk
-         Debian `/etc/initramfs-tools/scripts/{init-top,init-premount,
-         init-bottom,local-top,...}` + `/etc/initramfs-tools/hooks`, and
-         Rocky `/etc/dracut.conf.d/` + `/usr/lib/dracut/modules.d/`. Each
-         executable hook = an ExecTarget=self record (site_class
-         `boot.initramfs.hook`) with provenance + the central ctime/tamper.
-         The compiled `/boot/initrd.img` cpio stays OOS (documented).
-         Register in modset, matrix.yaml (both copies), a detection gated
-         on non_package/orphan. Mirror the suidbits/dbus module shape.
+      2. DONE + LAB-VALIDATED (round 29, Debian)
+         **initramfs hook module** (duel-2 backlog #2). NEW module
+         `internal/modules/initramfs/`, generator-AGNOSTIC — covers all of
+         Linux, not just two distros: initramfs-tools (Debian/Ubuntu/Mint/
+         Devuan/Kali), dracut (RHEL/Rocky/Alma/Fedora/SUSE/Gentoo) and
+         mkinitcpio (Arch/Manjaro/Artix). Recursively walks each generator's
+         hook/script dirs (local /etc + package /usr); one
+         `boot.initramfs.hook` record per regular file, ExecTarget=self so
+         provenance flags a non-package hook and the sink's
+         package_file_tampered covers an in-place overwrite of a packaged
+         hook (Bootkit shape). Local /etc dirs are empty on a stock host
+         (verified) → any file there is an addition; /usr hooks stack
+         fleet-identically. MITRE T1542 (parent; no Linux initramfs
+         sub-technique). Detection `initramfs_hook_unmanaged` (high),
+         `module_in:[initramfs]` + `signals_any:[non_package_path,
+         package_file_tampered]`. Detections 41→42. site_classes 47→48.
+         modset 25→26. Registered in modset + both matrix.yaml copies.
+         Tests: 4 unit + 2 golden (multi_generator_hooks, clean_empty) + 4
+         detection-matcher goldens; stats MITRE-panel golden bumped 24→25
+         techniques. `make all` green. Live-host smoke (real Ubuntu WSL):
+         42 initramfs records all under /usr/share (package-owned), 0 under
+         /etc, ZERO non_package_path / tamper / Q7 FP. OOS (documented in
+         matrix notes): compiled initrd cpio + config file-baking
+         (dracut.conf.d install_items, mkinitcpio.conf FILES=). Lab round 29
+         (Debian, 6 hosts) via `apt2-initramfs-hook`: validate-evade.py all
+         PASS — planted /etc/initramfs-tools/hooks hook → non_package_path
+         (real dpkg provenance) + initramfs_hook_unmanaged on the implant
+         host only; fires exactly once fleet-wide; the 5 clean hosts each
+         carry 5 package-owned /usr/share hook records with ZERO
+         non_package_path. The same recursive walk + provenance path covers
+         dracut + mkinitcpio (unit/golden-validated).
       3. **ld.so.conf.d library SHADOW** (ldso module, trickiest — keep
          it precise). Do NOT make the search-path dir an exec_target (that
          FP-floods on /usr/local/lib). Instead: for each ld.so.conf.d
