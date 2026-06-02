@@ -879,6 +879,24 @@ implants:
     template: apt2-kmod-rootkit.tmpl
     vars: {}
 
+  - id: apt2-env-hook
+    tier: L4
+    variant: armed
+    module: profile
+    site_class: profile.system
+    description: |
+      BASH_ENV persistence: a non-package /opt payload plus a
+      BASH_ENV=/opt/.envhook/agent line appended to /etc/environment
+      (read by pam_env on every login). bash sources $BASH_ENV at the
+      start of every non-interactive shell, so the payload runs on every
+      cron job / script / login. profile extracts the RHS as exec_target
+      -> env_hook_set + non_package_path -> profile_env_hook_unmanaged.
+    expected_signals: [env_hook_set, non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: profile_env_hook_unmanaged
+    template: apt2-env-hook.tmpl
+    vars: {}
+
   - id: apt2-sshd-setenv
     tier: L4
     variant: armed

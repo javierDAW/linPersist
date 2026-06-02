@@ -449,6 +449,47 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			},
 			want: []string{"polkit_yes_constant_implant"},
 		},
+		// BASH_ENV/ENV per-shell source hook (duel-2 backlog #1).
+		{
+			name: "BASH_ENV hook points at an orphan target -> profile_env_hook_unmanaged",
+			rec: core.Record{
+				Module:  "profile",
+				Signals: []string{core.SignalEnvHookSet, core.SignalExecTargetOrphan},
+			},
+			want: []string{"profile_env_hook_unmanaged"},
+		},
+		{
+			name: "BASH_ENV hook points at a non-package target -> profile_env_hook_unmanaged",
+			rec: core.Record{
+				Module:  "profile",
+				Signals: []string{core.SignalEnvHookSet, core.SignalNonPackagePath},
+			},
+			want: []string{"profile_env_hook_unmanaged"},
+		},
+		{
+			name: "BASH_ENV hook under /tmp, orphan -> payload_under_tmp + profile_env_hook_unmanaged",
+			rec: core.Record{
+				Module:  "profile",
+				Signals: []string{core.SignalEnvHookSet, core.SignalInterpreterInTmp, core.SignalExecTargetOrphan},
+			},
+			want: []string{"payload_under_tmp_via_persistence", "profile_env_hook_unmanaged"},
+		},
+		{
+			name: "BASH_ENV hook at a package-owned target (armed, no co-indicator) -> suppressed",
+			rec: core.Record{
+				Module:  "profile",
+				Signals: []string{core.SignalEnvHookSet},
+			},
+			want: nil,
+		},
+		{
+			name: "profile record with non_package_path but no env_hook_set -> env-hook rule must NOT fire",
+			rec: core.Record{
+				Module:  "profile",
+				Signals: []string{core.SignalNonPackagePath},
+			},
+			want: nil,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

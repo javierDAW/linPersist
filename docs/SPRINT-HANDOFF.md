@@ -425,15 +425,29 @@ real FP the lab caught and how it was fixed at the root):
       fire only on their implant host, zero clean-host FPs (apt2-sshrc-hook,
       apt2-kmod-rootkit, apt2-sshd-setenv).
     - DONE scope.md §8.1 boundaries doc (73e2b58).
-    - STILL TODO (heavier, fresh-session — each with the architect-agreed
-      approach so it can start cold):
-      1. **BASH_ENV / ENV in /etc/environment** (profile module). The
-         profile module already walks /etc/environment; extend its
-         extractor (or a sibling) to recognize `BASH_ENV=`/`ENV=`
-         assignments and treat the RHS path as an exec_target candidate,
-         so the existing orphan/non_package/tmp signals fire on
-         `/opt/.envhook`. Reuse `core.ExtractExecTarget` patterns.
-         PROMPT_COMMAND stays signal+LFA (arbitrary inline code).
+    - DONE + LAB-VALIDATED (round 28, Debian) **BASH_ENV / ENV in
+      /etc/environment** (duel-2 backlog #1). New sibling extractor
+      `core.ExtractEnvHookTarget` recognizes `BASH_ENV=`/`ENV=` assignments
+      (optional `export `, quote-stripped) and returns the RHS only when it
+      is a clean absolute path ($-expanded/relative RHS stays signal-free —
+      same non-decision as PROMPT_COMMAND). The profile module checks the
+      env-hook FIRST (higher-signal than a plain source/exec line; the only
+      branch that can populate ExecTarget on /etc/environment's KEY=value
+      content), sets it as ExecTarget, and emits new signal `env_hook_set`.
+      `execTargetStatSignals` also gained `interpreter_in_tmp` (latent gap,
+      now uniform with every other module; profile added to its catalog
+      EmittedBy). Detection `profile_env_hook_unmanaged` (high, T1546.004)
+      gated `signals_all:[env_hook_set]` + `signals_any:[non_package_path,
+      exec_target_orphan, interpreter_in_tmp]` — same shape as
+      `ssh_sshrc_unmanaged_exec`. Detections 41. Tests: 18-case extractor
+      table, 5 detection-matcher goldens, module golden `env_hook_environment`
+      (env_hook_set + exec_target_orphan via the real collector). `make all`
+      green (incl. duckdb-equiv). Lab round 28 (Debian, 6 hosts) via
+      `apt2-env-hook`: validate-evade.py all PASS — env_hook_set +
+      non_package_path (real dpkg provenance resolved /opt/.envhook/agent
+      orphan) + profile_env_hook_unmanaged in Q7 on the implant host only;
+      env_hook_set on 1/6 hosts, profile_env_hook_unmanaged fires exactly
+      once fleet-wide, ZERO clean-host FP on the 5 baseline hosts.
       2. **initramfs/dracut hook module** (NEW module — biggest). Walk
          Debian `/etc/initramfs-tools/scripts/{init-top,init-premount,
          init-bottom,local-top,...}` + `/etc/initramfs-tools/hooks`, and
