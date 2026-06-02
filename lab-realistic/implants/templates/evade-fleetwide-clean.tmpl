@@ -1,0 +1,27 @@
+# Evasion implant: evade-fleetwide-clean (the fundamental LFA limit)
+#
+# A persistent systemd unit whose ExecStart is a PACKAGED binary
+# (/usr/bin/bash) -- no orphan, no tmp, no non_package signal -- planted
+# IDENTICALLY on every host. Because it is byte-identical fleet-wide it is
+# NOT a singleton (Q1 misses it) and carries no triage signal (Q7 misses
+# it), so it is invisible to the content-hash hunt. This is the honest
+# boundary of LFA: an attacker who can deploy the SAME clean-looking
+# persistence everywhere defeats singleton stacking. (Defence: flag units
+# whose ExecStart is a shell LOLBin / interpreter regardless of provenance;
+# and cross-fleet "rare but identical" is still rarer than legit baseline.)
+#
+# Variables: ${unit_file}
+
+RUN mkdir -p /etc/systemd/system && \
+    printf '%s\n' \
+        '[Unit]' \
+        'Description=System Telemetry Agent' \
+        '[Service]' \
+        'Type=simple' \
+        'ExecStart=/usr/bin/bash -c "while :; do sleep 3600; done"' \
+        'Restart=always' \
+        '[Install]' \
+        'WantedBy=multi-user.target' \
+        > ${unit_file} && \
+    chown root:root ${unit_file} && \
+    chmod 0644 ${unit_file}

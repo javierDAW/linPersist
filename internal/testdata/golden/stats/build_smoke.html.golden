@@ -439,7 +439,7 @@ footer a { color: var(--accent); }
             <td><span style="color:var(--tail)">dormant_coverage_gap</span></td>
             <td class="num">0</td>
             <td class="num">0</td>
-            <td><code>systemd.tmpfiles</code>, <code>systemd.unit</code></td>
+            <td><code>systemd.generator</code>, <code>systemd.tmpfiles</code>, <code>systemd.unit</code></td>
           </tr>
         
           <tr>
@@ -447,7 +447,7 @@ footer a { color: var(--accent); }
             <td><span style="color:var(--tail)">dormant_coverage_gap</span></td>
             <td class="num">0</td>
             <td class="num">0</td>
-            <td><code>profile.system</code>, <code>profile.user</code></td>
+            <td><code>profile.system</code>, <code>profile.user</code>, <code>ssh.sshrc</code></td>
           </tr>
         
           <tr>
@@ -559,7 +559,7 @@ footer a { color: var(--accent); }
             <td><span style="color:var(--muted)">dormant_module_silent</span></td>
             <td class="num">0</td>
             <td class="num">0</td>
-            <td><code>sgid.system</code>, <code>sgid.user</code>, <code>suid.system</code>, <code>suid.user</code></td>
+            <td><code>filecap</code>, <code>sgid.system</code>, <code>sgid.user</code>, <code>suid.system</code>, <code>suid.user</code></td>
           </tr>
         
           <tr>
@@ -866,7 +866,7 @@ footer a { color: var(--accent); }
   
   <section class="pane" data-pane="q6">
     <h2>Q6 · Cross-host exec_target stacking (worm pattern)</h2>
-    <p class="lede">Records on different hosts whose persistence text differs but whose <code>exec_target_sha256</code> matches: identical payload, polymorphic persistence. Filtered to <code>2 ≤ hosts &lt; 10% of fleet</code> to skip both singletons (Q1 turf) and baseline binaries.</p>
+    <p class="lede">Records on different hosts whose persistence text differs but whose <code>exec_target_sha256</code> matches: identical <strong>non-package</strong> payload, polymorphic persistence. Packaged binaries shared fleet-wide are excluded (they are baseline, not worms); on large fleets a <code>10%-of-hosts</code> ceiling further trims baseline, and singletons stay Q1 turf.</p>
     <input class="search" type="search" placeholder="filter rows…" data-target="#t-q6">
     <div class="tbl-wrap">
       <table class="sortable" id="t-q6">
@@ -1097,7 +1097,7 @@ footer a { color: var(--accent); }
   
   <section class="pane" data-pane="q12">
     <h2>Q12 · Campaign basename clusters</h2>
-    <p class="lede">Same basename of <code>exec_target</code> (or <code>locus</code> when exec_target is empty) appearing in two or more modules across two or more hosts. Surfaces multi-arm campaigns whose individual arms each look like Q1 singletons in their own module (the v0.2.0 deploy-sync pattern). Sorted ascending by host count.</p>
+    <p class="lede">Same basename of <code>exec_target</code> (or <code>locus</code> when exec_target is empty) appearing in two or more modules across two or more hosts, where at least one arm carries a persistence-anomaly signal (<code>non_package_path</code> / <code>exec_target_orphan</code> / <code>interpreter_in_tmp</code>). Surfaces multi-arm campaigns whose individual arms each look like Q1 singletons in their own module (the v0.2.0 deploy-sync pattern); coincidental package baseline shared fleet-wide is excluded. Sorted ascending by host count.</p>
     <p class="hint">Expect FPs from vendor baselines shipping the same name in <code>systemd.unit</code> and <code>sysv.init</code> (nginx, redis-server, prometheus, cron). Triage from the top -- rare cross-module pairs are the interesting ones.</p>
     
     <p class="hint">No rows. Either the fleet contains no cross-module basename overlaps, or every overlap landed on a single host.</p>

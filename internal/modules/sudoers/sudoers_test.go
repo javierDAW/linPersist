@@ -221,6 +221,34 @@ func TestParseLine_NoPasswdImplant(t *testing.T) {
 	}
 }
 
+func TestNopasswdGtfobin(t *testing.T) {
+	cases := []struct {
+		line string
+		want bool
+	}{
+		// Single-command NOPASSWD on a GTFOBin == NOPASSWD:ALL.
+		{"webops ALL=(root) NOPASSWD: /usr/bin/vi", true},
+		{"webops ALL=(root) NOPASSWD: /usr/bin/find /var/log -name '*.gz'", true},
+		{"deploy ALL=(ALL) NOPASSWD: /bin/tar, /usr/bin/awk", true},
+		{"dev ALL=NOPASSWD:/usr/bin/python3 /opt/app/run.py", true},
+		// duel-2 additions to the curated set.
+		{"bk ALL=(root) NOPASSWD: /usr/bin/rsync -av /srv /backup", true},
+		{"net ALL=(root) NOPASSWD: /usr/bin/socat - TCP:localhost:25", true},
+		// Excluded common-legit binaries -> no signal (left to LFA).
+		{"svc ALL=(root) NOPASSWD: /usr/bin/systemctl restart nginx", false},
+		{"ci ALL=(root) NOPASSWD: /usr/bin/docker", false},
+		// Non-escape scoped command -> no signal.
+		{"mon ALL=(root) NOPASSWD: /usr/bin/tail -f /var/log/syslog", false},
+	}
+	for _, tc := range cases {
+		pl := parseLine(tc.line)
+		got := nopasswdGtfobin(pl.canon)
+		if got != tc.want {
+			t.Errorf("nopasswdGtfobin(%q) = %v; want %v (canon=%q)", tc.line, got, tc.want, pl.canon)
+		}
+	}
+}
+
 func TestParseLine_Alias_MembersSorted(t *testing.T) {
 	pl := parseLine("User_Alias ADMINS = bob, alice, carol")
 	if pl.kind != lineAlias {

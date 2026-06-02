@@ -11,13 +11,20 @@ package core
 import (
 	"bufio"
 	"context"
+	"crypto/md5"
+	"crypto/sha1"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -141,6 +148,13 @@ type Resolver struct {
 	// stdout) that simulates rpm without requiring a real rpm DB.
 	rpmCommand []string
 
+	// rpmDigestCommand is the argv to spawn for the bulk per-file digest
+	// query that feeds fileDigests on rpm hosts. Same override contract
+	// as rpmCommand (tests inject a fixture command printing canned
+	// "<path> <hexdigest>" lines); unset means
+	// findRpmBinary + rpmDigestQueryArgs.
+	rpmDigestCommand []string
+
 	// rpmBinaryCandidates are the absolute paths tried in order when
 	// rpmCommand is unset. The resolver picks the first existing
 	// regular file.
@@ -156,7 +170,61 @@ type Resolver struct {
 	pkgMgr     PackageManager
 	pathMap    map[string]string
 	buildErr   error
+
+	// fileDigests maps an absolute package-owned path to the lowercase
+	// hex digest the package manager recorded for it at install time.
+	// The digest ALGORITHM is encoded by the hex length and inferred at
+	// compare time (32=MD5, 40=SHA-1, 64=SHA-256), so all three package
+	// managers share one map and one VerifyPath:
+	//   - dpkg: MD5 from /var/lib/dpkg/info/*.md5sums + the Conffiles:
+	//     stanzas of /var/lib/dpkg/status (conffiles are absent from
+	//     *.md5sums by design).
+	//   - rpm:  the per-file FILEDIGESTS (SHA-256 on RHEL7+/Rocky/Fedora,
+	//     MD5 on EL5/6) dumped by a single bulk `rpm -qa --qf` query.
+	//   - apk:  the Z: (Q1<base64 SHA-1>) checksum of each file in
+	//     /lib/apk/db/installed.
+	// Nil on hosts where integrity data could not be read; VerifyPath
+	// then degrades to PkgVerifyUnknown rather than guessing. Read-only
+	// after Warmup.
+	fileDigests map[string]string
+
+	// verifyCache memoizes VerifyPath results per absolute path so the
+	// per-line records the modules emit for one config file (a crontab
+	// with N entries, an sshd_config with N directives) hash the file
+	// at most once per run. sync.Map because the runner's sink is
+	// serialized today but VerifyPath makes no such assumption.
+	verifyCache sync.Map // map[string]PkgVerifyStatus
 }
+
+// PkgVerifyStatus describes the result of a package-file integrity
+// check (VerifyPath).
+type PkgVerifyStatus string
+
+const (
+	// PkgVerifyUnknown: integrity was not evaluated -- resolver not
+	// warmed, no integrity database (non-dpkg host or unreadable
+	// metadata), or the path is not absolute. Distinct from NotOwned
+	// (the resolver checked and the path has no recorded hash).
+	PkgVerifyUnknown PkgVerifyStatus = "unknown"
+
+	// PkgVerifyNotOwned: the path has no hash recorded by any package
+	// (it is not a packaged file, or is a packaged file the manager
+	// does not hash). No tamper claim can be made.
+	PkgVerifyNotOwned PkgVerifyStatus = "not_owned"
+
+	// PkgVerifyMatched: the on-disk content matches the recorded hash.
+	PkgVerifyMatched PkgVerifyStatus = "matched"
+
+	// PkgVerifyMismatched: the on-disk content differs from the
+	// recorded hash -- the file has been modified since install. This
+	// is the state that drives SignalPackageFileTampered.
+	PkgVerifyMismatched PkgVerifyStatus = "mismatched"
+
+	// PkgVerifyError: a hash was recorded but the on-disk file could
+	// not be read (deleted, EACCES, I/O error). No tamper claim is
+	// made; surfaced separately so it never masquerades as Matched.
+	PkgVerifyError PkgVerifyStatus = "error"
+)
 
 // ResolverOption tunes a Resolver at construction time.
 type ResolverOption func(*Resolver)
@@ -178,6 +246,13 @@ func WithProvenanceBuildTimeout(d time.Duration) ResolverOption {
 // unit tests that feed canned stdout.
 func WithProvenanceRpmCommand(argv []string) ResolverOption {
 	return func(r *Resolver) { r.rpmCommand = append([]string(nil), argv...) }
+}
+
+// WithProvenanceRpmDigestCommand overrides the rpm per-file digest-query
+// argv (the source of fileDigests on rpm hosts). Same contract as
+// WithProvenanceRpmCommand; intended for unit tests.
+func WithProvenanceRpmDigestCommand(argv []string) ResolverOption {
+	return func(r *Resolver) { r.rpmDigestCommand = append([]string(nil), argv...) }
 }
 
 // WithProvenanceRpmBinaryCandidates overrides the list of rpm binary
@@ -242,6 +317,35 @@ var rpmBulkQueryArgs = []string{
 	"--nodigest",
 }
 
+// rpmDigestQueryArgs dump every file's recorded content digest plus its
+// per-file verify flags, one "<path> <hexdigest> <verifyflags>" triple
+// per line. FILEDIGESTS is the digest rpm stored at install (SHA-256 on
+// RHEL7+/Rocky/Fedora, MD5 on EL5/6); the algorithm is recovered from the
+// hex length at compare time, so we do NOT need FILEDIGESTALGO (a header
+// scalar that does not broadcast reliably across the `[]` array iterator
+// in older rpm).
+//
+// FILEVERIFYFLAGS is the crux of matching `rpm -V` semantics: the `setup`
+// package ships /etc/passwd, /etc/group, /etc/shadow, /etc/gshadow etc.
+// with `%verify(not md5 ...)` because they are EXPECTED to change after
+// install, so rpm clears their digest-verify bit and `rpm -V` stays
+// silent. Honoring the bit (RPMVERIFY_FILEDIGEST = 1) skips exactly those
+// files; comparing their digest anyway produced a ~6-file / ~108-record
+// false-positive flood on every Rocky host (the nspawn lab caught this).
+// Files with no content digest (dirs, symlinks, %ghost) emit an empty
+// digest field and are skipped too.
+var rpmDigestQueryArgs = []string{
+	"-qa",
+	"--qf", "[%{FILENAMES} %{FILEDIGESTS} %{FILEVERIFYFLAGS}\n]",
+	"--nosignature",
+	"--nodigest",
+}
+
+// rpmVerifyFileDigestBit is RPMVERIFY_FILEDIGEST: when this bit is clear
+// in a file's FILEVERIFYFLAGS, rpm does not digest-verify the file and
+// neither do we.
+const rpmVerifyFileDigestBit = 1
+
 // Warmup detects the package manager and builds the path-to-package
 // map. Idempotent. After Warmup returns, LookupPath becomes a
 // lock-free map read.
@@ -286,9 +390,34 @@ func (r *Resolver) Warmup(ctx context.Context) {
 			return
 		}
 		r.pathMap = m
+
+		// Integrity (package-file tamper) database, per package manager.
+		// Best-effort -- a read/query failure leaves fileDigests nil and
+		// VerifyPath degrades to PkgVerifyUnknown rather than failing the
+		// whole provenance build (ownership lookups still work).
+		var (
+			dig  map[string]string
+			derr error
+		)
+		switch r.pkgMgr {
+		case PkgMgrDpkg:
+			dig, derr = r.buildDpkgHashes(buildCtx)
+		case PkgMgrRpm:
+			dig, derr = r.buildRpmDigests(buildCtx)
+		case PkgMgrApk:
+			dig, derr = r.buildApkDigests(buildCtx)
+		}
+		if derr != nil {
+			r.logger.Warn("provenance integrity unavailable",
+				"pkg_mgr", r.pkgMgr.String(), "err", derr)
+		} else {
+			r.fileDigests = dig
+		}
+
 		r.logger.Info("provenance built",
 			"pkg_mgr", r.pkgMgr.String(),
 			"entries", len(m),
+			"integrity_entries", len(r.fileDigests),
 			"elapsed", elapsed)
 	})
 }
@@ -557,6 +686,249 @@ func (r *Resolver) scanDpkgList(path, pkgName string, out map[string]string) err
 	return sc.Err()
 }
 
+// buildDpkgHashes builds the absolute-path → recorded-MD5 map used by
+// VerifyPath. It reads TWO sources, because dpkg records integrity in
+// two places:
+//
+//   - /var/lib/dpkg/info/<pkg>.md5sums — one line per regular packaged
+//     file, "<md5>␣␣<relative-path>" (path has no leading slash).
+//   - /var/lib/dpkg/status Conffiles: stanzas — registered conffiles
+//     (e.g. /etc/crontab), which are DELIBERATELY absent from md5sums
+//     so an admin edit does not make dpkg report the file as modified
+//     during a verify of the regular file list. Parsing only md5sums
+//     would therefore miss exactly the "append to /etc/crontab" shape
+//     this signal exists to catch.
+//
+// File-conflict policy: first occurrence wins (md5sums scanned first).
+// A failure to enumerate the info directory is fatal to the integrity
+// build (it is the bulk source); a failure to read status is logged and
+// tolerated (conffiles are a supplement).
+func (r *Resolver) buildDpkgHashes(ctx context.Context) (map[string]string, error) {
+	infoDir := r.resolveRoot("/var/lib/dpkg/info")
+	entries, err := os.ReadDir(infoDir)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", infoDir, err)
+	}
+	out := make(map[string]string, 200_000)
+	for _, e := range entries {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".md5sums") {
+			continue
+		}
+		if err := scanMd5sums(filepath.Join(infoDir, name), out); err != nil {
+			r.logger.Debug("provenance: skip md5sums",
+				"file", name, "err", err)
+		}
+	}
+	if err := r.scanDpkgConffiles(out); err != nil {
+		r.logger.Debug("provenance: conffiles parse partial", "err", err)
+	}
+	return out, nil
+}
+
+// scanMd5sums reads one *.md5sums file. Each line is "<md5>␣␣<path>"
+// where the path is relative to / with no leading slash and MAY contain
+// spaces, so the md5 is taken as the fixed 32-char prefix and the
+// remainder (trimmed) is the path. Malformed lines are skipped.
+func scanMd5sums(path string, out map[string]string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		if len(line) < 34 { // 32 hex + at least "  /x"
+			continue
+		}
+		sum := strings.ToLower(line[:32])
+		if !isHex32(sum) {
+			continue
+		}
+		rel := strings.TrimSpace(line[32:])
+		if rel == "" {
+			continue
+		}
+		abs := "/" + rel
+		if _, dup := out[abs]; !dup {
+			out[abs] = sum
+		}
+	}
+	return sc.Err()
+}
+
+// scanDpkgConffiles walks /var/lib/dpkg/status and extracts every
+// registered conffile's recorded MD5. The status file is deb822: a
+// "Conffiles:" field header is followed by continuation lines that
+// begin with a space, each " <abs-path> <md5> [obsolete|newconffile]".
+// A line that does not begin with a space ends the block. Entries whose
+// hash token is not a 32-hex digest (e.g. the "newconffile" marker) are
+// skipped. md5sums entries already present win (scanned first).
+func (r *Resolver) scanDpkgConffiles(out map[string]string) error {
+	statusPath := r.resolveRoot("/var/lib/dpkg/status")
+	f, err := os.Open(statusPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	inConffiles := false
+	for sc.Scan() {
+		line := sc.Text()
+		if line == "" || line[0] != ' ' && line[0] != '\t' {
+			inConffiles = strings.HasPrefix(line, "Conffiles:")
+			continue
+		}
+		if !inConffiles {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		sum := strings.ToLower(fields[1])
+		if !isHex32(sum) {
+			continue
+		}
+		if _, dup := out[fields[0]]; !dup {
+			out[fields[0]] = sum
+		}
+	}
+	return sc.Err()
+}
+
+// isHex32 reports whether s is exactly 32 lowercase-or-uppercase hex
+// digits (the shape of an MD5 digest). Caller lowercases for storage.
+func isHex32(s string) bool {
+	return len(s) == 32 && isHexString(s)
+}
+
+// isHexDigest reports whether s is a hex digest of a length the verifier
+// can recompute: 32 (MD5/dpkg), 40 (SHA-1/apk) or 64 (SHA-256/rpm). Any
+// other length is rejected so an unknown algorithm never enters the map.
+func isHexDigest(s string) bool {
+	switch len(s) {
+	case 32, 40, 64:
+		return isHexString(s)
+	default:
+		return false
+	}
+}
+
+// isHexString reports whether every byte of s is a hex digit.
+func isHexString(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// VerifyPath reports whether the file at an absolute package-owned path
+// still matches the hash the package manager recorded at install time.
+// It is the integrity counterpart to LookupPath (which answers
+// ownership only) and drives SignalPackageFileTampered at the emit sink.
+//
+// Returns PkgVerifyUnknown when integrity cannot be evaluated (resolver
+// not warmed, non-dpkg host, integrity DB unreadable, relative path) so
+// callers never confuse "could not check" with "checked, clean". Results
+// are memoized per path: the N per-line records a single config file
+// produces hash it at most once per run.
+//
+// Covers dpkg, rpm and apk: the recorded digest's algorithm is inferred
+// from its hex length (see hashByHexLen), so one implementation serves
+// all three.
+func (r *Resolver) VerifyPath(path string) PkgVerifyStatus {
+	if !r.warmedUp.Load() || r.buildErr != nil {
+		return PkgVerifyUnknown
+	}
+	if r.fileDigests == nil || !filepath.IsAbs(path) {
+		return PkgVerifyUnknown
+	}
+	if cached, ok := r.verifyCache.Load(path); ok {
+		return cached.(PkgVerifyStatus)
+	}
+	st := r.verifyUncached(path)
+	r.verifyCache.Store(path, st)
+	return st
+}
+
+// verifyUncached performs the recorded-digest lookup and on-disk
+// comparison for VerifyPath, applying the same usr-merge sibling
+// fallback as LookupPath so /usr/bin/X resolves to a manifest entry
+// recorded as /bin/X (and vice versa). The on-disk file is hashed with
+// the algorithm implied by the recorded digest's length.
+func (r *Resolver) verifyUncached(path string) PkgVerifyStatus {
+	recorded, ok := r.fileDigests[path]
+	if !ok {
+		for _, alt := range usrMergeAlternates(path) {
+			if recorded, ok = r.fileDigests[alt]; ok {
+				break
+			}
+		}
+	}
+	if !ok {
+		return PkgVerifyNotOwned
+	}
+	got, err := hashByHexLen(r.resolveRoot(path), len(recorded))
+	if err != nil {
+		return PkgVerifyError
+	}
+	if got == recorded {
+		return PkgVerifyMatched
+	}
+	return PkgVerifyMismatched
+}
+
+// hashByHexLen streams path through the hash whose hex digest is hexLen
+// characters long -- MD5 (32, dpkg), SHA-1 (40, apk), SHA-256 (64, rpm)
+// -- and returns the lowercase hex digest. Streaming keeps memory
+// constant regardless of file size; callers only invoke this for
+// package-owned loci (overwhelmingly small config files) and memoize the
+// result. An unrecognized length returns an error so an unknown digest
+// algorithm can never masquerade as a match.
+func hashByHexLen(path string, hexLen int) (string, error) {
+	var h hash.Hash
+	switch hexLen {
+	case 32:
+		h = md5.New()
+	case 40:
+		h = sha1.New()
+	case 64:
+		h = sha256.New()
+	default:
+		return "", fmt.Errorf("unsupported digest hex length %d", hexLen)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// TamperSignal maps a VerifyPath result to the signal slice the emit
+// sink appends to a Record. Only a confirmed Mismatched yields
+// SignalPackageFileTampered; every other status (including Error and
+// NotOwned) yields nil so the signal never fires on uncertainty.
+func TamperSignal(status PkgVerifyStatus) []string {
+	if status == PkgVerifyMismatched {
+		return []string{SignalPackageFileTampered}
+	}
+	return nil
+}
+
 // buildApkMap parses /lib/apk/db/installed and returns a path → pkg
 // map. The apk-tools "world database" is a single text file with
 // record-oriented format separated by blank lines; each record is a
@@ -640,6 +1012,66 @@ func (r *Resolver) buildApkMap(ctx context.Context) (map[string]string, error) {
 	return out, nil
 }
 
+// buildApkDigests re-parses /lib/apk/db/installed for the per-file Z:
+// checksum that follows each R: entry, returning a path -> hex SHA-1
+// map. The Z: value is `Q1<base64(sha1)>` (the only checksum scheme apk
+// has shipped); the "Q1" tag marks SHA-1, the rest is standard base64 of
+// the 20-byte digest, which we decode and hex-encode so it shares the
+// length-keyed compare path with dpkg/rpm. Files without a Z: line, or
+// with an unrecognized checksum tag, are skipped.
+func (r *Resolver) buildApkDigests(ctx context.Context) (map[string]string, error) {
+	path := r.resolveRoot("/lib/apk/db/installed")
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer f.Close()
+
+	out := make(map[string]string, 20_000)
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var curDir, lastAbs string
+	for sc.Scan() {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		line := sc.Text()
+		if line == "" {
+			curDir, lastAbs = "", ""
+			continue
+		}
+		if len(line) < 2 || line[1] != ':' {
+			continue
+		}
+		val := line[2:]
+		switch line[0] {
+		case 'F':
+			curDir = val
+		case 'R':
+			if curDir == "" {
+				lastAbs = "/" + val
+			} else {
+				lastAbs = "/" + curDir + "/" + val
+			}
+		case 'Z':
+			if lastAbs == "" || !strings.HasPrefix(val, "Q1") {
+				continue
+			}
+			raw, derr := base64.StdEncoding.DecodeString(val[2:])
+			if derr != nil || len(raw) != sha1.Size {
+				continue
+			}
+			if _, dup := out[lastAbs]; !dup {
+				out[lastAbs] = hex.EncodeToString(raw)
+			}
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("scan %s: %w", path, err)
+	}
+	return out, nil
+}
+
 // buildRpmMap spawns `rpm -qa --filesbypkg` and streams its output
 // into a path-to-package map. Each line emitted by --filesbypkg has
 // the form
@@ -687,6 +1119,85 @@ func (r *Resolver) buildRpmMap(ctx context.Context) (map[string]string, error) {
 		return nil, fmt.Errorf("rpm wait: %w", err)
 	}
 	return out, nil
+}
+
+// buildRpmDigests spawns the per-file digest query and streams its
+// "<path> <hexdigest>" lines into a path -> digest map. Same subprocess
+// lifetime discipline as buildRpmMap (bounded WaitDelay, discarded
+// stderr, drain-on-error). Lines with an empty digest field (dirs,
+// symlinks, %ghost) are skipped.
+func (r *Resolver) buildRpmDigests(ctx context.Context) (map[string]string, error) {
+	argv := r.rpmDigestCommand
+	if len(argv) == 0 {
+		bin, ok := r.findRpmBinary()
+		if !ok {
+			return nil, errors.New("rpm binary not found at any candidate path")
+		}
+		argv = append([]string{bin}, rpmDigestQueryArgs...)
+	}
+
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.WaitDelay = 5 * time.Second
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("rpm digest stdout pipe: %w", err)
+	}
+	cmd.Stderr = io.Discard
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("rpm digest start: %w", err)
+	}
+
+	out := make(map[string]string, 200_000)
+	if err := scanRpmDigestStream(stdout, out); err != nil {
+		_, _ = io.Copy(io.Discard, stdout)
+		_ = cmd.Wait()
+		return nil, fmt.Errorf("rpm digest stream: %w", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		return nil, fmt.Errorf("rpm digest wait: %w", err)
+	}
+	return out, nil
+}
+
+// scanRpmDigestStream parses "<path> <hexdigest> <verifyflags>" lines.
+// The two trailing tokens are the verify flags and the digest (rpm paths
+// do not contain spaces), so a two-step right split is unambiguous. A
+// file is recorded only when its digest is a usable hex digest AND its
+// FILEVERIFYFLAGS still has the digest-verify bit set -- mirroring
+// `rpm -V`, which never reports files the package marked `%verify(not
+// md5)` (e.g. setup's /etc/passwd). Non-absolute paths, empty/non-hex
+// digests, and unparseable flags are skipped. First occurrence wins.
+func scanRpmDigestStream(stream io.Reader, out map[string]string) error {
+	sc := bufio.NewScanner(stream)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		i := strings.LastIndexByte(line, ' ')
+		if i <= 0 {
+			continue
+		}
+		flagsStr := line[i+1:]
+		rest := line[:i]
+		j := strings.LastIndexByte(rest, ' ')
+		if j <= 0 {
+			continue
+		}
+		path := rest[:j]
+		digest := strings.ToLower(rest[j+1:])
+		if !strings.HasPrefix(path, "/") || !isHexDigest(digest) {
+			continue
+		}
+		flags, err := strconv.ParseInt(flagsStr, 10, 64)
+		if err != nil || flags&rpmVerifyFileDigestBit == 0 {
+			// Unparseable flags, or rpm itself does not digest-verify
+			// this file -> do not flag it (matches `rpm -V`).
+			continue
+		}
+		if _, dup := out[path]; !dup {
+			out[path] = digest
+		}
+	}
+	return sc.Err()
 }
 
 // findRpmBinary returns the first existing regular file in

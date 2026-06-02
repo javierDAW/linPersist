@@ -1,0 +1,17 @@
+# Implant template: motd-script-tmp (L2, orphan)
+#
+# T1546.003-adjacent (login-triggered execution via update-motd). Drops
+# an executable under /etc/update-motd.d that runs a payload under /tmp
+# on every interactive login (pam_motd executes these as root). The motd
+# module fires interpreter_in_tmp / exec_target_orphan on the /tmp target.
+#
+# Variables: ${motd_file}, ${payload}
+
+RUN mkdir -p /etc/update-motd.d && \
+    printf '%s\n' \
+        '#!/bin/sh' \
+        '# Provisioned by ops-motd (DO NOT EDIT)' \
+        '${payload}' \
+        > ${motd_file} && \
+    chown root:root ${motd_file} && \
+    chmod 0755 ${motd_file}

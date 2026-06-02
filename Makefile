@@ -15,7 +15,7 @@ GOFLAGS := -trimpath -buildvcs=false -tags=osusergo,netgo
 # linux/<arch>[/<goarm>]
 TARGETS := linux/amd64 linux/arm64 linux/386 linux/arm/7
 
-.PHONY: all build build-all verify test test-race lint fmt audit detgen detgen-verify matrix-sync-verify clean help engagement-kit
+.PHONY: all build build-all verify test test-race lint fmt audit duckdb-equiv detgen detgen-verify matrix-sync-verify clean help engagement-kit
 
 # Engagement-kit targets: subset of build-all (amd64 + arm64 only;
 # 386 and arm-v7 are niche and shipped on request) plus the operator-
@@ -79,10 +79,30 @@ fmt:
 	gofmt -w .
 
 # audit is the release gate from ADR-0001: it diffs matrix.yaml against
-# the modules the code actually emits. Fails on drift; prints a
-# one-line summary on success.
+# the modules the code actually emits, then runs the Go<->SQL equivalence
+# gate. Fails on drift; prints a one-line summary on success.
 audit:
 	go run ./cmd/matrix-audit
+	@$(MAKE) --no-print-directory duckdb-equiv
+
+# duckdb-equiv is the Go<->SQL row-count equivalence gate (the CI job
+# "Go <-> SQL equivalence (DuckDB)"): go test -tags=duckdb ./tools/...
+# cross-checks every Q1..Q12 in cmd/linpersist-report against the hand-
+# written tools/stack_demo.sql on a synthetic fixture, asserting the
+# divergence shape recorded in baselineDrift has not silently changed.
+# It needs a `duckdb` binary; with none on PATH it SKIPS (with a notice)
+# rather than failing, so the local `make audit` stays usable for devs
+# without duckdb -- CI always provides it, so the gate is enforced there.
+# Set DUCKDB_BIN to override the binary path. Run this before pushing any
+# change to cmd/linpersist-report stats (Q6/Q12 filters) or stack_demo.sql.
+duckdb-equiv:
+	@bin="$${DUCKDB_BIN:-$$(command -v duckdb 2>/dev/null)}"; \
+	if [ -z "$$bin" ]; then \
+	  echo "duckdb-equiv: SKIP (no duckdb on PATH; CI enforces this gate). Install duckdb or set DUCKDB_BIN."; \
+	else \
+	  echo ">> Go<->SQL equivalence (duckdb=$$bin)"; \
+	  DUCKDB_BIN="$$bin" go test -tags=duckdb -count=1 ./tools/... || exit 1; \
+	fi
 
 # detgen rewrites tools/stack_demo.sql Q7 block from detections.yaml.
 # Run after editing internal/detections/detections.yaml; commit both
@@ -169,7 +189,8 @@ help:
 	@echo "  test-race  run unit tests with -race"
 	@echo "  lint       run go vet and gofmt check"
 	@echo "  fmt        run gofmt -w"
-	@echo "  audit      matrix.yaml <-> code drift gate (ADR-0001)"
+	@echo "  audit      matrix.yaml <-> code drift gate (ADR-0001) + duckdb-equiv"
+	@echo "  duckdb-equiv   Go <-> SQL row-count equivalence gate (skips if no duckdb)"
 	@echo "  detgen     regenerate Q7 SQL block from detections.yaml"
 	@echo "  detgen-verify  drift gate for detections.yaml <-> stack_demo.sql (ADR-0013)"
 	@echo "  engagement-kit pack a consultoría deliverable into dist/$(KIT_NAME).tar.gz"

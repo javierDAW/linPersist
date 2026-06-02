@@ -1,0 +1,21 @@
+# Implant template: sysv-init-tmp (L2, orphan)
+#
+# T1037.005 (Boot or Logon Initialization Scripts: RC Scripts). Drops a
+# SysV init script under /etc/init.d that launches a payload under /tmp.
+# The sysv module fires interpreter_in_tmp / exec_target_orphan on the
+# /tmp target; the unpackaged script is a fleet singleton.
+#
+# Variables: ${init_file}, ${payload}
+
+RUN mkdir -p /etc/init.d && \
+    printf '%s\n' \
+        '#!/bin/sh' \
+        '### BEGIN INIT INFO' \
+        '# Provides:          ops-cache' \
+        '# Required-Start:    $local_fs' \
+        '# Default-Start:     2 3 4 5' \
+        '### END INIT INFO' \
+        '${payload} &' \
+        > ${init_file} && \
+    chown root:root ${init_file} && \
+    chmod 0755 ${init_file}

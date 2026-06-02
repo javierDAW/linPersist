@@ -166,13 +166,15 @@ func hasNoPasswd(canon string) bool {
 	return strings.Contains(canon, "NOPASSWD:")
 }
 
-// hasAllCommands reports whether a user-spec line's command list
-// (everything after '=', the optional (runas), and zero or more
-// TAG: prefixes) contains the standalone token "ALL".
-func hasAllCommands(canon string) bool {
+// specCommands returns the comma-separated command entries of a user-spec
+// line: everything after '=', past the optional (runas) and any leading
+// whitespace-separated TAG: tokens. Each returned entry is trimmed and may
+// still carry arguments (e.g. "/usr/bin/systemctl restart nginx"). Returns
+// nil when the line has no '=' (not a user-spec command list).
+func specCommands(canon string) []string {
 	eq := strings.IndexByte(canon, '=')
 	if eq < 0 {
-		return false
+		return nil
 	}
 	right := canon[eq+1:]
 	// Strip optional (runas).
@@ -192,9 +194,70 @@ func hasAllCommands(canon string) bool {
 		}
 		break
 	}
-	cmdsStr := strings.Join(fields[cmdStart:], " ")
-	for _, c := range strings.Split(cmdsStr, ",") {
-		if strings.TrimSpace(c) == "ALL" {
+	var out []string
+	for _, c := range strings.Split(strings.Join(fields[cmdStart:], " "), ",") {
+		if c = strings.TrimSpace(c); c != "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// hasAllCommands reports whether a user-spec line's command list contains
+// the standalone token "ALL".
+func hasAllCommands(canon string) bool {
+	for _, c := range specCommands(canon) {
+		if c == "ALL" {
+			return true
+		}
+	}
+	return false
+}
+
+// gtfoShellEscape is the curated set of binary basenames whose mere
+// presence in a NOPASSWD grant yields a password-less root shell
+// (GTFOBins sudo shell-escapes). Deliberately EXCLUDES commonly-scoped
+// legitimate admin binaries (systemctl, service, docker, git, package
+// managers): those are GTFOBins too, but NOPASSWD grants on them are
+// ubiquitous on managed fleets, so they are left to LFA rather than a
+// noisy Q7 row. See SignalSudoersNopasswdGtfobin.
+var gtfoShellEscape = map[string]bool{
+	"vi": true, "vim": true, "view": true, "vimdiff": true, "rvim": true,
+	"nano": true, "pico": true, "ed": true, "ex": true,
+	"less": true, "more": true, "man": true, "pager": true,
+	"awk": true, "gawk": true, "mawk": true, "nawk": true, "sed": true,
+	"find": true, "env": true, "xargs": true,
+	"tar": true, "zip": true, "cpio": true,
+	"python": true, "python2": true, "python3": true,
+	"perl": true, "ruby": true, "lua": true, "php": true, "node": true,
+	"gdb": true, "nmap": true, "tmux": true, "screen": true,
+	"ftp": true, "tclsh": true, "expect": true, "byebug": true,
+	// duel-2 backlog: stable documented GTFOBins-sudo shell-escapes the
+	// curated set was missing. rsync (-e/--rsh), socat (EXEC), openssl
+	// (engine/prime via enc), busybox (applet shells), cpulimit (-f),
+	// flock/ionice/nice/nohup/timeout/stdbuf/setarch/taskset/unshare/env
+	// run an arbitrary command as the target user. Deliberately STILL
+	// excludes systemctl/service/docker/git (ubiquitous legit NOPASSWD
+	// grants -> LFA, not Q7).
+	"rsync": true, "socat": true, "openssl": true, "busybox": true,
+	"cpulimit": true, "flock": true, "ionice": true, "nice": true,
+	"nohup": true, "timeout": true, "stdbuf": true, "setarch": true,
+	"taskset": true, "unshare": true, "watch": true, "make": true,
+}
+
+// nopasswdGtfobin reports whether any command in the user-spec's command
+// list is a curated shell-escape GTFOBin (by basename of its first
+// token). Caller pairs this with hasNoPasswd.
+func nopasswdGtfobin(canon string) bool {
+	for _, c := range specCommands(canon) {
+		bin := c
+		if sp := strings.IndexAny(bin, " \t"); sp >= 0 {
+			bin = bin[:sp]
+		}
+		if slash := strings.LastIndexByte(bin, '/'); slash >= 0 {
+			bin = bin[slash+1:]
+		}
+		if gtfoShellEscape[bin] {
 			return true
 		}
 	}

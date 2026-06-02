@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -252,7 +251,7 @@ func (m *Module) processCrontabFile(ctx context.Context, logical, real string, i
 		return
 	}
 
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
@@ -311,7 +310,27 @@ func (m *Module) recordFromParsedLine(logical string, info os.FileInfo, siteClas
 		first := firstToken(pl.command)
 		if first != "" {
 			rec.ExecTarget = first
+			if strings.HasPrefix(first, "/") {
+				if sum, ok := core.HashFileCapped(m.resolve(first), m.opts.MaxFileSize); ok {
+					rec.ExecTargetSHA256 = sum
+				}
+			}
 			signals = append(signals, m.execTargetSignals(first)...)
+			// A packaged interpreter (python3/bash/...) running a parked
+			// payload: exec_target is the owned interpreter, so the SCRIPT
+			// ARGUMENT is otherwise invisible. Resolve it and check both
+			// halves of the ownership/integrity asymmetry -- orphan (not
+			// packaged) AND owned-but-tampered (digest mismatch).
+			if arg, ok := core.InterpreterScriptArg(strings.Fields(pl.command)); ok {
+				if _, st := m.opts.Provenance.LookupPath(arg); st == core.PkgStatusOrphan {
+					signals = append(signals, core.SignalInterpreterRunsOrphanScript)
+				}
+				if v, ok := m.opts.Provenance.(interface {
+					VerifyPath(string) core.PkgVerifyStatus
+				}); ok {
+					signals = append(signals, core.TamperSignal(v.VerifyPath(arg))...)
+				}
+			}
 		}
 	case lineMalformed:
 		rec.Errors = append(rec.Errors, core.RecordError{Field: "schedule", Code: pl.parseErr})
@@ -503,15 +522,7 @@ func (m *Module) processPeriodicFile(ctx context.Context, logical, real string, 
 		}, nil))
 		return
 	}
-	f, err := os.Open(real)
-	if err != nil {
-		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
-			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
-		}, nil))
-		return
-	}
-	defer f.Close()
-	raw, err := io.ReadAll(f)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
@@ -577,7 +588,7 @@ func (m *Module) collectAnacrontab(ctx context.Context, logical string, emit fun
 		}, nil))
 		return nil
 	}
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},

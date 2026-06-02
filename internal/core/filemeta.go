@@ -41,3 +41,30 @@ func FillFileMeta(rec *Record, info os.FileInfo) {
 		rec.Mode = FormatMode(uint32(info.Mode().Perm()))
 	}
 }
+
+// RecentCtimeSignals returns the recent_ctime_{7d,30d} signal(s) for a
+// record's inode change time relative to collectedAt. It is the central
+// anti-timestomp counterpart to each module's recent_mtime_* derivation:
+// because every Record already carries CTime and CollectedAt by the time
+// it reaches the emit sink, the sink computes this once for all modules
+// instead of threading a clock through 20+ baseSignals implementations.
+//
+// Returns nil when ctime is absent (non-Linux fallback, or a record with
+// no on-disk locus) or when collectedAt is zero. Windows are evaluated in
+// UTC and are mutually exclusive, mirroring the mtime bands so a backend
+// can diff the two sets directly: recent_ctime_7d present while
+// recent_mtime_7d is absent is the timestomp tell.
+func RecentCtimeSignals(ctime *time.Time, collectedAt time.Time) []string {
+	if ctime == nil || collectedAt.IsZero() {
+		return nil
+	}
+	delta := collectedAt.UTC().Sub(ctime.UTC())
+	switch {
+	case delta >= 0 && delta < 7*24*time.Hour:
+		return []string{SignalRecentCtime7d}
+	case delta >= 7*24*time.Hour && delta < 30*24*time.Hour:
+		return []string{SignalRecentCtime30d}
+	default:
+		return nil
+	}
+}

@@ -38,7 +38,7 @@ func renderDiffText(w io.Writer, ds DiffSet, title string, useColor bool) error 
 		fmt.Fprintln(w, "  host                                       records-in-prev")
 		for _, h := range ds.HostsDisappeared {
 			fmt.Fprintf(w, "  %s %-42s %d\n",
-				a.red("-"), trimSample(h.HostSample, 42), h.RecordCount)
+				a.red("-"), safeCell(trimSample(h.HostSample, 42)), h.RecordCount)
 		}
 		fmt.Fprintln(w)
 	}
@@ -51,7 +51,7 @@ func renderDiffText(w io.Writer, ds DiffSet, title string, useColor bool) error 
 		fmt.Fprintln(w, "  host                                       records-in-curr")
 		for _, h := range ds.HostsAppeared {
 			fmt.Fprintf(w, "  %s %-42s %d\n",
-				a.bold("+"), trimSample(h.HostSample, 42), h.RecordCount)
+				a.bold("+"), safeCell(trimSample(h.HostSample, 42)), h.RecordCount)
 		}
 		fmt.Fprintln(w)
 	}
@@ -63,7 +63,8 @@ func renderDiffText(w io.Writer, ds DiffSet, title string, useColor bool) error 
 		fmt.Fprintln(w, "  mark host                       module        site_class           locus")
 		for _, r := range ds.Added {
 			fmt.Fprintf(w, "  %s    %-25s %-13s %-20s %s\n",
-				a.bold("+"), trimSample(hostKey(r), 25), r.Module, r.SiteClass, r.Locus)
+				a.bold("+"), safeCell(trimSample(hostKey(r), 25)),
+				safeCell(r.Module), safeCell(r.SiteClass), safeCell(r.Locus))
 		}
 		fmt.Fprintln(w)
 	}
@@ -75,7 +76,8 @@ func renderDiffText(w io.Writer, ds DiffSet, title string, useColor bool) error 
 		fmt.Fprintln(w, "  mark host                       module        site_class           locus")
 		for _, r := range ds.Removed {
 			fmt.Fprintf(w, "  %s    %-25s %-13s %-20s %s\n",
-				a.red("-"), trimSample(hostKey(r), 25), r.Module, r.SiteClass, r.Locus)
+				a.red("-"), safeCell(trimSample(hostKey(r), 25)),
+				safeCell(r.Module), safeCell(r.SiteClass), safeCell(r.Locus))
 		}
 		fmt.Fprintln(w)
 	}
@@ -88,10 +90,10 @@ func renderDiffText(w io.Writer, ds DiffSet, title string, useColor bool) error 
 		fmt.Fprintln(w, "  mark host                       module        site_class           locus")
 		for _, p := range ds.Changed {
 			fmt.Fprintf(w, "  %s    %-25s %-13s %-20s %s\n",
-				a.orange("D"), trimSample(hostKey(p.Curr), 25),
-				p.Curr.Module, p.Curr.SiteClass, p.Curr.Locus)
-			fmt.Fprintf(w, "       prev hash %s\n", shortHash(p.Prev.ContentNormSHA256))
-			fmt.Fprintf(w, "       curr hash %s\n", shortHash(p.Curr.ContentNormSHA256))
+				a.orange("D"), safeCell(trimSample(hostKey(p.Curr), 25)),
+				safeCell(p.Curr.Module), safeCell(p.Curr.SiteClass), safeCell(p.Curr.Locus))
+			fmt.Fprintf(w, "       prev hash %s\n", safeCell(shortHash(p.Prev.ContentNormSHA256)))
+			fmt.Fprintf(w, "       curr hash %s\n", safeCell(shortHash(p.Curr.ContentNormSHA256)))
 		}
 		fmt.Fprintln(w)
 	}

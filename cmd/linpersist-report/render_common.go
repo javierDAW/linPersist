@@ -137,3 +137,61 @@ func colorSeverity(a *ansi, sev string) string {
 	}
 	return sev
 }
+
+// isControlRune reports whether r is a terminal-control code that must
+// never reach a TTY verbatim from untrusted, record-derived data: the
+// C0 controls (0x00–0x1F, includes CR, TAB and ESC), DEL (0x7F) and the
+// C1 controls (0x80–0x9F). These cover the ESC/CSI/OSC introducers and
+// cursor-movement / line-erase sequences a hostile host could use to
+// overwrite or hide its own row from the analyst's terminal.
+func isControlRune(r rune) bool {
+	return r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f)
+}
+
+// safeCell renders an untrusted, record-derived string for display on a
+// terminal. Every control rune (see isControlRune) is replaced with a
+// visible \xHH escape so a compromised monitored host cannot smuggle
+// ANSI cursor-movement, line-erase or OSC sequences through a path,
+// content_snippet or exec_target and thereby scrub its own implant row
+// out of the report the analyst is reading. The singleton-hunt is the
+// tool's whole point; an un-sanitized cell would let the implant edit
+// the very view meant to surface it.
+//
+// Printable runes — including multibyte UTF-8 — pass through unchanged;
+// invalid UTF-8 bytes decode to U+FFFD via range-over-string and are
+// preserved as that visible replacement character.
+//
+// safeCell must wrap record-derived cells ONLY. Strings the renderer
+// colours itself (the ansi helpers, colorSeverity, the GAP marker)
+// legitimately contain ESC and must NOT be passed through safeCell, or
+// their colouring would be flattened into literal "\x1b[..m" text.
+func safeCell(s string) string {
+	if !strings.ContainsFunc(s, isControlRune) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	for _, r := range s {
+		if isControlRune(r) {
+			fmt.Fprintf(&b, `\x%02x`, r)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// fprintfSafe is fmt.Fprintf with every string argument passed through
+// safeCell first. Use it for table rows whose every string cell is
+// record-derived (no renderer-applied colour). Rows that interleave a
+// coloured cell (a severity tint, a +/- diff mark, a GAP flag) must
+// sanitize their untrusted cells with safeCell individually instead, so
+// the legitimate ESC in the coloured cell survives.
+func fprintfSafe(w io.Writer, format string, args ...any) {
+	for i, a := range args {
+		if s, ok := a.(string); ok {
+			args[i] = safeCell(s)
+		}
+	}
+	fmt.Fprintf(w, format, args...)
+}

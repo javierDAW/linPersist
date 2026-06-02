@@ -754,12 +754,35 @@ type q6Agg struct {
 	sampleTarget string
 }
 
+// q6Suspicious reports whether a record's exec_target is worth stacking
+// in Q6: it must be non-package (or already orphaned), the hallmark of an
+// attacker payload rather than a fleet-wide packaged binary. Packaged
+// targets shared across every host are baseline noise, not worms.
+func q6Suspicious(signals []string) bool {
+	for _, s := range signals {
+		if s == core.SignalNonPackagePath || s == core.SignalExecTargetOrphan {
+			return true
+		}
+	}
+	return false
+}
+
 func computeQ6(records []core.Record) []ExecTargetRow {
 	agg := map[string]*q6Agg{}
 	totalHosts := map[string]struct{}{}
 	for _, r := range records {
 		totalHosts[hostKey(r)] = struct{}{}
 		if r.ExecTargetSHA256 == "" {
+			continue
+		}
+		// Only stack NON-package exec_targets. A worm's payload is never
+		// package-managed, so it carries non_package_path (or
+		// exec_target_orphan once the binary is gone). Without this filter
+		// a homogeneous fleet floods Q6 with the hundreds of packaged
+		// binaries every host legitimately shares (agetty,
+		// apt.systemd.daily, ...), burying the worm among them. A
+		// package-owned target shared fleet-wide is baseline, not a worm.
+		if !q6Suspicious(r.Signals) {
 			continue
 		}
 		a := agg[r.ExecTargetSHA256]
@@ -1272,11 +1295,25 @@ func computeQ11(records []core.Record) []OrphanOutsideTmpRow {
 // and triaging from the top. A v0.3.x calibration may add a
 // basename allow-list.
 
+// q12Suspicious reports whether a record carries a persistence-anomaly
+// signal that makes a basename cluster worth surfacing (vs coincidental
+// package baseline shared across the fleet).
+func q12Suspicious(signals []string) bool {
+	for _, s := range signals {
+		switch s {
+		case core.SignalNonPackagePath, core.SignalExecTargetOrphan, core.SignalInterpreterInTmp:
+			return true
+		}
+	}
+	return false
+}
+
 func computeQ12(records []core.Record) []BasenameClusterRow {
 	type agg struct {
 		hosts            map[string]struct{}
 		modules          map[string]struct{}
 		records          int
+		suspicious       bool
 		sampleHost       string
 		sampleLocus      string
 		sampleExecTarget string
@@ -1298,6 +1335,9 @@ func computeQ12(records []core.Record) []BasenameClusterRow {
 		a.hosts[hostKey(r)] = struct{}{}
 		a.modules[r.Module] = struct{}{}
 		a.records++
+		if !a.suspicious && q12Suspicious(r.Signals) {
+			a.suspicious = true
+		}
 		if a.sampleHost == "" {
 			a.sampleHost = hostKey(r)
 			a.sampleLocus = r.Locus
@@ -1307,6 +1347,15 @@ func computeQ12(records []core.Record) []BasenameClusterRow {
 	var out []BasenameClusterRow
 	for base, a := range groups {
 		if len(a.modules) < 2 || len(a.hosts) < 2 {
+			continue
+		}
+		// Require at least one arm to carry a persistence-anomaly signal.
+		// A campaign's arms are non-package / orphan / tmp payloads; a
+		// basename shared across modules with NO such signal is just
+		// coincidental package baseline (bash, dbus, cron on every host)
+		// and would otherwise be a fixed wall of noise the analyst scrolls
+		// past every run.
+		if !a.suspicious {
 			continue
 		}
 		mods := make([]string, 0, len(a.modules))

@@ -25,6 +25,42 @@ const (
 	// on the resolved file directly; symlinks should be followed.
 	SignalRecentTargetMtime7d = "recent_target_mtime_7d"
 
+	// SignalRecentCtime7d set when the artifact's inode change time
+	// (ctime) is within the last 7 days (UTC, evaluated against
+	// collected_at). Computed CENTRALLY at the emit sink for every
+	// record that carries a ctime, so it needs no per-module wiring
+	// (unlike recent_mtime_*, which each module's baseSignals derives).
+	// Its purpose is anti-timestomp: `touch -d` and the utimes(2)
+	// family back-date mtime/atime but CANNOT move ctime backwards --
+	// only the kernel sets ctime, to "now", on any inode change. A
+	// record carrying recent_ctime_7d but NOT recent_mtime_7d is the
+	// textbook timestomp tell (a freshly planted file wearing an old
+	// mtime). Benign on its own -- every package upgrade, chmod and
+	// rsync/tar restore touches ctime -- so the backend pairs it with
+	// the mtime signals (see the timestomp detection) and LFA stacking.
+	SignalRecentCtime7d = "recent_ctime_7d"
+
+	// SignalRecentCtime30d set when ctime is within the last 30 days
+	// but outside the 7-day window. Same central computation and
+	// anti-timestomp rationale as SignalRecentCtime7d.
+	SignalRecentCtime30d = "recent_ctime_30d"
+
+	// SignalImmutableFlag set when the artifact's inode carries the
+	// ext/xfs/btrfs FS_IMMUTABLE_FL flag (chattr +i), queried centrally
+	// at the emit sink via FS_IOC_GETFLAGS. Dual purpose: (1) anti-
+	// remediation -- an immutable persistence locus cannot be `rm`'d or
+	// edited until the flag is cleared, so the responder needs to know;
+	// (2) anti-forensic -- attackers set +i to lock a planted file.
+	// Enrichment only (legitimate +i exists on hardened hosts, e.g.
+	// /etc/resolv.conf), so it is recorded for LFA/triage, NOT a
+	// standalone detection; it pairs with content-singleton stacking.
+	SignalImmutableFlag = "immutable_flag"
+
+	// SignalAppendOnlyFlag set when the inode carries FS_APPEND_FL
+	// (chattr +a) -- the file can only be appended to. Same central
+	// query and enrichment-only treatment as SignalImmutableFlag.
+	SignalAppendOnlyFlag = "append_only_flag"
+
 	// SignalWorldWritable set when the artifact has the 0o002 mode bit.
 	SignalWorldWritable = "world_writable"
 
@@ -32,6 +68,26 @@ const (
 	// owned by any installed package (dpkg/rpm). Requires the provenance
 	// helper to have run successfully.
 	SignalNonPackagePath = "non_package_path"
+
+	// SignalPackageFileTampered set when a record's locus is a file
+	// owned by an installed package whose on-disk content no longer
+	// matches the hash the package manager recorded at install time.
+	// On dpkg the recorded hash is the MD5 in
+	// /var/lib/dpkg/info/<pkg>.md5sums, or -- for a registered
+	// conffile such as /etc/crontab -- in the Conffiles: stanza of
+	// /var/lib/dpkg/status (the two must BOTH be parsed; conffiles are
+	// absent from *.md5sums by design). Catches the "append a line to
+	// a package-owned config" persistence shape that emits no orphan /
+	// interpreter_in_tmp / non_package_path signal because every path
+	// involved is package-managed. Covers all three package managers:
+	// dpkg (MD5 from md5sums + Conffiles), rpm (per-file FILEDIGESTS,
+	// SHA-256 on RHEL7+/Rocky/Fedora) and apk (Q1 SHA-1 from the
+	// installed DB); the digest algorithm is inferred from the recorded
+	// hex length. Residual FP class: legitimate admin edits to config
+	// files (which `dpkg --verify` / `rpm -V` likewise report); the
+	// durable discriminator remains LFA -- the tampered content is a
+	// fleet singleton.
+	SignalPackageFileTampered = "package_file_tampered"
 
 	// SignalLiveProcessAttached set when exec_target matches the
 	// resolved executable path of a process visible to the agent when
@@ -89,6 +145,21 @@ const (
 	// lives inside a -c argument the agent does not parse.
 	SignalShellIndirect = "shell_indirect"
 
+	// SignalInterpreterRunsOrphanScript set when a record's command runs
+	// a PACKAGED script interpreter (python3, perl, bash, ...) against a
+	// script-file argument that resolves to an orphan (package-unowned)
+	// path. exec_target only captures the interpreter, which is owned --
+	// so non_package_path / exec_target_orphan stay silent even though the
+	// actual payload (the script) is unmanaged. Catches the "live off the
+	// packaged interpreter, park the payload" shape (a cron job or systemd
+	// unit running /usr/bin/python3 /opt/.cache/x.py). Inline `-c <code>`
+	// invocations carry no script path and are intentionally NOT flagged
+	// (left to LFA). Residual FP class: config-management (Ansible/Salt)
+	// drops legitimate `python3 /opt/<co>/maintenance.py` cron jobs whose
+	// script is non-package; the durable discriminator is LFA -- a parked
+	// payload is a fleet content singleton, a managed script is not.
+	SignalInterpreterRunsOrphanScript = "interpreter_runs_orphan_script"
+
 	// SignalUnqualifiedExecTarget set when exec_target is a bare
 	// executable name (no leading slash). v0.1.0 does not resolve
 	// such names against PATH; the backend can choose to ignore or
@@ -118,6 +189,16 @@ const (
 	// specific command" signal.
 	SignalSSHOptionsPresent = "ssh_options_present"
 
+	// SignalSSHRCPresent set on every ssh.sshrc record. /etc/ssh/sshrc
+	// and ~/.ssh/rc are shell scripts sshd runs on EVERY successful ssh
+	// session (server-side and per-user respectively) -- a per-login root
+	// or user exec primitive that ships with no file by default, so its
+	// mere existence is worth recording. Informational on its own
+	// (legitimate admin use exists); the verdict comes from pairing it
+	// with the body's exec_target signals (non_package_path /
+	// exec_target_orphan / interpreter_in_tmp) and LFA singleton stacking.
+	SignalSSHRCPresent = "sshrc_present"
+
 	// SignalSSHForcedCommand set on ssh.authkeys records whose options
 	// list contains command="..." (case-insensitive). The forced
 	// command is a well-known persistence pattern: any key carrying
@@ -143,6 +224,22 @@ const (
 	// principal it surfaces immediately under LFA.
 	SignalSudoersAllCommands = "sudoers_all_commands"
 
+	// SignalSudoersNopasswdGtfobin set on a sudoers user-spec that grants
+	// NOPASSWD on a command whose basename is a curated shell-escape
+	// "GTFOBin" (vi/vim/less/awk/find/sed/python/perl/tar/...). A NOPASSWD
+	// grant on one of these is semantically equivalent to NOPASSWD:ALL --
+	// `sudo vi` -> `:!sh`, `sudo find . -exec sh \;`, `sudo awk 'BEGIN{system(...)}'`
+	// -- so it is a password-less root shell hiding behind a
+	// single-command rule that sudoers_all_commands never matches. The
+	// curated set deliberately EXCLUDES commonly-scoped-legit binaries
+	// (systemctl, service, docker, git, package managers): those are real
+	// GTFOBins too but NOPASSWD grants on them are everywhere on managed
+	// fleets, so they are left to LFA singleton stacking rather than a
+	// Q7 row. Residual FP class: ops/CI accounts legitimately granted
+	// NOPASSWD on tar/find for backups -- pair with LFA (a fleet-common
+	// grant is not a singleton; an attacker's fresh-account grant is).
+	SignalSudoersNopasswdGtfobin = "sudoers_nopasswd_gtfobin"
+
 	// SignalSudoersIncludeDirective set on records emitted from a
 	// #include or #includedir line in sudoers. Lets backends filter
 	// "real rules vs structural directives" without keyword-matching
@@ -163,6 +260,20 @@ const (
 	// the path it points to runs with whatever privileges sshd
 	// invoked it under.
 	SignalSSHDAuthorizedKeysCommand = "sshd_authorized_keys_command"
+
+	// SignalSSHDPermitUserEnvironment set on an sshd.config record whose
+	// directive is PermitUserEnvironment with value yes. The default is
+	// no since forever precisely because yes lets a user's
+	// ~/.ssh/environment (or authorized_keys environment= options) set
+	// BASH_ENV / LD_PRELOAD / LD_LIBRARY_PATH, turning a key into code
+	// execution on every login. Rare in legitimate configs.
+	SignalSSHDPermitUserEnvironment = "sshd_permit_user_environment"
+
+	// SignalSSHDEnvInjection set when a SetEnv or AcceptEnv directive
+	// references a code-execution-enabling environment variable
+	// (BASH_ENV, ENV, LD_PRELOAD, LD_LIBRARY_PATH, LD_AUDIT) -- the sshd
+	// equivalent of handing the client a shell-startup or linker hook.
+	SignalSSHDEnvInjection = "sshd_env_injection"
 
 	// SignalSSHDMatchBlockDirective set on sshd.config records that
 	// live inside a Match block (the Match line itself AND every
@@ -221,6 +332,32 @@ const (
 	// hashes.
 	SignalSystemdMultiExecStart = "systemd_multi_execstart"
 
+	// SignalSystemdGenerator set on every record emitted from a systemd
+	// GENERATOR -- an executable under /etc|/usr/lib|/run/systemd/system-
+	// generators/. Generators run as root at EARLY boot on every boot,
+	// with no unit file, no ExecStart and no enable step, so they are a
+	// first-class persistence primitive that the unit walker (which keys
+	// on .service/.timer extensions in the four unit loci) never saw.
+	// Structural marker; pair with non_package_path / exec_target_orphan
+	// (a planted generator is unowned, the ~half-dozen vendor generators
+	// like systemd-fstab-generator are package-shipped) for the verdict.
+	SignalSystemdGenerator = "systemd_generator"
+
+	// SignalSystemdAuxExecUnmanaged set when a unit (or, classically, a
+	// drop-in injected into a legitimate vendor unit) carries an
+	// ExecStartPre / ExecStartPost / ExecStopPost / ExecStop / ExecReload
+	// / ExecCondition directive whose first token resolves to a path that
+	// is orphan (missing), package-unowned, or under a tmp-class dir. The
+	// systemd module historically resolved only the first ExecStart=, so
+	// these auxiliary exec hooks were a behavior-injection blind spot
+	// (Turla-style: a `<vendor>.service.d/10-hook.conf` drop-in that adds
+	// ExecStartPre=/opt/payload runs as root before the real daemon every
+	// boot, carrying no ExecStart= of its own). Gated on the orphan/
+	// non_package/tmp co-indicator so the ubiquitous legitimate
+	// ExecStartPre=/usr/bin/<packaged> and ExecStartPre=-/bin/sh -c '...'
+	// vendor shapes stay silent.
+	SignalSystemdAuxExecUnmanaged = "systemd_aux_exec_unmanaged"
+
 	// SignalSystemdExecUnresolved set when a unit's first ExecStart=
 	// is a bare command (no leading slash) that did not resolve
 	// against systemd's documented default PATH
@@ -263,6 +400,18 @@ const (
 	// blacklists can disable defensive modules (e.g. blacklisting
 	// kernel security modules).
 	SignalKmodBlacklistDirective = "kmod_blacklist_directive"
+
+	// SignalKmodAutoload set on a kmod record whose line schedules a
+	// kernel module to load at boot -- a bare module name in /etc/modules
+	// or modules-load.d/*.conf (systemd-modules-load), or a modprobe.d
+	// options/softdep directive that names a module. The module is
+	// resolved to its compiled .ko under /lib/modules/<ver>/ (via
+	// modules.dep) and set as exec_target, so AnnotateExecTargetProvenance
+	// raises non_package_path when the .ko is unowned -- the planted-LKM
+	// rootkit shape (Diamorphine/Reptile) where the autoload config points
+	// at a .ko no package shipped. Benign alone (every host autoloads
+	// packaged modules); the verdict pairs it with non_package_path.
+	SignalKmodAutoload = "kmod_autoload"
 
 	// SignalUdevRunDirective set on udev records that carry a RUN+=
 	// or RUN= assignment. RUN runs the named program when the rule
@@ -338,6 +487,21 @@ const (
 	// the unmistakable implant shape.
 	SignalSuidBitSet = "suid_bit_set"
 	SignalSgidBitSet = "sgid_bit_set"
+
+	// SignalFileCapabilitySet set on a suidbits record whose file carries
+	// a security.capability xattr (file capabilities). MITRE T1548.001:
+	// a 0755 binary with cap_setuid+ep is a privesc primitive that NO
+	// suid-bit scan (find -perm -4000) and -- until this -- linpersist's
+	// mode-only suidbits walker ever saw. Pair with non_package_path (a
+	// packaged binary legitimately carrying caps, e.g. ping/cap_net_raw,
+	// is fleet-baseline; a dropped /opt binary with caps is the implant).
+	SignalFileCapabilitySet = "file_capability_set"
+
+	// SignalFileCapPrivileged set when the file's permitted capability
+	// set includes a directly-privesc-capable capability (cap_setuid,
+	// cap_setgid, cap_dac_override, cap_dac_read_search, cap_sys_admin,
+	// cap_sys_module, cap_sys_ptrace, cap_sys_rawio, cap_setfcap).
+	SignalFileCapPrivileged = "file_cap_privileged"
 
 	// SignalTrapCommand and friends fire on profile.trap.{system,user}
 	// records emitted by the profile module's trap walker (v0.4.0).

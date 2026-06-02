@@ -209,3 +209,38 @@ What `linpersist` is NOT, so the engagement scope is honest:
   CI service account. The Q7 detection rules are calibrated to
   minimise FPs but cannot eliminate them; the analyst's
   judgement is required.
+
+### 8.1 Known detection boundaries (red/blue duel findings)
+
+Surfaced by adversarial APT-emulation testing and documented here so
+they are honest engagement limits, not silent gaps:
+
+- **Timestamp aging on image-built hosts.** The `recent_ctime_*`
+  anti-timestomp signal relies on ctime being unforgeable on a *live*
+  filesystem. An attacker who controls image-build ordering (a poisoned
+  golden image / container layer) can produce a planted file whose ctime
+  AND mtime are both genuinely old. Combined with byte-identical
+  fleet-wide placement (which also defeats LFA singleton stacking), this
+  is the irreducible boundary — the agent cannot distinguish a
+  genuinely-old benign file from a genuinely-old planted one. LFA on a
+  *heterogeneous* fleet remains the discriminator; on a uniformly-imaged
+  fleet it does not.
+- **Compiled boot images are not unpacked.** `linpersist` walks the
+  on-disk *source* of boot persistence (initramfs/dracut hook scripts,
+  GRUB config, systemd units/generators) but does NOT unpack the sealed
+  `/boot/initrd.img` cpio. A payload baked only into the compiled initrd
+  (never present as an on-disk hook source) is out of scope for the
+  disk-walk model.
+- **Package-owned config edits report as tampered.** `package_file_tampered`
+  fires on any package-owned file whose content differs from the
+  package-recorded digest — which includes legitimate admin/image edits
+  to `%config` files (`/etc/sudoers`, `/etc/cloud/cloud.cfg`, ...).
+  `rpm -V` / `dpkg --verify` report the same. These are fleet-common
+  (not singletons); LFA is the discriminator. rpm `%verify(not md5)`
+  files (the `setup` package's `/etc/passwd` etc.) are correctly skipped.
+- **Inline interpreter code is not parsed.** `python3 -c <code>`,
+  `sh -c <code>`, `PROMPT_COMMAND=<code>` and base64/obfuscated loaders
+  are recorded as signals (e.g. `shell_indirect`) for LFA/backend
+  scoring but are not decoded — chasing obfuscation with substring rules
+  is an arms race the agent does not enter. The unique content makes them
+  LFA singletons.

@@ -33,6 +33,7 @@ package suidbits
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -44,6 +45,29 @@ import (
 
 	"github.com/jarmidaw/linpersist/internal/core"
 )
+
+// privilegedCapMask is the set of capability bits (in the permitted set,
+// caps 0..31) that grant a direct path to root / policy bypass. Used to
+// raise SignalFileCapPrivileged. cap numbers per linux/capability.h:
+// DAC_OVERRIDE=1, DAC_READ_SEARCH=2, SETGID=6, SETUID=7, SYS_MODULE=16,
+// SYS_RAWIO=17, SYS_PTRACE=19, SYS_ADMIN=21, SETFCAP=31.
+const privilegedCapMask = 1<<1 | 1<<2 | 1<<6 | 1<<7 | 1<<16 | 1<<17 | 1<<19 | 1<<21 | 1<<31
+
+// readFileCaps reads the security.capability xattr of realPath and
+// reports whether file capabilities are present and whether the
+// permitted set includes a privileged capability. The xattr is a
+// little-endian vfs_cap_data: magic_etc, then permitted[0]/inheritable[0]
+// (v1) and permitted[1]/inheritable[1] (v2/v3). We only need permitted[0]
+// (caps 0..31) for the privileged check; all privesc caps fall there.
+func readFileCaps(realPath string) (present, privileged bool) {
+	var buf [64]byte
+	n, err := syscall.Getxattr(realPath, "security.capability", buf[:])
+	if err != nil || n < 8 {
+		return false, false
+	}
+	permitted0 := binary.LittleEndian.Uint32(buf[4:8])
+	return true, permitted0&privilegedCapMask != 0
+}
 
 const (
 	mitreSetuid = "T1548.001"
@@ -149,7 +173,7 @@ func (m *Module) Name() string { return "suidbits" }
 
 // SiteClasses returns the four classes this module emits.
 func (m *Module) SiteClasses() []string {
-	return []string{"suid.system", "sgid.system", "suid.user", "sgid.user"}
+	return []string{"suid.system", "sgid.system", "suid.user", "sgid.user", "filecap"}
 }
 
 // Collect walks every configured root and emits one record per
@@ -229,10 +253,26 @@ func (m *Module) walkRoot(ctx context.Context, logicalRoot string, emit func(cor
 		mode := st.Mode & 0o7777
 		isSuid := mode&0o4000 != 0
 		isSgid := mode&0o2000 != 0
-		if !isSuid && !isSgid {
+		hasCaps, privCaps := readFileCaps(realPath)
+		if !isSuid && !isSgid && !hasCaps {
 			return nil
 		}
-		emit(m.record(logicalPath, realPath, info, isSuid, isSgid))
+		rec := m.record(logicalPath, realPath, info, isSuid, isSgid)
+		if hasCaps {
+			caps := []string{core.SignalFileCapabilitySet}
+			if privCaps {
+				caps = append(caps, core.SignalFileCapPrivileged)
+			}
+			rec.Signals = core.DedupSignals(append(rec.Signals, caps...))
+			// A file carrying caps but no suid/sgid bit is mislabelled by
+			// classify() (which only knows the suid/sgid split); give it
+			// its own site_class so the panel and queries treat the
+			// capability surface distinctly.
+			if !isSuid && !isSgid {
+				rec.SiteClass = "filecap"
+			}
+		}
+		emit(rec)
 		return nil
 	})
 }

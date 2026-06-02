@@ -242,7 +242,7 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 		}))
 		return
 	}
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
@@ -270,13 +270,30 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 	// /usr/local/bin/sync split into two Q12 rows because the profile
 	// arm carried no ExecTarget. See v0.4.0 sprint task #14.
 	var execTargetSigs []string
-	if target := ExtractExecTarget(raw); target != "" {
+	if target := core.ExtractExecTarget(raw); target != "" {
 		rec.ExecTarget = target
-		core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, target)
-		core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, target)
 		execTargetSigs = m.execTargetStatSignals(target)
+		// Hash the payload so Q6 can stack a worm that drops the same
+		// non-package binary across hosts. Without this the profile arm
+		// carried no exec_target_sha256 and Q6 was structurally blind to
+		// profile-based worms. Hash the ROOT-RESOLVED path so a --root
+		// (mounted-image/chroot) collection hashes the image's binary,
+		// not the analyst host's.
+		if sum, ok := core.HashFileCapped(m.resolve(target), m.opts.MaxFileSize); ok {
+			rec.ExecTargetSHA256 = sum
+		}
 	}
 	rec.Signals = core.DedupSignals(append(m.baseSignals(info, logical), execTargetSigs...))
+	if rec.ExecTarget != "" {
+		// Annotate AFTER finalizing rec.Signals. These helpers APPEND to
+		// rec.Signals; the previous order called them first and then
+		// rebuilt rec.Signals here, silently dropping non_package_path
+		// and live_process_attached (the latter is why a profile-arm worm
+		// never carried the provenance signal Q6's filter needs).
+		core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
+		core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
+		rec.Signals = core.DedupSignals(rec.Signals)
+	}
 	emit(rec)
 
 	// Walk the raw content for `trap CMD SIGNAL...` directives. Each
@@ -335,11 +352,28 @@ func (m *Module) emitTrapsFromContent(logical string, raw []byte, info os.FileIn
 		}
 		if et := execTargetFromTrap(h); et != "" {
 			rec.ExecTarget = et
+			// Hash the payload so a trap worm arm stacks in Q6 alongside
+			// its cron/systemd siblings. The profile.system path was
+			// fixed earlier but this trap path still left ExecTargetSHA256
+			// empty, so trap arms were invisible to Q6 (stats.go skips
+			// records with no exec_target hash). Root-resolved so --root
+			// collections hash the image's binary, not the host's.
+			if sum, ok := core.HashFileCapped(m.resolve(et), m.opts.MaxFileSize); ok {
+				rec.ExecTargetSHA256 = sum
+			}
 		}
 		core.FillFileMeta(&rec, info)
 		sigs := append([]string{}, base...)
 		sigs = append(sigs, signalsForTrapHit(h)...)
 		rec.Signals = core.DedupSignals(sigs)
+		if rec.ExecTarget != "" {
+			// Annotate AFTER finalizing rec.Signals (these helpers append);
+			// supplies non_package_path, which Q6's non-package filter
+			// needs to include the stacked trap payload.
+			core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
+			core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
+			rec.Signals = core.DedupSignals(rec.Signals)
+		}
 		emit(rec)
 	}
 }
@@ -374,7 +408,9 @@ func (m *Module) baseSignals(info os.FileInfo, logical string) []string {
 // to fire on the profile arm of a three-arm worm.
 func (m *Module) execTargetStatSignals(target string) []string {
 	var out []string
-	info, err := os.Stat(target)
+	// Root-resolved so orphan / recent-mtime are judged against the
+	// collected image under --root, not the analyst host.
+	info, err := os.Stat(m.resolve(target))
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		out = append(out, core.SignalExecTargetOrphan)
