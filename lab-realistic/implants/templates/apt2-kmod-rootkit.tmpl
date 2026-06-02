@@ -2,10 +2,12 @@
 # Drop a non-package .ko into /lib/modules, register it in modules.dep so
 # it resolves, and schedule it to autoload via modules-load.d. The .ko is
 # package-unowned -> kmod_autoload + non_package_path ->
-# kmod_autoload_unpackaged_module. NOTE: if the host runs depmod at boot it
-# may drop the fake entry (then only kmod_autoload + LFA). Variables: (none)
+# kmod_autoload_unpackaged_module. The debootstrap lab base ships NO
+# kernel (empty /lib/modules), so we fabricate a synthetic kver dir to
+# exercise the same moduleKOPath/modules.dep code path a real host hits.
+# Variables: (none)
 RUN kver="$$(ls /lib/modules 2>/dev/null | head -n1)"; \
-    [ -n "$$kver" ] || { echo "apt2-kmod-rootkit: no /lib/modules kver" >&2; exit 0; }; \
+    [ -n "$$kver" ] || kver="6.1.0-lab"; \
     mkdir -p "/lib/modules/$$kver/kernel/drivers/lab" && \
     printf 'lab-implant inert diamorphine .ko\n' > "/lib/modules/$$kver/kernel/drivers/lab/diamorphine.ko" && \
     chown root:root "/lib/modules/$$kver/kernel/drivers/lab/diamorphine.ko" && \
