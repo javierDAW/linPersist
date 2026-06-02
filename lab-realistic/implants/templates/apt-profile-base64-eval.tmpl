@@ -1,0 +1,30 @@
+# Implant template: apt-profile-base64-eval (L4, armed)
+#
+# APT TTP mirror: Kinsing / TeamTNT shell-profile persistence
+# (T1546.004). These crews routinely drop /etc/profile.d entries, but
+# the modern variant does NOT use a literal `curl ... | sh` pipe --
+# that exact shape is what linpersist's shell_init_remote_fetch rule
+# matches on (content_contains_any: "| sh", "| bash", "curl | "...).
+# Instead the payload is a base64 blob decoded and eval'd in-process:
+#   eval "$(echo <b64> | base64 -d)"
+# No "| sh" / "| bash" / "curl |" substring appears in the file, so the
+# content_contains_any predicate never matches and shell_init_remote_fetch
+# is SILENT. The profile module emits no trap/exec_target here (the body
+# is plain shell, not a trap, and the decode target is base64/echo which
+# are packaged) so there is no interpreter_in_tmp / orphan to catch.
+# Residual catch: this file IS a fleet singleton (unique content) so Q1
+# still surfaces it -- but Q7 produces no actionable row. Finding: the
+# content_contains_any pattern set is trivially bypassed by base64-eval,
+# which is the dominant real-world loader shape.
+#
+# Variables: ${profile_file}
+
+RUN mkdir -p /etc/profile.d && \
+    printf '%s\n' \
+        '# Corporate proxy bootstrap (managed by config)' \
+        'if [ -n "$$PS1" ]; then' \
+        '  eval "$$(echo ZWNobyBsYWItaW1wbGFudCBhcHQtcHJvZmlsZS1iYXNlNjQtZXZhbCA+PiAvdG1wLy5pbXBsYW50LXRyYWNl | base64 -d)"' \
+        'fi' \
+        > ${profile_file} && \
+    chown root:root ${profile_file} && \
+    chmod 0644 ${profile_file}

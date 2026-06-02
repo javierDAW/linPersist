@@ -156,21 +156,28 @@ detections:
     when:
       signals_all: [ld_preload_set, non_package_path]
 
+  - id: ld_preload_target_tampered
+    description: /etc/ld.so.preload references a package-owned library whose on-disk content no longer matches the package-recorded digest — the in-place .so overwrite an orphan-path check misses (Symbiote/HiddenWasp shape). The preloaded library is integrity-checked directly, not just the preload config locus. Residual FP class —a library legitimately recompiled/patched in place, rare and itself worth surfacing
+    severity: critical
+    mitre: [T1574.006, T1554]
+    when:
+      signals_all: [ld_preload_set, package_file_tampered]
+
   - id: polkit_admin_rule_implant
-    description: polkit rule contains addAdminRule( and was recently modified outside the package universe
+    description: polkit rule contains addAdminRule( and was recently modified (mtime, OR ctime since touch -d cannot forge it) or is non-root-owned. recent_ctime_7d closes the timestomp bypass but co-fires with image age on freshly-provisioned fleets — LFA singleton stacking stays the discriminator there
     severity: high
     mitre: [T1548]
     when:
       signals_all: [polkit_admin_rule]
-      signals_any: [recent_mtime_7d, non_root_owner]
+      signals_any: [recent_mtime_7d, recent_ctime_7d, non_root_owner]
 
   - id: polkit_yes_constant_implant
-    description: polkit rule grants polkit.Result.YES unconditionally and was recently modified
+    description: polkit rule grants polkit.Result.YES unconditionally and was recently modified (mtime, OR ctime which touch -d cannot back-date) or is non-root-owned. recent_ctime_7d co-fires with image age on freshly-provisioned fleets, so lean on LFA singleton stacking there
     severity: high
     mitre: [T1548]
     when:
       signals_all: [polkit_yes_constant]
-      signals_any: [recent_mtime_7d, non_root_owner]
+      signals_any: [recent_mtime_7d, recent_ctime_7d, non_root_owner]
 
   - id: sshd_root_login_enabled
     description: sshd_config explicitly enables PermitRootLogin yes (rare on hardened fleets; high on a hosts-where-most-have-no flag)
@@ -193,6 +200,14 @@ detections:
     mitre: [T1546]
     when:
       signals_all: [udev_run_directive]
+      signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
+  - id: netdispatch_run_unmanaged
+    description: NetworkManager dispatcher.d script runs a target outside the package universe — root executes on every network up/down event. The non_package_path/orphan signal already fired on the dropped script; this rule (mirroring udev_run_with_non_package) is what consumes it. Residual FP class —VPN clients and config-management that install dispatcher hooks outside the package manager; LFA singleton stacking discriminates the planted-once script
+    severity: high
+    mitre: [T1546]
+    when:
+      module_in: [netdispatch]
       signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
 
   - id: sysv_external_init_symlink_implant

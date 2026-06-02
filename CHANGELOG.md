@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — red/blue duel hardening (APT-emulation findings)
+A 4-agent adversarial workflow (APT intrusion specialist vs. blue-team
+hunter, adjudicated by two software architects) drove three real-world
+detection fixes; all consensus across both architects, FP-gated:
+- **`ld_preload_target_tampered` (critical) + VerifyPath wired to the
+  preloaded library.** The v1.0 sink only integrity-checked a record's
+  `Locus`; for `/etc/ld.so.preload` that is the (unowned) config file,
+  never the preloaded `.so`. An in-place overwrite of a package-owned
+  library (Symbiote/HiddenWasp) kept the path owned (`non_package_path`
+  silent) and slipped the orphan-based critical rule. `ldso.go` now runs
+  `VerifyPath` on the resolved preload target, so a tampered owned `.so`
+  emits `package_file_tampered`; the new rule pairs it with
+  `ld_preload_set`. Tiny, AND-gated population → near-zero FP.
+- **`netdispatch_run_unmanaged` (high).** The netdispatch module already
+  emitted `non_package_path` on an orphan NetworkManager dispatcher
+  script (root on every network event), but NO rule was scoped to the
+  module, so it was Q7-blind. Pure detections.yaml, mirrors
+  `udev_run_with_non_package` (same config-mgmt/VPN residual FP class).
+- **polkit rules now consume `recent_ctime_7d`.** `polkit_admin_rule_implant`
+  and `polkit_yes_constant_implant` gated only on `recent_mtime_7d`/owner,
+  trivially defeated by `touch -d`. Adding the unforgeable `recent_ctime_7d`
+  to their `signals_any` closes the timestomp bypass. Documented caveat
+  (and why both architects flagged it): `recent_ctime_7d` co-fires with
+  image age on freshly-provisioned fleets, so LFA singleton stacking
+  stays the discriminator — to be validated against a real imaged fleet.
+- Three APT lab implants added to exercise the above
+  (`apt-netdispatch-orphan-hook`, `apt-ldso-preload-inplace`,
+  `apt-polkit-yes-timestomp`). Items the architects explicitly left as
+  signal+LFA (no detection): packaged-LOLBin sshd AuthorizedKeysCommand
+  (the non-package gate protects SSSD), and base64-`eval` profile loaders
+  (a content singleton, not a substring arms race).
+
 ### Added — anti-evasion detection (defender-aware attacker boundary)
 - **Central `recent_ctime_{7d,30d}` anti-timestomp signal.** Computed
   once at the emit sink (`cmd/linpersist/main.go`) for every record that

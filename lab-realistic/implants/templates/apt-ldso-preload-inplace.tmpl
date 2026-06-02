@@ -1,0 +1,22 @@
+# APT implant: apt-ldso-preload-inplace (in-place owned-library tamper)
+#
+# Real shape (T1574.006 / T1554, Symbiote / HiddenWasp): instead of
+# preloading an ORPHAN .so (which trips non_package_path), APPEND trailing
+# bytes to a PACKAGE-OWNED library in place and preload THAT. The path
+# stays package-owned (non_package_path is silent, the orphan/critical
+# ld_preload rule misses), but the file's digest no longer matches the
+# package record. The v1.0 integrity check only ran on the ld.so.preload
+# locus; the new VerifyPath-on-preload-target wiring hashes the .so itself
+# -> package_file_tampered -> ld_preload_target_tampered (critical).
+#
+# Trailing bytes are appended (ELF stays valid -- the loader ignores
+# trailing data), and a profiling-only lib is targeted, so the booted
+# host is unaffected. Variables: (none; resolves a real .so at provision)
+
+RUN target="$$(find /usr/lib /lib -maxdepth 6 -type f -name 'libpcprofile.so*' 2>/dev/null | head -n1)"; \
+    [ -n "$$target" ] || target="$$(find /usr/lib /lib -maxdepth 6 -type f -name 'libmemusage.so*' 2>/dev/null | head -n1)"; \
+    [ -n "$$target" ] || { echo "apt-ldso-preload-inplace: no target .so found" >&2; exit 0; }; \
+    printf '\n# lab inert trailing marker apt-ldso-preload-inplace\n' >> "$$target"; \
+    printf '%s\n' "$$target" > /etc/ld.so.preload && \
+    chown root:root /etc/ld.so.preload && \
+    chmod 0644 /etc/ld.so.preload

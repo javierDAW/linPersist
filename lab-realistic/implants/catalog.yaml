@@ -663,6 +663,71 @@ implants:
     vars:
       unit_file: /etc/systemd/system/system-telemetry.service
 
+  # ============ APT implants (red/blue duel, real-actor TTPs) ============
+  # Designed by the intrusion-specialist agent to challenge linpersist's
+  # blind spots; each validates a detection the architects added in
+  # response. See docs/SPRINT-HANDOFF.md for the duel synthesis.
+
+  - id: apt-netdispatch-orphan-hook
+    tier: L4
+    variant: armed
+    module: netdispatch
+    site_class: network.dispatchers
+    description: |
+      APT29/ESXi-crew shape: a NetworkManager dispatcher.d script (root on
+      every network event) that decodes a base64 beacon. The script is a
+      non-package orphan -> non_package_path fires. Pre-duel NO rule was
+      scoped to netdispatch, so this was a clean Q7 miss; the new
+      netdispatch_run_unmanaged rule (mirrors udev) now catches it.
+    expected_signals: [non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: netdispatch_run_unmanaged
+    template: apt-netdispatch-orphan-hook.tmpl
+    vars:
+      disp_file: /etc/NetworkManager/dispatcher.d/90-connectivity
+      state_file: /usr/lib/NetworkManager/conf.d/.nm-state
+
+  - id: apt-ldso-preload-inplace
+    tier: L5
+    variant: armed
+    module: ldso
+    site_class: ldso.preload
+    description: |
+      Symbiote/HiddenWasp shape: append trailing bytes to a PACKAGE-OWNED
+      .so in place and preload it. Path stays owned (non_package_path
+      silent -> the orphan-based critical ld_preload rule misses), but the
+      digest no longer matches. The v1.0 sink only verified the
+      ld.so.preload locus; the new VerifyPath-on-preload-target wiring in
+      ldso.go hashes the .so itself -> package_file_tampered ->
+      ld_preload_target_tampered (critical). dpkg+rpm hosts.
+    expected_signals: [ld_preload_set, package_file_tampered]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: ld_preload_target_tampered
+    template: apt-ldso-preload-inplace.tmpl
+    vars: {}
+
+  - id: apt-polkit-yes-timestomp
+    tier: L4
+    variant: armed
+    module: polkit
+    site_class: polkit.rules
+    description: |
+      polkit rules.d drop-in returning Result.YES + addAdminRule for
+      wheel/sudo, mtime back-dated with touch -d to defeat the polkit
+      recent_mtime_7d gate. ctime cannot be moved back -> recent_ctime_7d
+      fires -> the polkit rules (now consuming recent_ctime_7d) catch the
+      bypass. NOTE: validates the calibration tension -- recent_ctime also
+      fires on image-extracted stock polkit YES rules, so the lab will
+      show whether this floods on clean hosts (LFA singleton is the
+      discriminator). Not package-owned -> timestomp rule correctly silent.
+    expected_signals: [polkit_yes_constant, polkit_admin_rule, recent_ctime_7d]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: polkit_yes_constant_implant
+    template: apt-polkit-yes-timestomp.tmpl
+    vars:
+      rules_file: /etc/polkit-1/rules.d/49-ops-orchestration.rules
+      fake_date: "2022-08-01 02:11:00"
+
 # ==========================================================================
 # Placement plan -- generator picks hosts per role to keep TPs measurable.
 

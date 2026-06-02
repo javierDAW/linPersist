@@ -377,6 +377,38 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			},
 			want: nil,
 		},
+		{
+			name: "ld.so.preload target is an in-place-tampered owned .so -> critical (Symbiote shape)",
+			rec: core.Record{
+				Module:  "ldso",
+				Signals: []string{core.SignalLDPreloadSet, core.SignalPackageFileTampered},
+			},
+			want: []string{"ld_preload_target_tampered", "package_owned_file_tampered"},
+		},
+		{
+			name: "netdispatch script outside the package universe -> dispatcher rule fires",
+			rec: core.Record{
+				Module:  "netdispatch",
+				Signals: []string{core.SignalNonPackagePath},
+			},
+			want: []string{"netdispatch_run_unmanaged"},
+		},
+		{
+			name: "polkit YES rule timestomped (fresh ctime, mtime back-dated) -> caught via recent_ctime gate",
+			rec: core.Record{
+				Module:  "polkit",
+				Signals: []string{core.SignalPolkitYesConstant, core.SignalRecentCtime7d},
+			},
+			want: []string{"polkit_yes_constant_implant"},
+		},
+		{
+			name: "pristine packaged polkit YES rule, old ctime/mtime -> NOT flagged",
+			rec: core.Record{
+				Module:  "polkit",
+				Signals: []string{core.SignalPolkitYesConstant},
+			},
+			want: nil,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
