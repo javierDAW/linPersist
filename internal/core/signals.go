@@ -261,6 +261,20 @@ const (
 	// invoked it under.
 	SignalSSHDAuthorizedKeysCommand = "sshd_authorized_keys_command"
 
+	// SignalSSHDPermitUserEnvironment set on an sshd.config record whose
+	// directive is PermitUserEnvironment with value yes. The default is
+	// no since forever precisely because yes lets a user's
+	// ~/.ssh/environment (or authorized_keys environment= options) set
+	// BASH_ENV / LD_PRELOAD / LD_LIBRARY_PATH, turning a key into code
+	// execution on every login. Rare in legitimate configs.
+	SignalSSHDPermitUserEnvironment = "sshd_permit_user_environment"
+
+	// SignalSSHDEnvInjection set when a SetEnv or AcceptEnv directive
+	// references a code-execution-enabling environment variable
+	// (BASH_ENV, ENV, LD_PRELOAD, LD_LIBRARY_PATH, LD_AUDIT) -- the sshd
+	// equivalent of handing the client a shell-startup or linker hook.
+	SignalSSHDEnvInjection = "sshd_env_injection"
+
 	// SignalSSHDMatchBlockDirective set on sshd.config records that
 	// live inside a Match block (the Match line itself AND every
 	// directive after it until the next Match or end of file). See

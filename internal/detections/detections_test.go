@@ -378,6 +378,14 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			want: nil,
 		},
 		{
+			name: "sshd PermitUserEnvironment yes -> login env injection rule",
+			rec: core.Record{
+				Module:  "sshd",
+				Signals: []string{core.SignalSSHDPermitUserEnvironment},
+			},
+			want: []string{"sshd_login_env_injection"},
+		},
+		{
 			name: "autoloaded kernel module resolves to an unpackaged .ko -> rootkit rule",
 			rec: core.Record{
 				Module:  "kmod",

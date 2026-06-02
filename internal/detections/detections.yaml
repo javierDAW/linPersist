@@ -210,6 +210,14 @@ detections:
       module_in: [kmod]
       signals_all: [kmod_autoload, non_package_path]
 
+  - id: sshd_login_env_injection
+    description: sshd is configured to let a client inject a code-exec environment variable on login — PermitUserEnvironment yes (so ~/.ssh/environment can set BASH_ENV/LD_PRELOAD) or a SetEnv/AcceptEnv naming BASH_ENV/ENV/LD_PRELOAD/LD_LIBRARY_PATH/LD_AUDIT. Low legitimate prevalence; turns a key into code execution every login
+    severity: high
+    mitre: [T1556, T1574.006]
+    when:
+      module_in: [sshd]
+      signals_any: [sshd_permit_user_environment, sshd_env_injection]
+
   - id: ssh_sshrc_unmanaged_exec
     description: an /etc/ssh/sshrc or ~/.ssh/rc per-session hook sources/execs a target outside the package universe (orphan, tmp-class, or non-package) — runs on every ssh login. Existence alone is signal+LFA (legit admin use); this fires only with the unmanaged-exec co-indicator
     severity: high

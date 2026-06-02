@@ -278,4 +278,21 @@ func TestDirectiveSignals(t *testing.T) {
 	if len(sigs) != 1 || sigs[0] != core.SignalSSHDAuthorizedKeysCommand {
 		t.Fatalf("AKC: %v", sigs)
 	}
+
+	// Env-injection recognizers (duel-2 backlog).
+	if sigs = directiveSignals("PermitUserEnvironment", "yes"); len(sigs) != 1 || sigs[0] != core.SignalSSHDPermitUserEnvironment {
+		t.Fatalf("PermitUserEnvironment yes: %v", sigs)
+	}
+	if sigs = directiveSignals("PermitUserEnvironment", "no"); len(sigs) != 0 {
+		t.Fatalf("PermitUserEnvironment no should be silent: %v", sigs)
+	}
+	if sigs = directiveSignals("SetEnv", "BASH_ENV=/opt/.h/hook"); len(sigs) != 1 || sigs[0] != core.SignalSSHDEnvInjection {
+		t.Fatalf("SetEnv BASH_ENV: %v", sigs)
+	}
+	if sigs = directiveSignals("AcceptEnv", "LD_PRELOAD LANG LC_*"); len(sigs) != 1 || sigs[0] != core.SignalSSHDEnvInjection {
+		t.Fatalf("AcceptEnv LD_PRELOAD: %v", sigs)
+	}
+	if sigs = directiveSignals("AcceptEnv", "LANG LC_* TZ"); len(sigs) != 0 {
+		t.Fatalf("AcceptEnv benign should be silent: %v", sigs)
+	}
 }
