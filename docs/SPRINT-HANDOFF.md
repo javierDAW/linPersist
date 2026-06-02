@@ -344,12 +344,21 @@ lab-re-validated — the realistic lab is torn down):
     LOLBin sshd `AuthorizedKeysCommand` (the non-package gate protects the
     legit SSSD helper) and base64-`eval` profile loaders (a content
     singleton, not a substring arms race).
-  - Queued (architect-proposed, not yet built): resolve the SCRIPT
-    ARGUMENT of a packaged interpreter through provenance
-    (`interpreter_runs_orphan_script` for cron/systemd/pam_exec) and a
-    curated GTFOBins `sudoers_nopasswd_gtfobin` signal — both real
-    structural gaps, both FP-sensitive (config-managed `python3
-    /opt/x.py`, NOPASSWD systemctl), so signal+high-triage + LFA.
+  - Both queued architect proposals BUILT + VALIDATED (round 24 Debian,
+    all PASS, zero clean-host FPs):
+    - `interpreter_runs_orphan_script` (+ `interpreter_executes_unmanaged_script`,
+      high): cron/systemd resolve the SCRIPT ARGUMENT of a packaged
+      interpreter via `core.InterpreterScriptOrphan` and flag when orphan.
+      Two lab-driven fixes en route: the implant uses `/bin/bash` (Essential/
+      owned) not python3 (the base lacks python3 → it resolved orphan and
+      masked the test); and the helper now BAILS on inline `-c`/`-e` code
+      (round 24 caught it firing on `ExecStart=/bin/sh -c '...< /opt/...'`
+      — labcollect.service and every vendor `sh -c` unit — by scanning abs
+      paths inside the inline code; inline is LFA-only by design).
+    - `sudoers_nopasswd_gtfobin` (+ `sudoers_nopasswd_shell_escape`, high):
+      curated shell-escape set, EXCLUDES commonly-legit systemctl/service/
+      docker/git (left to LFA). Unit-tested.
+  - Detections: 27 (pre-duel) → 34.
 
 Still OPEN:
 
