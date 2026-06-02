@@ -1,0 +1,16 @@
+# Evasion implant: evade-timestomp (cron.d + backdated mtime)
+#
+# Drops a cron.d persistence directive, then back-dates the file's mtime
+# with `touch -d` to defeat linpersist's recent_mtime_* freshness signal.
+# NOTE: touch only resets mtime/atime -- ctime updates to NOW, so a ctime
+# cross-check would still flag it (a v1.0 anti-timestomp improvement). The
+# unique file content is also still a fleet singleton, so LFA catches it
+# regardless: timestomp defeats one signal, not the singleton hunt.
+#
+# Variables: ${cron_file}, ${schedule}, ${payload}, ${fake_date}
+
+RUN mkdir -p /etc/cron.d && \
+    printf '%s\n' '${schedule} root ${payload}' > ${cron_file} && \
+    chown root:root ${cron_file} && \
+    chmod 0644 ${cron_file} && \
+    touch -d '${fake_date}' ${cron_file}

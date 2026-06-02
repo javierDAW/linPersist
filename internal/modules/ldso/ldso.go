@@ -150,7 +150,7 @@ func (m *Module) collectPreload(ctx context.Context, logical string, emit func(c
 		}, nil))
 		return nil
 	}
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
@@ -222,6 +222,20 @@ func (m *Module) recordFromPreloadToken(logical string, info os.FileInfo, lineHa
 	}
 	rec.Signals = core.DedupSignals(signals)
 	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, token)
+	// Verify the integrity of the PRELOADED library itself, not just the
+	// ld.so.preload locus the sink checks. An in-place overwrite of a
+	// package-owned .so (Symbiote / HiddenWasp) keeps the path owned --
+	// so non_package_path stays silent -- yet the file's digest no longer
+	// matches the package manager's record. The sink only runs VerifyPath
+	// on rec.Locus (=/etc/ld.so.preload, itself unowned), so without this
+	// the loaded-into-every-process payload is invisible. Type-asserted
+	// so NoopProvenance / --no-provenance skip it cleanly.
+	if v, ok := m.opts.Provenance.(interface {
+		VerifyPath(string) core.PkgVerifyStatus
+	}); ok {
+		rec.Signals = core.DedupSignals(
+			append(rec.Signals, core.TamperSignal(v.VerifyPath(token))...))
+	}
 	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, token)
 	return rec
 }
@@ -298,7 +312,7 @@ func (m *Module) processConfFile(ctx context.Context, logical, real string, info
 		}, nil))
 		return
 	}
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, siteClass, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},

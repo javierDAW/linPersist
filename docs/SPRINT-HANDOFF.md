@@ -256,6 +256,162 @@ Closed in the v0.5.x consolidation sprint (6 follow-ups in chain):
   — first time the lab is clean across every implant family under
   signal-exact scoring.
 
+Landed on branch `detect-lab-hardening` (v1.0 candidate, NOT yet
+lab-re-validated — the realistic lab is torn down):
+
+- **Anti-evasion detection sprint.** Three "defender-aware attacker"
+  lab implants (`evade-timestomp`, `evade-pkg-tamper`,
+  `evade-fleetwide-clean`) were built to probe linpersist's real
+  limits, and two of the gaps they expose were closed:
+  - `recent_ctime_{7d,30d}` — central anti-timestomp signal computed at
+    the emit sink (`cmd/linpersist/main.go`), NOT per-module. The sink
+    is the choke point where every record already carries `CTime` +
+    `CollectedAt`, so it lands uniformly with zero edits across the 20+
+    module `baseSignals`. Helper: `core.RecentCtimeSignals`. Detection:
+    `timestomp_recent_ctime_stale_mtime` (`recent_ctime_7d` AND NOT
+    `recent_mtime_*`). Tested in `filemeta_test.go`.
+  - `package_file_tampered` — `Resolver.VerifyPath` (dpkg) compares a
+    package-owned file against its recorded hash, parsing BOTH
+    `*.md5sums` AND the `Conffiles:` stanza of `/var/lib/dpkg/status`
+    (conffiles like `/etc/crontab` are absent from `md5sums`). Wired
+    into the sink via an interface upgrade so `NoopProvenance` skips it.
+    Detection: `package_owned_file_tampered`. Tested with synthetic
+    dpkg fixtures in `provenance_verify_test.go`.
+  - `evade-fleetwide-clean` is **expected to evade** — the honest LFA
+    boundary; its MISS is the documented finding.
+  - Both detections are severity **medium** with documented residual-FP
+    classes (timestomp: rsync/tar/backup; tamper: legit conffile edits).
+    The durable discriminator stays LFA singleton stacking.
+  - **VALIDATED end-to-end on the nspawn lab** (rounds 20 Debian + 21
+    Rocky via `lab-nspawn/fleet.sh`; signal-exact checker
+    `lab-nspawn/validate-evade.py`). All assertions PASS:
+    `evade-pkg-tamper` -> `package_file_tampered` + the Q7 rule on
+    `/etc/crontab` (Debian), zero tamper FPs fleet-wide; on Rocky/rpm it
+    correctly does NOT fire (still a Q1 singleton). A real Ubuntu host
+    built 81,134 dpkg integrity entries with zero tamper FPs.
+    `evade-timestomp` -> `recent_ctime_7d` fires on BOTH dpkg and rpm
+    (distro-agnostic, as designed). `evade-fleetwide-clean` -> evades on
+    all 6 hosts (the honest LFA boundary, as predicted).
+  - **Calibration the lab forced:** the first cut of
+    `timestomp_recent_ctime_stale_mtime` (bare `recent_ctime_7d` AND NOT
+    `recent_mtime_*`) flooded Q7 with ~1,850 rows/host on every host --
+    and the real Ubuntu host matched (2,114/3,579 records). Cause: tar/
+    image extraction (debootstrap, cloud images, containers, `rsync -a`,
+    backups) resets ctime to "now" but preserves the old mtime, so every
+    packaged file looks timestomped. Fix: the rule is now **tamper-gated**
+    (`signals_all: [recent_ctime_7d, package_file_tampered]`, severity
+    high) -- immune to extraction by construction. The dropped-payload
+    timestomp stays covered by `payload_under_tmp_via_persistence`; the
+    bare signal is still emitted for backend stacking. `detections_test.go`
+    pins the three shapes. Re-check: timestomp Q7 rows 1,850/host -> 0,
+    recall intact. **Lesson reinforced: fix the CLASS, validate on real
+    distro data before trusting a fresh detection rule.**
+  - **rpm + apk integrity now implemented too** (no longer dpkg-only).
+    One `Resolver.VerifyPath` serves all three: it stores the
+    package-recorded digest (dpkg MD5; rpm `FILEDIGESTS` via a bulk
+    `rpm -qa --qf '[%{FILENAMES} %{FILEDIGESTS}\n]'`; apk `Q1` SHA-1 from
+    `/lib/apk/db/installed`) in one map and **infers the hash algorithm
+    from the recorded hex length** (32→MD5, 40→SHA-1, 64→SHA-256) — so no
+    `FILEDIGESTALGO` parsing and no per-manager compare path. rpm/apk
+    unit-tested with fixture commands / installed DB
+    (`provenance_verify_test.go`). The Rocky lab exercises the positive
+    rpm path end-to-end (re-run round 21 with the new binary to observe
+    `package_file_tampered` on `/etc/crontab` via FILEDIGESTS).
+    Cross-distro re-confirmed on round 26 (Rocky): all the duel-1/2
+    detections fire identically via rpm provenance/FILEDIGESTS. The rpm
+    `%config` residual FP (package_owned_file_tampered) is empirically
+    just TWO files on a clean Rocky GenericCloud host -- `/etc/sudoers`
+    and `/etc/cloud/cloud.cfg` (cloud-init edits both; `rpm -V` reports
+    them too). FILEVERIFYFLAGS already cut the round-21 baseline from 6
+    files to these 2; they are fleet-identical (not singletons), so LFA
+    is the discriminator and the medium severity is correct. No further
+    fix -- this is the documented `%config` boundary.
+
+- **Red/blue duel hardening** (4-agent Workflow: APT intrusion specialist
+  vs blue-team hunter, adjudicated by two architects). 11 real-TTP
+  implants; verdict: all evade Q7, caught only by LFA/Q1. Three FP-gated
+  fixes landed and VALIDATED on the lab (round 22 Debian, all PASS,
+  zero clean-host FPs):
+  - `ld_preload_target_tampered` (critical): `ldso.go` now runs
+    `VerifyPath` on the PRELOADED `.so`, not just the ld.so.preload locus
+    the sink checks — an in-place overwrite of a package-owned library
+    (Symbiote/HiddenWasp) stays owned (`non_package_path` silent) but its
+    digest mismatches. Validated: `package_file_tampered` +
+    `ld_preload_target_tampered` fire on the tampered `libpcprofile.so`,
+    only on the implant host.
+  - `netdispatch_run_unmanaged` (high): netdispatch emitted
+    `non_package_path` on an orphan dispatcher but no rule consumed it
+    (pure YAML, mirrors udev). Validated: fires only on the implant.
+  - **polkit `recent_ctime_7d` gate — TRIED AND REVERTED.** Adding it to
+    close the `touch -d` bypass flooded on the image-extracted stock
+    vendor rules under `/usr/share/polkit-1` (round 22: every host fired
+    on `50-default.rules`/`systemd-networkd.rules`). No clean
+    co-indicator (polkit drop-ins aren't package-owned → no tamper-gate),
+    so the timestomp is left to LFA singleton stacking (implant surfaces
+    in Q1, not Q7). Same image-extraction lesson as timestomp, third time.
+  - Architect consensus left as **signal+LFA, no detection**: packaged-
+    LOLBin sshd `AuthorizedKeysCommand` (the non-package gate protects the
+    legit SSSD helper) and base64-`eval` profile loaders (a content
+    singleton, not a substring arms race).
+  - Both queued architect proposals BUILT + VALIDATED (round 24 Debian,
+    all PASS, zero clean-host FPs):
+    - `interpreter_runs_orphan_script` (+ `interpreter_executes_unmanaged_script`,
+      high): cron/systemd resolve the SCRIPT ARGUMENT of a packaged
+      interpreter via `core.InterpreterScriptOrphan` and flag when orphan.
+      Two lab-driven fixes en route: the implant uses `/bin/bash` (Essential/
+      owned) not python3 (the base lacks python3 → it resolved orphan and
+      masked the test); and the helper now BAILS on inline `-c`/`-e` code
+      (round 24 caught it firing on `ExecStart=/bin/sh -c '...< /opt/...'`
+      — labcollect.service and every vendor `sh -c` unit — by scanning abs
+      paths inside the inline code; inline is LFA-only by design).
+    - `sudoers_nopasswd_gtfobin` (+ `sudoers_nopasswd_shell_escape`, high):
+      curated shell-escape set, EXCLUDES commonly-legit systemctl/service/
+      docker/git (left to LFA). Unit-tested.
+  - Detections: 27 (pre-duel) → 34.
+
+- **Red/blue duel #2 (harder)** — 8+6 novel/complex implants; the blue
+  team found whole-module coverage holes and unparsed fields. Both
+  architects converged; the 5 high-ROI fixes were IMPLEMENTED (detections
+  34→37, all gated on orphan/non_package/tamper co-indicators, lab implants
+  `apt2-*` added to validate):
+  - script-ARG integrity: cron/systemd now VerifyPath the resolved
+    interpreter script argument (not just rec.Locus) → closes the
+    owned-but-tampered-script asymmetry (uniform with ldso preload).
+  - systemd `ExecStartPre/Post/...` resolution → `systemd_aux_exec_unmanaged`
+    (Turla drop-in behavior injection).
+  - systemd **generators** → new site_class `systemd.generator` +
+    `systemd_generator_unmanaged` (was a zero-record primitive).
+  - **file capabilities** → suidbits reads `security.capability` xattr,
+    new site_class `filecap`, `file_capability_outside_package`.
+  - **immutable flag** → `core.InodeFlagSignals` (FS_IOC_GETFLAGS) at the
+    sink → `immutable_flag`/`append_only_flag` enrichment (no detection;
+    anti-remediation; defeats the immutable-aged implant via LFA).
+  - **Deferred backlog — progress (detections 37→40):**
+    - DONE `/etc/ssh/sshrc` + `~/.ssh/rc` → site_class `ssh.sshrc` +
+      `ssh_sshrc_unmanaged_exec` (commit 8a877f0).
+    - DONE sudoers GTFOBin set expanded (rsync/socat/openssl/busybox/…),
+      systemctl/docker still LFA-only (8a877f0).
+    - DONE `ExtractExecTarget` lifted profile → `core` (shared) (8a877f0).
+    - DONE kmod autoload + resolve named module to its `.ko` via
+      modules.dep + provenance → `kmod_autoload_unpackaged_module`
+      (critical) (1b994bb).
+    - DONE sshd `SetEnv`/`AcceptEnv`/`PermitUserEnvironment` →
+      `sshd_login_env_injection` (73e2b58).
+    - LAB-VALIDATED (round 27, Debian): sshrc, kmod-`.ko`, sshd-env each
+      fire only on their implant host, zero clean-host FPs (apt2-sshrc-hook,
+      apt2-kmod-rootkit, apt2-sshd-setenv).
+    - DONE scope.md §8.1 boundaries doc (73e2b58).
+    - STILL TODO (heavier, fresh-session): **BASH_ENV in /etc/environment**
+      (profile env-file parse → exec_target); **initramfs/dracut hook
+      module** (NEW module — biggest; cpio stays OOS); **ld.so.conf.d
+      library-SHADOW signal** (trickiest — emit only when a planted .so
+      basename collides with a packaged SONAME on the standard path);
+      **systemd `OnFailure=`/`.path Unit=` relationship EDGES** as
+      Q12-correlation signals (NOT Q7 rules).
+  - **scope boundaries now documented in scope.md §8.1** (recent_ctime
+    live-FS limit, initrd cpio OOS, %config edits report tampered, inline
+    interpreter code is signal+LFA).
+
 Still OPEN:
 
 - **eBPF state inspection** (deferred from v0.5.0 candidate

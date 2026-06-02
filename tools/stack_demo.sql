@@ -345,6 +345,7 @@ WHERE
   -- Regenerate with: go run ./cmd/detgen
   -- Release gate:    go run ./cmd/detgen --verify  (or: make detgen-verify)
   /* payload_under_tmp_via_persistence */ (list_contains(signals, 'exec_target_orphan') AND list_contains(signals, 'interpreter_in_tmp'))
+  OR /* trap_handler_payload_in_tmp */ list_contains(signals, 'trap_command_in_tmp')
   OR /* pam_module_in_tmp */ (list_contains(signals, 'interpreter_in_tmp') AND module = 'pam')
   OR /* second_uid_zero_account */ list_contains(signals, 'passwd_uid_zero')
   OR /* sudoers_nopasswd_all_backdoor */ (list_contains(signals, 'sudoers_nopasswd') AND list_contains(signals, 'sudoers_all_commands'))
@@ -355,11 +356,21 @@ WHERE
   OR /* motd_remote_fetch */ (module = 'motd' AND (content_snippet LIKE '%| sh%' OR content_snippet LIKE '%| bash%' OR content_snippet LIKE '%|sh %' OR content_snippet LIKE '%|bash %' OR content_snippet LIKE '%curl | %' OR content_snippet LIKE '%wget | %'))
   OR /* sysv_init_tmp_reference */ (module = 'sysv' AND (content_snippet LIKE '%. /tmp/%' OR content_snippet LIKE '%exec /tmp/%' OR content_snippet LIKE '%bash /tmp/%' OR content_snippet LIKE '%sh /tmp/%' OR content_snippet LIKE '%/tmp/.%'))
   OR /* ld_preload_set_with_non_package */ (list_contains(signals, 'ld_preload_set') AND list_contains(signals, 'non_package_path'))
+  OR /* ld_preload_target_tampered */ (list_contains(signals, 'ld_preload_set') AND list_contains(signals, 'package_file_tampered'))
   OR /* polkit_admin_rule_implant */ (list_contains(signals, 'polkit_admin_rule') AND (list_contains(signals, 'recent_mtime_7d') OR list_contains(signals, 'non_root_owner')))
   OR /* polkit_yes_constant_implant */ (list_contains(signals, 'polkit_yes_constant') AND (list_contains(signals, 'recent_mtime_7d') OR list_contains(signals, 'non_root_owner')))
   OR /* sshd_root_login_enabled */ list_contains(signals, 'sshd_permit_root_login_yes')
   OR /* sshd_authorized_keys_command_external */ (list_contains(signals, 'sshd_authorized_keys_command') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')))
   OR /* udev_run_with_non_package */ (list_contains(signals, 'udev_run_directive') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')))
+  OR /* kmod_autoload_unpackaged_module */ (list_contains(signals, 'kmod_autoload') AND list_contains(signals, 'non_package_path') AND module = 'kmod')
+  OR /* sshd_login_env_injection */ ((list_contains(signals, 'sshd_permit_user_environment') OR list_contains(signals, 'sshd_env_injection')) AND module = 'sshd')
+  OR /* ssh_sshrc_unmanaged_exec */ (list_contains(signals, 'sshrc_present') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')))
+  OR /* file_capability_outside_package */ (list_contains(signals, 'file_cap_privileged') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan')))
+  OR /* systemd_generator_unmanaged */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan')) AND module = 'systemd' AND site_class = 'systemd.generator')
+  OR /* systemd_aux_exec_unmanaged */ list_contains(signals, 'systemd_aux_exec_unmanaged')
+  OR /* interpreter_executes_unmanaged_script */ (list_contains(signals, 'interpreter_runs_orphan_script') AND (module = 'cron' OR module = 'systemd'))
+  OR /* sudoers_nopasswd_shell_escape */ (list_contains(signals, 'sudoers_nopasswd') AND list_contains(signals, 'sudoers_nopasswd_gtfobin'))
+  OR /* netdispatch_run_unmanaged */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')) AND module = 'netdispatch')
   OR /* sysv_external_init_symlink_implant */ list_contains(signals, 'sysv_external_init_symlink')
   OR /* systemd_install_alias_external_implant */ list_contains(signals, 'systemd_install_alias_external')
   OR /* xdg_autostart_unmanaged */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')) AND module = 'xdg')
@@ -371,6 +382,8 @@ WHERE
   OR /* dbus_exec_under_tmp */ (list_contains(signals, 'interpreter_in_tmp') AND module = 'dbus')
   OR /* cloudinit_script_non_package_path */ (list_contains(signals, 'non_package_path') AND site_class = 'cloudinit.script')
   OR /* k8s_static_pod_unqualified_image */ (list_contains(signals, 'unqualified_exec_target') AND module = 'k8sstatic')
+  OR /* timestomp_recent_ctime_stale_mtime */ (NOT list_contains(signals, 'recent_mtime_7d') AND NOT list_contains(signals, 'recent_mtime_30d') AND list_contains(signals, 'recent_ctime_7d') AND list_contains(signals, 'package_file_tampered'))
+  OR /* package_owned_file_tampered */ list_contains(signals, 'package_file_tampered')
   -- END GENERATED
 ORDER BY host, module, locus;
 

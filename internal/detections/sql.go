@@ -95,6 +95,7 @@ func renderDetectionSQL(d *Detection, opts SQLOptions) string {
 	if len(w.ModuleIn) > 0 {
 		var any []string
 		for _, m := range w.ModuleIn {
+			// Loader rejected ' and \ in module_in; safe to interpolate.
 			any = append(any, fmt.Sprintf("module = '%s'", m))
 		}
 		if len(any) == 1 {
@@ -106,6 +107,7 @@ func renderDetectionSQL(d *Detection, opts SQLOptions) string {
 	if len(w.SiteClassIn) > 0 {
 		var any []string
 		for _, sc := range w.SiteClassIn {
+			// Loader rejected ' and \ in site_class_in; safe to interpolate.
 			any = append(any, fmt.Sprintf("site_class = '%s'", sc))
 		}
 		if len(any) == 1 {

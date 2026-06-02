@@ -1,5 +1,6 @@
-# Lab-realistic v2 implant catalog. 14 implants: 11 carry-over
-# from v1 plus 3 v0.3.0-coverage (linger, tmpfiles, sysusers).
+# Lab-realistic v2 implant catalog. 30 implants: the original 20 plus
+# 10 v0.5.x module-coverage adds (one per previously-uncovered module:
+# ldso, pam, polkit, grub, udev, xdg, sysv, atjobs, motd, netdispatch).
 #
 # All implants are INERT -- the lab containers never invoke them.
 # If invoked, each writes a single trace line to /tmp/.implant-trace
@@ -417,6 +418,481 @@ implants:
       pod_name: ops-bootstrap
       namespace: kube-system
       image: persistor
+
+  # ============ v0.5.x module-coverage expansion (10 new) ============
+  # One implant per previously-uncovered module, so every collector
+  # module has at least one exercising attack. Each drops a real
+  # persistence directive in a scanned locus; most point their payload
+  # under /tmp (interpreter_in_tmp; exec_target_orphan on a booted host).
+
+  - id: ldso-confd-hijack
+    tier: L2
+    variant: armed
+    module: ldso
+    site_class: ldso.confd
+    description: |
+      /etc/ld.so.conf.d drop-in injects an attacker dir into the dynamic
+      linker search path (T1574.006). Non-destructive: a missing search
+      dir is silently ignored by ld.so (unlike ld.so.preload, which errors
+      on every binary and destabilised the lab host). Caught as a fleet
+      singleton.
+    expected_signals: [recent_mtime_7d]
+    expected_caught_by: [Q1, Q2]
+    expected_q7_rule: null
+    template: ldso-confd-hijack.tmpl
+    vars:
+      conf_file: /etc/ld.so.conf.d/zz-ops.conf
+      lib_dir: /tmp/.ld
+
+  - id: pam-module-in-tmp
+    tier: L2
+    variant: orphan
+    module: pam
+    site_class: pam
+    description: |
+      PAM service whose auth stack loads a module from /tmp, run on every
+      authentication (T1556.003).
+    expected_signals: [interpreter_in_tmp]
+    expected_caught_by: [Q1, Q2, Q7]
+    expected_q7_rule: pam_module_in_tmp
+    template: pam-module-in-tmp.tmpl
+    vars:
+      pam_file: /etc/pam.d/zz-ops-helper
+      pam_module: /tmp/.pam/pam_ops.so
+
+  - id: polkit-yes-allow
+    tier: L3
+    variant: armed
+    module: polkit
+    site_class: polkit.rules
+    description: |
+      polkit JS rule returning Result.YES, granting passwordless admin
+      authority (T1548).
+    expected_signals: [polkit_yes_constant, polkit_admin_rule]
+    expected_caught_by: [Q1, Q2]
+    expected_q7_rule: null
+    template: polkit-yes-allow.tmpl
+    vars:
+      rules_file: /etc/polkit-1/rules.d/49-ops.rules
+
+  - id: grub-init-tmp
+    tier: L3
+    variant: orphan
+    module: grub
+    site_class: kernel.grub.config
+    description: |
+      GRUB_CMDLINE_LINUX init= override to a /tmp binary, run as PID 1 at
+      boot (T1542/T1574).
+    expected_signals: [grub_cmdline_init, interpreter_in_tmp, exec_target_orphan]
+    expected_caught_by: [Q1, Q2, Q9]
+    expected_q7_rule: null
+    template: grub-init-tmp.tmpl
+    vars:
+      grub_file: /etc/default/grub
+      init_path: /tmp/.boot/init
+
+  - id: udev-run-tmp
+    tier: L3
+    variant: orphan
+    module: udev
+    site_class: udev
+    description: |
+      udev RUN+= directive executing a /tmp payload on a device event,
+      as root (T1546).
+    expected_signals: [udev_run_directive, interpreter_in_tmp, exec_target_orphan]
+    expected_caught_by: [Q1, Q2, Q7]
+    expected_q7_rule: udev_run_with_non_package
+    template: udev-run-tmp.tmpl
+    vars:
+      rules_file: /etc/udev/rules.d/99-ops.rules
+      payload: /tmp/.udev/agent
+
+  - id: xdg-autostart-tmp
+    tier: L2
+    variant: orphan
+    module: xdg
+    site_class: xdg.autostart
+    description: |
+      System-wide XDG autostart .desktop whose Exec= points under /tmp,
+      run on every desktop login (T1547.013).
+    expected_signals: [interpreter_in_tmp, exec_target_orphan]
+    expected_caught_by: [Q1, Q2, Q9]
+    expected_q7_rule: null
+    template: xdg-autostart-tmp.tmpl
+    vars:
+      desktop_file: /etc/xdg/autostart/zz-ops.desktop
+      payload: /tmp/.xdg/agent
+
+  - id: sysv-init-tmp
+    tier: L2
+    variant: orphan
+    module: sysv
+    site_class: sysv.init
+    description: |
+      SysV init script under /etc/init.d launching a /tmp payload
+      (T1037.005).
+    expected_signals: [interpreter_in_tmp]
+    expected_caught_by: [Q1, Q2]
+    expected_q7_rule: null
+    template: sysv-init-tmp.tmpl
+    vars:
+      init_file: /etc/init.d/ops-cache
+      payload: /tmp/.sysv/agent
+
+  - id: atjobs-tmp
+    tier: L2
+    variant: orphan
+    module: atjobs
+    site_class: at.jobs
+    description: |
+      at(1) spool job running a /tmp payload (T1053.002).
+    expected_signals: [interpreter_in_tmp]
+    expected_caught_by: [Q1, Q2]
+    expected_q7_rule: null
+    template: atjobs-tmp.tmpl
+    vars:
+      job_file: /var/spool/cron/atjobs/a0000010ab12cd
+      payload: /tmp/.at/agent
+
+  - id: motd-script-tmp
+    tier: L2
+    variant: orphan
+    module: motd
+    site_class: motd
+    description: |
+      Executable under /etc/update-motd.d running a /tmp payload as root
+      on every interactive login.
+    expected_signals: [interpreter_in_tmp, exec_target_orphan]
+    expected_caught_by: [Q1, Q2, Q9]
+    expected_q7_rule: null
+    template: motd-script-tmp.tmpl
+    vars:
+      motd_file: /etc/update-motd.d/99-ops
+      payload: /tmp/.motd/agent
+
+  - id: netdispatch-tmp
+    tier: L3
+    variant: orphan
+    module: netdispatch
+    site_class: network.dispatchers
+    description: |
+      NetworkManager dispatcher script (common RHEL enterprise locus) run
+      as root on every network event, invoking a /tmp payload (T1546).
+    expected_signals: [interpreter_in_tmp, exec_target_orphan]
+    expected_caught_by: [Q1, Q2, Q9]
+    expected_q7_rule: null
+    template: netdispatch-tmp.tmpl
+    vars:
+      disp_file: /etc/NetworkManager/dispatcher.d/99-ops
+      payload: /tmp/.nm/agent
+
+  # ================= evasion implants (anti-detection) =================
+  # Built to probe linpersist's real limits: what does a defender-aware
+  # attacker get away with? Scored honestly -- a MISS here is a finding.
+
+  - id: evade-timestomp
+    tier: L4
+    variant: orphan
+    module: cron
+    site_class: cron.d
+    description: |
+      cron.d directive with mtime back-dated via touch -d to defeat
+      recent_mtime_*. ctime stays current, so the v1.0 central
+      recent_ctime_7d signal fires while recent_mtime_* does NOT.
+      VALIDATED on the nspawn lab (round 20 Debian / round 21 Rocky):
+      recent_ctime_7d fires on both dpkg and rpm; the dropped payload
+      makes it a Q7 catch via payload_under_tmp_via_persistence (orphan +
+      tmp) and an LFA singleton. NOTE: the dedicated timestomp rule is
+      tamper-gated (package_file_tampered) to avoid the image-extraction
+      FP flood, so it does NOT fire on this pristine-content dropped file
+      -- that is by design; this implant's job is to confirm the
+      recent_ctime_7d SIGNAL, which it does on both distros.
+    expected_signals: [interpreter_in_tmp, exec_target_orphan, recent_ctime_7d]
+    expected_caught_by: [Q1, Q2, Q4, Q7, Q9]
+    expected_q7_rule: payload_under_tmp_via_persistence
+    template: evade-timestomp.tmpl
+    vars:
+      cron_file: /etc/cron.d/zz-archive-sync
+      schedule: "*/9 * * * *"
+      payload: /tmp/.ts/agent
+      fake_date: "2023-02-01 03:14:00"
+
+  - id: evade-pkg-tamper
+    tier: L4
+    variant: armed
+    module: cron
+    site_class: cron.d
+    description: |
+      Appends a malicious line to the PACKAGE-OWNED /etc/crontab running a
+      packaged LOLBin (/usr/bin/bash) -- no non_package/orphan/tmp signal.
+      Pre-v1.0 this was caught ONLY by the LFA singleton. v1.0 adds dpkg
+      integrity verification: /etc/crontab is a registered conffile, so its
+      recorded hash lives in the Conffiles: stanza of /var/lib/dpkg/status;
+      the appended line makes the file mismatch -> package_file_tampered ->
+      package_owned_file_tampered rule. Integrity verification covers
+      dpkg (md5sums + Conffiles), rpm (FILEDIGESTS) AND apk (Z:), so this
+      is caught on all three families; the only remaining evasion is
+      fleet-wide spread, which the LFA singleton still defeats.
+      VALIDATED on the nspawn lab: round 20 (Debian) emits
+      package_file_tampered on /etc/crontab + the Q7 rule, zero tamper FPs
+      fleet-wide; round 21 (Rocky/rpm) likewise flags it via FILEDIGESTS.
+      81k dpkg integrity entries also verified FP-free on a real Ubuntu
+      host.
+    expected_signals: [package_file_tampered]
+    expected_caught_by: [Q1, Q2, Q7]
+    expected_q7_rule: package_owned_file_tampered
+    template: evade-pkg-tamper.tmpl
+    vars:
+      schedule: "*/13 * * * *"
+      cmd: "/usr/bin/bash -c true"
+
+  - id: evade-fleetwide-clean
+    tier: L5
+    variant: armed
+    module: systemd
+    site_class: systemd.unit
+    description: |
+      Persistent systemd unit with a PACKAGED ExecStart (/usr/bin/bash),
+      no orphan/tmp/non_package signal, planted IDENTICALLY on every host.
+      Not a singleton (Q1 misses), no triage signal (Q7 misses) -> the
+      honest boundary of LFA. EXPECTED TO EVADE; a MISS is the finding.
+    expected_signals: []
+    expected_caught_by: []
+    expected_q7_rule: null
+    template: evade-fleetwide-clean.tmpl
+    vars:
+      unit_file: /etc/systemd/system/system-telemetry.service
+
+  # ============ APT implants (red/blue duel, real-actor TTPs) ============
+  # Designed by the intrusion-specialist agent to challenge linpersist's
+  # blind spots; each validates a detection the architects added in
+  # response. See docs/SPRINT-HANDOFF.md for the duel synthesis.
+
+  - id: apt-netdispatch-orphan-hook
+    tier: L4
+    variant: armed
+    module: netdispatch
+    site_class: network.dispatchers
+    description: |
+      APT29/ESXi-crew shape: a NetworkManager dispatcher.d script (root on
+      every network event) that decodes a base64 beacon. The script is a
+      non-package orphan -> non_package_path fires. Pre-duel NO rule was
+      scoped to netdispatch, so this was a clean Q7 miss; the new
+      netdispatch_run_unmanaged rule (mirrors udev) now catches it.
+    expected_signals: [non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: netdispatch_run_unmanaged
+    template: apt-netdispatch-orphan-hook.tmpl
+    vars:
+      disp_file: /etc/NetworkManager/dispatcher.d/90-connectivity
+      state_file: /usr/lib/NetworkManager/conf.d/.nm-state
+
+  - id: apt-ldso-preload-inplace
+    tier: L5
+    variant: armed
+    module: ldso
+    site_class: ldso.preload
+    description: |
+      Symbiote/HiddenWasp shape: append trailing bytes to a PACKAGE-OWNED
+      .so in place and preload it. Path stays owned (non_package_path
+      silent -> the orphan-based critical ld_preload rule misses), but the
+      digest no longer matches. The v1.0 sink only verified the
+      ld.so.preload locus; the new VerifyPath-on-preload-target wiring in
+      ldso.go hashes the .so itself -> package_file_tampered ->
+      ld_preload_target_tampered (critical). dpkg+rpm hosts.
+    expected_signals: [ld_preload_set, package_file_tampered]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: ld_preload_target_tampered
+    template: apt-ldso-preload-inplace.tmpl
+    vars: {}
+
+  - id: apt-polkit-yes-timestomp
+    tier: L4
+    variant: armed
+    module: polkit
+    site_class: polkit.rules
+    description: |
+      polkit rules.d drop-in returning Result.YES + addAdminRule for
+      wheel/sudo, mtime back-dated with touch -d to defeat the polkit
+      recent_mtime_7d gate. ctime cannot be moved back, so recent_ctime_7d
+      still fires (recorded for backend/LFA). LAB FINDING (round 22):
+      adding recent_ctime_7d to the polkit Q7 gate flooded on the
+      image-extracted stock vendor YES rules under /usr/share/polkit-1 on
+      every host, so it was reverted -- the touch -d timestomp bypass is
+      caught by LFA singleton stacking (this drop-in is content-unique;
+      vendor rules are fleet-common), NOT by a Q7 freshness rule. The
+      honest boundary: a defender-aware timestomp on polkit evades Q7 and
+      relies on LFA.
+    expected_signals: [polkit_yes_constant, polkit_admin_rule, recent_ctime_7d]
+    expected_caught_by: [Q1]
+    expected_q7_rule: null
+    template: apt-polkit-yes-timestomp.tmpl
+    vars:
+      rules_file: /etc/polkit-1/rules.d/49-ops-orchestration.rules
+      fake_date: "2022-08-01 02:11:00"
+
+  - id: apt-cron-interpreter-orphan
+    tier: L4
+    variant: armed
+    module: cron
+    site_class: cron.d
+    description: |
+      Kinsing/TeamTNT shape: a cron.d job running a PACKAGE-OWNED
+      interpreter (/bin/bash, Essential) against a parked non-package
+      script under /opt/.sysmon. exec_target = the owned bash (no
+      non_package/orphan/tmp). The new interpreter_runs_orphan_script
+      signal resolves the SCRIPT ARGUMENT via provenance -> orphan ->
+      interpreter_executes_unmanaged_script (high). bash not python3 so the
+      owned-interpreter premise holds in the booted lab. FP-sensitive
+      (config-mgmt bash /opt jobs) so high-triage + LFA discriminator.
+    expected_signals: [interpreter_runs_orphan_script]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: interpreter_executes_unmanaged_script
+    template: apt-cron-interpreter-orphan.tmpl
+    vars:
+      cron_file: /etc/cron.d/zz-sysmon
+      schedule: "*/15 * * * *"
+      script: /opt/.sysmon/agent.sh
+
+  # ============ APT duel-2 implants (novel/complex vectors) ============
+  # Validate the 5 high-ROI fixes the second red/blue duel motivated.
+
+  - id: apt2-systemd-generator
+    tier: L5
+    variant: armed
+    module: systemd
+    site_class: systemd.generator
+    description: |
+      Sandworm/AA22: an orphan executable systemd generator (root at early
+      boot, no unit file) -- a whole-primitive coverage hole pre-duel.
+      New systemd.generator walk -> systemd_generator + non_package_path
+      -> systemd_generator_unmanaged (critical).
+    expected_signals: [systemd_generator, non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: systemd_generator_unmanaged
+    template: apt2-systemd-generator.tmpl
+    vars:
+      gen_file: /etc/systemd/system-generators/zz-early-init
+
+  - id: apt2-systemd-execstartpre
+    tier: L5
+    variant: armed
+    module: systemd
+    site_class: systemd.unit
+    description: |
+      Turla: a drop-in into the vendor cron.service adds ExecStartPre to a
+      non-package /opt hook (no ExecStart of its own). The first-ExecStart
+      resolver missed it pre-duel -> systemd_aux_exec_unmanaged.
+    expected_signals: [systemd_aux_exec_unmanaged, systemd_dropin]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: systemd_aux_exec_unmanaged
+    template: apt2-systemd-execstartpre.tmpl
+    vars:
+      payload: /opt/.svc/prestart
+      dropin: /etc/systemd/system/cron.service.d/10-hook.conf
+
+  - id: apt2-cron-owned-script-tamper
+    tier: L5
+    variant: armed
+    module: cron
+    site_class: cron.d
+    description: |
+      Kinsing file-trojaning: a cron.d job runs an OWNED interpreter
+      (/bin/bash) against a PACKAGE-OWNED .sh overwritten in place.
+      exec_target=/bin/bash (no orphan/non_package); the script ARGUMENT
+      is owned-but-tampered -> package_file_tampered via the new
+      VerifyPath-on-script-arg (closes the ownership/integrity asymmetry).
+    expected_signals: [package_file_tampered]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: package_owned_file_tampered
+    template: apt2-cron-owned-script-tamper.tmpl
+    vars:
+      cron_file: /etc/cron.d/zz-maint
+
+  - id: apt2-filecap-setuid
+    tier: L4
+    variant: armed
+    module: suidbits
+    site_class: filecap
+    description: |
+      File capability privesc: a 0755 bash copy under /opt with
+      cap_setuid+ep, no suid bit -- invisible to find -perm -4000 and the
+      mode-only walk pre-duel. suidbits now reads security.capability ->
+      file_capability_set + file_cap_privileged + non_package_path ->
+      file_capability_outside_package (critical). NEEDS setcap (libcap2-bin
+      on Debian / libcap on Rocky) in the base; inert if absent.
+    expected_signals: [file_capability_set, file_cap_privileged, non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: file_capability_outside_package
+    template: apt2-filecap-setuid.tmpl
+    vars:
+      bin: /opt/.fc/agent
+
+  - id: apt2-immutable-cron
+    tier: L4
+    variant: armed
+    module: cron
+    site_class: cron.d
+    description: |
+      Anti-remediation: a cron.d persistence file locked with chattr +i so
+      rm/edit fail until the responder clears it -> immutable_flag
+      (enrichment, recorded for triage/LFA; the unique content is a Q1
+      singleton). NOTE: lab teardown must chattr -i before rm -rf, else the
+      rootfs dir lingers.
+    expected_signals: [immutable_flag]
+    expected_caught_by: [Q1]
+    expected_q7_rule: null
+    template: apt2-immutable-cron.tmpl
+    vars:
+      cron_file: /etc/cron.d/zz-locked
+
+  # ===== duel-2 backlog validation implants =====
+
+  - id: apt2-sshrc-hook
+    tier: L4
+    variant: armed
+    module: ssh
+    site_class: ssh.sshrc
+    description: |
+      /etc/ssh/sshrc runs on every ssh session and launches a non-package
+      /opt payload -> sshrc_present + non_package_path ->
+      ssh_sshrc_unmanaged_exec.
+    expected_signals: [sshrc_present, non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: ssh_sshrc_unmanaged_exec
+    template: apt2-sshrc-hook.tmpl
+    vars: {}
+
+  - id: apt2-kmod-rootkit
+    tier: L5
+    variant: armed
+    module: kmod
+    site_class: kmod
+    description: |
+      Diamorphine shape: a non-package .ko planted in /lib/modules,
+      registered in modules.dep, scheduled to autoload via modules-load.d.
+      kmod resolves the named module to its unowned .ko -> kmod_autoload +
+      non_package_path -> kmod_autoload_unpackaged_module (critical).
+    expected_signals: [kmod_autoload, non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: kmod_autoload_unpackaged_module
+    template: apt2-kmod-rootkit.tmpl
+    vars: {}
+
+  - id: apt2-sshd-setenv
+    tier: L4
+    variant: armed
+    module: sshd
+    site_class: sshd.config
+    description: |
+      sshd_config drop-in enabling PermitUserEnvironment + SetEnv BASH_ENV
+      -> sshd_permit_user_environment + sshd_env_injection ->
+      sshd_login_env_injection. Config-only persistence via a trusted daemon.
+    expected_signals: [sshd_permit_user_environment, sshd_env_injection]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: sshd_login_env_injection
+    template: apt2-sshd-setenv.tmpl
+    vars: {}
 
 # ==========================================================================
 # Placement plan -- generator picks hosts per role to keep TPs measurable.

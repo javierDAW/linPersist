@@ -125,6 +125,24 @@ site_classes:
       timers under /home/*/.config/systemd/user/ collected (linger
       hosts).
 
+  - site_class: systemd.generator
+    module: systemd
+    mitre: [T1543.002]
+    loci:
+      - /etc/systemd/system-generators/
+      - /usr/lib/systemd/system-generators/
+      - /run/systemd/system-generators/
+    status: implemented
+    test_coverage: unit
+    notes: |
+      Executable generators run as root at early boot (systemd.generator(7))
+      with no unit file, no ExecStart and no enable step -- a persistence
+      primitive the unit walker (keyed on .service/.timer in the unit loci)
+      never saw. One record per regular file; ExecTarget is the generator
+      itself, so a planted (unowned) generator trips non_package_path and the
+      central integrity check. Detection systemd_generator_unmanaged gates on
+      non_package/orphan so the ~half-dozen vendor generators stay quiet.
+
   - site_class: sysv.init
     module: sysv
     mitre: [T1037.004]
@@ -181,6 +199,26 @@ site_classes:
       See ADR-0003 for the blob-handling decision. New signals
       ssh_options_present and ssh_forced_command added to the core
       catalog for this module.
+
+  - site_class: ssh.sshrc
+    module: ssh
+    mitre: [T1546.004]
+    loci:
+      - /etc/ssh/sshrc
+      - /root/.ssh/rc
+      - /home/*/.ssh/rc
+    status: implemented
+    test_coverage: unit
+    notes: |
+      sshd runs /etc/ssh/sshrc (server-side) and ~/.ssh/rc (per-user) as
+      a shell script on EVERY successful session -- a per-login exec hook
+      that ships with no file by default. One record per file:
+      sshrc_present always (existence is the recorded fact), plus the
+      body is scanned by core.ExtractExecTarget so a hook that sources/
+      execs an orphan/tmp/non-package payload trips the existing
+      exec_target_orphan / interpreter_in_tmp / non_package_path signals.
+      Detection ssh_sshrc_unmanaged_exec gates on that co-indicator;
+      bare existence stays signal+LFA (legitimate admin use exists).
 
   - site_class: sshd.config
     module: sshd
@@ -409,6 +447,29 @@ site_classes:
       Setgid-only sibling of suid.user. Rare in practice; included
       for completeness so the four-quadrant suid/sgid × system/user
       matrix is symmetric.
+
+  - site_class: filecap
+    module: suidbits
+    mitre: [T1548.001]
+    loci:
+      - /usr/bin/
+      - /usr/sbin/
+      - /usr/local/bin/
+      - /usr/local/sbin/
+      - /opt/
+      - /home/
+      - /tmp/
+      - /var/tmp/
+    status: implemented
+    test_coverage: unit
+    notes: |
+      Files carrying a security.capability xattr (file capabilities) but
+      no suid/sgid bit -- a privesc primitive invisible to find -perm
+      -4000 and to the mode-only suid/sgid walk. One record per file;
+      SignalFileCapabilitySet always, SignalFileCapPrivileged when the
+      permitted set includes setuid/setgid/dac_override/sys_admin/etc.
+      Pair with non_package_path: ping/cap_net_raw is fleet-baseline, a
+      dropped /opt binary with cap_setuid is the implant.
 
   - site_class: passwd.gshadow
     module: passwd

@@ -152,7 +152,7 @@ func (m *Module) collectDefaultGrub(ctx context.Context, emit func(core.Record))
 		}))
 		return nil
 	}
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeConfigRecord(logical, info, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
@@ -193,6 +193,11 @@ func (m *Module) recordFromConfigEntry(logical string, info os.FileInfo, e Confi
 		rec.Signals = appendUnique(rec.Signals, core.SignalGrubCmdlineInit)
 		rec.ExecTarget = ExtractInit(e.Value)
 		if rec.ExecTarget != "" {
+			if strings.HasPrefix(rec.ExecTarget, "/") {
+				if sum, ok := core.HashFileCapped(m.resolve(rec.ExecTarget), m.opts.MaxFileSize); ok {
+					rec.ExecTargetSHA256 = sum
+				}
+			}
 			if isInterpreterInTmp(rec.ExecTarget) {
 				rec.Signals = appendUnique(rec.Signals, core.SignalInterpreterInTmp)
 			}
@@ -255,7 +260,7 @@ func (m *Module) processDropin(ctx context.Context, logical, real string, info o
 		}))
 		return
 	}
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeDropinRecord(logical, info, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},

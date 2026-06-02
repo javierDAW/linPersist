@@ -346,6 +346,109 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			},
 			want: nil,
 		},
+		{
+			name: "package file tampered (append, fresh mtime) -> tamper rule only, NOT timestomp",
+			rec: core.Record{
+				Module: "cron",
+				Signals: []string{
+					core.SignalPackageFileTampered,
+					core.SignalRecentCtime7d,
+					core.SignalRecentMtime7d,
+				},
+			},
+			want: []string{"package_owned_file_tampered"},
+		},
+		{
+			name: "package file tampered AND mtime back-dated -> timestomp (high-precision) + tamper",
+			rec: core.Record{
+				Module: "cron",
+				Signals: []string{
+					core.SignalPackageFileTampered,
+					core.SignalRecentCtime7d,
+				},
+			},
+			want: []string{"timestomp_recent_ctime_stale_mtime", "package_owned_file_tampered"},
+		},
+		{
+			name: "pristine image-extracted package file (fresh ctime, old mtime, NO tamper) -> nothing",
+			rec: core.Record{
+				Module:  "udev",
+				Signals: []string{core.SignalRecentCtime7d},
+			},
+			want: nil,
+		},
+		{
+			name: "sshd PermitUserEnvironment yes -> login env injection rule",
+			rec: core.Record{
+				Module:  "sshd",
+				Signals: []string{core.SignalSSHDPermitUserEnvironment},
+			},
+			want: []string{"sshd_login_env_injection"},
+		},
+		{
+			name: "autoloaded kernel module resolves to an unpackaged .ko -> rootkit rule",
+			rec: core.Record{
+				Module:  "kmod",
+				Signals: []string{core.SignalKmodAutoload, core.SignalNonPackagePath},
+			},
+			want: []string{"kmod_autoload_unpackaged_module"},
+		},
+		{
+			name: "systemd drop-in ExecStartPre to an unmanaged target -> systemd_aux_exec_unmanaged",
+			rec: core.Record{
+				Module:  "systemd",
+				Signals: []string{core.SignalSystemdAuxExecUnmanaged},
+			},
+			want: []string{"systemd_aux_exec_unmanaged"},
+		},
+		{
+			name: "cron packaged interpreter runs an orphan script -> interpreter_executes_unmanaged_script",
+			rec: core.Record{
+				Module:  "cron",
+				Signals: []string{core.SignalInterpreterRunsOrphanScript},
+			},
+			want: []string{"interpreter_executes_unmanaged_script"},
+		},
+		{
+			name: "NOPASSWD on a GTFOBin shell-escape -> sudoers_nopasswd_shell_escape",
+			rec: core.Record{
+				Module:  "sudoers",
+				Signals: []string{core.SignalSudoersNoPasswd, core.SignalSudoersNopasswdGtfobin},
+			},
+			want: []string{"sudoers_nopasswd_shell_escape"},
+		},
+		{
+			name: "ld.so.preload target is an in-place-tampered owned .so -> critical (Symbiote shape)",
+			rec: core.Record{
+				Module:  "ldso",
+				Signals: []string{core.SignalLDPreloadSet, core.SignalPackageFileTampered},
+			},
+			want: []string{"ld_preload_target_tampered", "package_owned_file_tampered"},
+		},
+		{
+			name: "netdispatch script outside the package universe -> dispatcher rule fires",
+			rec: core.Record{
+				Module:  "netdispatch",
+				Signals: []string{core.SignalNonPackagePath},
+			},
+			want: []string{"netdispatch_run_unmanaged"},
+		},
+		{
+			name: "polkit YES rule timestomped (fresh ctime, mtime back-dated) -> NOT a Q7 hit (recent_ctime deliberately not gated; LFA catches it)",
+			rec: core.Record{
+				Module:  "polkit",
+				Signals: []string{core.SignalPolkitYesConstant, core.SignalRecentCtime7d},
+			},
+			want: nil,
+		},
+		{
+			name: "polkit YES rule recently modified by mtime -> flagged (legit freshness gate)",
+			rec: core.Record{
+				Module:  "polkit",
+				Signals: []string{core.SignalPolkitYesConstant, core.SignalRecentMtime7d},
+			},
+			want: []string{"polkit_yes_constant_implant"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -429,6 +532,26 @@ func TestLoaderRejectsBadInputs(t *testing.T) {
 			yaml: "schema_version: 1\ndetections: [{id: x, when: {module_in: [cron], content_contains_any: [\"O'Reilly\"]}}]\n",
 			want: "SQL-unsafe",
 		},
+		{
+			name: "sql-unsafe module_in (quote breaks equality literal)",
+			yaml: "schema_version: 1\ndetections: [{id: x, when: {module_in: [\"cron' OR '1'='1\"]}}]\n",
+			want: "module_in",
+		},
+		{
+			name: "sql-unsafe site_class_in (backslash)",
+			yaml: "schema_version: 1\ndetections: [{id: x, when: {site_class_in: [\"cron.d\\\\\"]}}]\n",
+			want: "site_class_in",
+		},
+		{
+			name: "empty module_in entry",
+			yaml: "schema_version: 1\ndetections: [{id: x, when: {module_in: [\"\"]}}]\n",
+			want: "module_in has empty entry",
+		},
+		{
+			name: "empty site_class_in entry",
+			yaml: "schema_version: 1\ndetections: [{id: x, when: {site_class_in: [\"\"]}}]\n",
+			want: "site_class_in has empty entry",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -441,6 +564,61 @@ func TestLoaderRejectsBadInputs(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestModuleInClosedSetCheck exercises the (previously dead) modules
+// argument: when a registry is supplied, module_in must reference a
+// known module. A dotted site_class and a real module name must NOT be
+// rejected by the SQL-safety guards — guarding against a false positive
+// that would fail the build gate on legitimate rules.
+func TestModuleInClosedSetCheck(t *testing.T) {
+	known := map[string]struct{}{"cron": {}, "ssh": {}}
+
+	bad := "schema_version: 1\ndetections: [{id: x, when: {module_in: [definitely_not_a_module]}}]\n"
+	if _, err := Load([]byte(bad), nil, known); err == nil || !strings.Contains(err.Error(), "unknown module") {
+		t.Fatalf("expected unknown-module error, got %v", err)
+	}
+
+	good := "schema_version: 1\ndetections: [{id: x, when: {module_in: [cron], site_class_in: [cron.d]}}]\n"
+	if _, err := Load([]byte(good), nil, known); err != nil {
+		t.Fatalf("clean rule with dotted site_class rejected: %v", err)
+	}
+}
+
+// TestTrapHandlerInTmpDetection guards the trap_handler_payload_in_tmp
+// rule added after the nspawn lab showed a real coverage gap: a shell
+// trap EXIT handler pointing at a /tmp payload was collected with the
+// right signals (trap_command_in_tmp) but matched no Q7 detection.
+func TestTrapHandlerInTmpDetection(t *testing.T) {
+	rs := loadRepoYAML(t)
+
+	hit := core.Record{
+		Module:    "profile",
+		SiteClass: "profile.trap.system",
+		Signals:   []string{"trap_command", "trap_exit_handler", "trap_command_in_tmp", "recent_mtime_7d"},
+	}
+	if !contains(rs.Match(hit), "trap_handler_payload_in_tmp") {
+		t.Fatalf("trap-in-tmp record did not match trap_handler_payload_in_tmp; got %v", rs.Match(hit))
+	}
+
+	// A trap NOT under tmp must not fire the rule (no trap_command_in_tmp).
+	miss := core.Record{
+		Module:    "profile",
+		SiteClass: "profile.trap.system",
+		Signals:   []string{"trap_command", "trap_exit_handler", "recent_mtime_7d"},
+	}
+	if contains(rs.Match(miss), "trap_handler_payload_in_tmp") {
+		t.Fatalf("rule fired without trap_command_in_tmp; got %v", rs.Match(miss))
+	}
+}
+
+func contains(ids []string, want string) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
 }
 
 func equalStrSlice(a, b []string) bool {

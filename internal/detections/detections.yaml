@@ -40,6 +40,13 @@ detections:
     when:
       signals_all: [exec_target_orphan, interpreter_in_tmp]
 
+  - id: trap_handler_payload_in_tmp
+    description: Shell trap handler executes a tmp-class payload — a trap (EXIT/DEBUG/signal) whose command resolves under /tmp, /var/tmp, /dev/shm or /run/shm runs the dropped binary on every shell exit; legitimate traps never target tmp
+    severity: high
+    mitre: [T1546.005]
+    when:
+      signals_all: [trap_command_in_tmp]
+
   - id: pam_module_in_tmp
     description: PAM stack loads a module from a tmp-class directory (Volexity/DFIR Report pattern)
     severity: critical
@@ -149,8 +156,15 @@ detections:
     when:
       signals_all: [ld_preload_set, non_package_path]
 
+  - id: ld_preload_target_tampered
+    description: /etc/ld.so.preload references a package-owned library whose on-disk content no longer matches the package-recorded digest — the in-place .so overwrite an orphan-path check misses (Symbiote/HiddenWasp shape). The preloaded library is integrity-checked directly, not just the preload config locus. Residual FP class —a library legitimately recompiled/patched in place, rare and itself worth surfacing
+    severity: critical
+    mitre: [T1574.006, T1554]
+    when:
+      signals_all: [ld_preload_set, package_file_tampered]
+
   - id: polkit_admin_rule_implant
-    description: polkit rule contains addAdminRule( and was recently modified outside the package universe
+    description: polkit rule contains addAdminRule( and was recently modified (recent_mtime_7d) or is non-root-owned. NOTE recent_ctime_7d was trialled here to close the touch -d timestomp bypass but the nspawn lab showed it fires on the image-extracted stock vendor rules under /usr/share/polkit-1 on every freshly-provisioned host — so the touch -d bypass is left to LFA singleton stacking (the attacker drop-in is a content singleton; vendor rules are fleet-common)
     severity: high
     mitre: [T1548]
     when:
@@ -158,7 +172,7 @@ detections:
       signals_any: [recent_mtime_7d, non_root_owner]
 
   - id: polkit_yes_constant_implant
-    description: polkit rule grants polkit.Result.YES unconditionally and was recently modified
+    description: polkit rule grants polkit.Result.YES unconditionally and was recently modified (recent_mtime_7d) or is non-root-owned. recent_ctime_7d is deliberately NOT in the gate — it floods on image-extracted stock vendor YES rules (lab-confirmed); the touch -d timestomp bypass is caught by LFA singleton stacking instead
     severity: high
     mitre: [T1548]
     when:
@@ -186,6 +200,77 @@ detections:
     mitre: [T1546]
     when:
       signals_all: [udev_run_directive]
+      signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
+  - id: kmod_autoload_unpackaged_module
+    description: a kernel module scheduled to auto-load at boot (/etc/modules, modules-load.d, or a modprobe options/softdep directive) resolves to a .ko outside the package universe — the planted-LKM rootkit shape (Diamorphine/Reptile) where the autoload config points at a module no package shipped. Gated on non_package_path so the host's packaged autoloaded modules stay silent
+    severity: critical
+    mitre: [T1547.006]
+    when:
+      module_in: [kmod]
+      signals_all: [kmod_autoload, non_package_path]
+
+  - id: sshd_login_env_injection
+    description: sshd is configured to let a client inject a code-exec environment variable on login — PermitUserEnvironment yes (so ~/.ssh/environment can set BASH_ENV/LD_PRELOAD) or a SetEnv/AcceptEnv naming BASH_ENV/ENV/LD_PRELOAD/LD_LIBRARY_PATH/LD_AUDIT. Low legitimate prevalence; turns a key into code execution every login
+    severity: high
+    mitre: [T1556, T1574.006]
+    when:
+      module_in: [sshd]
+      signals_any: [sshd_permit_user_environment, sshd_env_injection]
+
+  - id: ssh_sshrc_unmanaged_exec
+    description: an /etc/ssh/sshrc or ~/.ssh/rc per-session hook sources/execs a target outside the package universe (orphan, tmp-class, or non-package) — runs on every ssh login. Existence alone is signal+LFA (legit admin use); this fires only with the unmanaged-exec co-indicator
+    severity: high
+    mitre: [T1546.004]
+    when:
+      signals_all: [sshrc_present]
+      signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
+  - id: file_capability_outside_package
+    description: a file carries privileged file capabilities (cap_setuid/setgid/dac_override/sys_admin/...) and is outside the package universe — a setcap privesc/persistence primitive that find -perm -4000 and mode-only scans miss entirely. Gated on non_package_path so the legitimate packaged caps set (ping/cap_net_raw, etc.) stays silent
+    severity: critical
+    mitre: [T1548.001]
+    when:
+      signals_all: [file_cap_privileged]
+      signals_any: [non_package_path, exec_target_orphan]
+
+  - id: systemd_generator_unmanaged
+    description: a systemd generator (executable that runs as root at early boot under */systemd/system-generators) is outside the package universe — a planted generator is enable-free boot persistence the unit walker never saw (Sandworm/AA22). Gated on non_package/orphan so the handful of package-shipped vendor generators stay silent
+    severity: critical
+    mitre: [T1543.002]
+    when:
+      module_in: [systemd]
+      site_class_in: [systemd.generator]
+      signals_any: [non_package_path, exec_target_orphan]
+
+  - id: systemd_aux_exec_unmanaged
+    description: systemd ExecStartPre/Post/StopPost/Reload/Condition runs an orphan, package-unowned or tmp-class target — root-context behavior injection that carries no ExecStart= of its own, classically a drop-in into a legitimate vendor unit (Turla). The first-ExecStart-only resolver missed it. Gated on the orphan/non_package/tmp co-indicator, so legitimate packaged ExecStartPre hooks stay silent
+    severity: high
+    mitre: [T1543.002, T1574]
+    when:
+      signals_all: [systemd_aux_exec_unmanaged]
+
+  - id: interpreter_executes_unmanaged_script
+    description: A packaged script interpreter (python3/perl/bash/...) runs a script-file argument outside the package universe — the "live off the packaged interpreter, park the payload" shape where exec_target is the owned interpreter and the orphan script is otherwise invisible. Residual FP class —config-management (Ansible/Salt) drops legitimate python3 /opt/<co>/maintenance.py cron jobs and units; the durable discriminator is LFA (a parked payload is a fleet content singleton, a managed script is not)
+    severity: high
+    mitre: [T1059.006, T1543.002]
+    when:
+      module_in: [cron, systemd]
+      signals_all: [interpreter_runs_orphan_script]
+
+  - id: sudoers_nopasswd_shell_escape
+    description: NOPASSWD sudo grant on a shell-escape GTFOBin (vi/less/awk/find/python/tar/...) — a single-command rule that is really a password-less root shell (sudo vi -> :!sh), which sudoers_all_commands never matches. Curated set excludes commonly-legit systemctl/service/docker/git. Residual FP class —ops/CI accounts granted NOPASSWD tar/find for backups; LFA singleton stacking discriminates the attacker's fresh-account grant from a fleet-common one
+    severity: high
+    mitre: [T1548.003]
+    when:
+      signals_all: [sudoers_nopasswd, sudoers_nopasswd_gtfobin]
+
+  - id: netdispatch_run_unmanaged
+    description: NetworkManager dispatcher.d script runs a target outside the package universe — root executes on every network up/down event. The non_package_path/orphan signal already fired on the dropped script; this rule (mirroring udev_run_with_non_package) is what consumes it. Residual FP class —VPN clients and config-management that install dispatcher hooks outside the package manager; LFA singleton stacking discriminates the planted-once script
+    severity: high
+    mitre: [T1546]
+    when:
+      module_in: [netdispatch]
       signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
 
   - id: sysv_external_init_symlink_implant
@@ -278,3 +363,25 @@ detections:
     when:
       module_in: [k8sstatic]
       signals_all: [unqualified_exec_target]
+
+  # ---------- Anti-evasion (defender-aware attacker) ----------------
+  # These two rules close the gaps the lab-realistic evade-* implants
+  # were built to probe. Both carry a documented residual-FP class and
+  # are scored medium accordingly: they are triage prompts, not
+  # verdicts, and the durable discriminator stays LFA singleton stacking
+  # (the tampered/timestomped content is still a fleet singleton).
+
+  - id: timestomp_recent_ctime_stale_mtime
+    description: A package-owned file was modified (package_file_tampered) AND its mtime back-dated to look old (recent_ctime_7d without recent_mtime_*) — the touch -d / utimes anti-forensic combo. Requiring the tamper co-signal makes it immune to the benign fresh-ctime+old-mtime that EVERY image/tarball-provisioned host shows (cloud images, containers, debootstrap, rsync -a, restore-from-backup) since extraction never alters content. The dropped-payload timestomp variant is covered by payload_under_tmp_via_persistence
+    severity: high
+    mitre: [T1070.006]
+    when:
+      signals_all: [recent_ctime_7d, package_file_tampered]
+      signals_none: [recent_mtime_7d, recent_mtime_30d]
+
+  - id: package_owned_file_tampered
+    description: A package-owned file no longer matches the digest its package manager recorded at install (dpkg md5sums/Conffiles, rpm FILEDIGESTS, apk Z:) — catches the append-to-/etc/crontab persistence shape that emits no orphan/tmp/non_package signal. Residual FP class —legitimate admin edits to config files, which dpkg --verify / rpm -V likewise report
+    severity: medium
+    mitre: [T1554]
+    when:
+      signals_all: [package_file_tampered]

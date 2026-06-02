@@ -1,0 +1,17 @@
+# Implant template: grub-init-tmp (L3, orphan)
+#
+# T1542 / T1574 (boot-time execution hijack). Sets GRUB_CMDLINE_LINUX
+# with init=<path-under-/tmp>, so the kernel runs the attacker binary as
+# PID 1 instead of systemd. The grub module fires grub_cmdline_init plus
+# interpreter_in_tmp / exec_target_orphan on the /tmp init target.
+#
+# Variables: ${grub_file}, ${init_path}
+
+RUN mkdir -p /etc/default && \
+    printf '%s\n' \
+        'GRUB_TIMEOUT=5' \
+        'GRUB_DISTRIBUTOR="ops"' \
+        'GRUB_CMDLINE_LINUX="quiet init=${init_path}"' \
+        > ${grub_file} && \
+    chown root:root ${grub_file} && \
+    chmod 0644 ${grub_file}

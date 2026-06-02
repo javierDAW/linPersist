@@ -156,7 +156,7 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 		}))
 		return
 	}
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
@@ -202,6 +202,9 @@ func (m *Module) recordFromLine(logical string, info os.FileInfo, pl parsedLine)
 	case lineAlias, lineDefaults, lineUserSpec:
 		if hasNoPasswd(pl.canon) {
 			signals = append(signals, core.SignalSudoersNoPasswd)
+			if nopasswdGtfobin(pl.canon) {
+				signals = append(signals, core.SignalSudoersNopasswdGtfobin)
+			}
 		}
 		if hasAllCommands(pl.canon) {
 			signals = append(signals, core.SignalSudoersAllCommands)

@@ -7,6 +7,155 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — red/blue duel hardening (APT-emulation findings)
+A 4-agent adversarial workflow (APT intrusion specialist vs. blue-team
+hunter, adjudicated by two software architects) drove three real-world
+detection fixes; all consensus across both architects, FP-gated:
+- **`ld_preload_target_tampered` (critical) + VerifyPath wired to the
+  preloaded library.** The v1.0 sink only integrity-checked a record's
+  `Locus`; for `/etc/ld.so.preload` that is the (unowned) config file,
+  never the preloaded `.so`. An in-place overwrite of a package-owned
+  library (Symbiote/HiddenWasp) kept the path owned (`non_package_path`
+  silent) and slipped the orphan-based critical rule. `ldso.go` now runs
+  `VerifyPath` on the resolved preload target, so a tampered owned `.so`
+  emits `package_file_tampered`; the new rule pairs it with
+  `ld_preload_set`. Tiny, AND-gated population → near-zero FP.
+- **`netdispatch_run_unmanaged` (high).** The netdispatch module already
+  emitted `non_package_path` on an orphan NetworkManager dispatcher
+  script (root on every network event), but NO rule was scoped to the
+  module, so it was Q7-blind. Pure detections.yaml, mirrors
+  `udev_run_with_non_package` (same config-mgmt/VPN residual FP class).
+- **polkit timestomp: left to LFA (the `recent_ctime_7d` gate was trialled
+  and reverted).** Adding `recent_ctime_7d` to the polkit rules' gate to
+  close the `touch -d` bypass was implemented, then the nspawn lab (round
+  22) showed it fires on the image-extracted stock vendor YES/admin rules
+  under `/usr/share/polkit-1` on every host — the same image-extraction
+  flood that tamper-gated the timestomp rule. Reverted: a `touch -d`
+  timestomp of a polkit drop-in is caught by LFA singleton stacking (the
+  attacker rule is content-unique; vendor rules are fleet-common), not by
+  a Q7 freshness gate. `recent_ctime_7d` is still recorded for the backend.
+- **`interpreter_runs_orphan_script` (+ `interpreter_executes_unmanaged_script`,
+  high).** A packaged script interpreter (python3/perl/bash/...) only
+  exposes the interpreter as `exec_target` — which is owned, so the
+  parked non-package script it runs was invisible. cron and systemd now
+  resolve the SCRIPT ARGUMENT through provenance (shared
+  `core.InterpreterScriptOrphan`) and flag it when orphan. Inline `-c`
+  code carries no script path and stays LFA-only. FP class: config-managed
+  `python3 /opt/x.py` jobs → high-triage, LFA discriminates.
+- **`sudoers_nopasswd_gtfobin` (+ `sudoers_nopasswd_shell_escape`, high).**
+  NOPASSWD on a single shell-escape GTFOBin (`vi`/`less`/`awk`/`find`/
+  `python`/`tar`/...) is a password-less root shell that
+  `sudoers_all_commands` never matched. Curated set deliberately excludes
+  commonly-legit `systemctl`/`service`/`docker`/`git` (left to LFA).
+- Four APT lab implants added to exercise the above
+  (`apt-netdispatch-orphan-hook`, `apt-ldso-preload-inplace`,
+  `apt-polkit-yes-timestomp`, `apt-cron-interpreter-orphan`). Items the
+  architects explicitly left as
+  signal+LFA (no detection): packaged-LOLBin sshd AuthorizedKeysCommand
+  (the non-package gate protects SSSD), and base64-`eval` profile loaders
+  (a content singleton, not a substring arms race).
+
+### Added — anti-evasion detection (defender-aware attacker boundary)
+- **Central `recent_ctime_{7d,30d}` anti-timestomp signal.** Computed
+  once at the emit sink (`cmd/linpersist/main.go`) for every record that
+  carries a ctime, rather than wired into each module's `baseSignals` —
+  the sink is the single choke point where `CTime` and `CollectedAt` are
+  already populated, so the signal lands uniformly across all modules
+  with zero per-module edits. `touch -d`/`utimes(2)` back-date mtime but
+  cannot move ctime backward; a record with `recent_ctime_7d` but no
+  `recent_mtime_*` is the timestomp tell. Scored by the
+  `timestomp_recent_ctime_stale_mtime` detection — **calibrated against
+  the nspawn lab to severity high and gated on `package_file_tampered`**:
+  validation showed the bare ctime-vs-mtime rule fires on ~2000
+  records/host on ANY image- or tarball-provisioned host (cloud images,
+  containers, debootstrap, `rsync -a`, restore-from-backup) because tar
+  extraction resets ctime while preserving the old mtime. Requiring the
+  tamper co-signal makes the rule immune to that benign class by
+  construction (extraction never alters content), while the
+  dropped-payload timestomp variant stays covered by
+  `payload_under_tmp_via_persistence`. The `recent_ctime_*` signal
+  itself is still emitted for backend stacking.
+- **dpkg package-file integrity (`package_file_tampered`).** The
+  provenance resolver gained `VerifyPath`, which compares a package-owned
+  file against the hash dpkg recorded at install. It parses BOTH
+  `/var/lib/dpkg/info/*.md5sums` (regular files) AND the `Conffiles:`
+  stanzas of `/var/lib/dpkg/status` (registered conffiles such as
+  `/etc/crontab`, which are absent from `md5sums` by design) — so the
+  "append a line to a package-owned config" persistence shape, which
+  emits no orphan/tmp/non_package signal, no longer evades on a dpkg
+  host. Drives the `package_owned_file_tampered` detection (severity
+  medium; FP class: legitimate config-file edits, which `dpkg --verify`
+  / `rpm -V` also report). Results are memoized per path. **Covers
+  dpkg, rpm and apk**: one `Resolver.VerifyPath` serves all three by
+  storing the package-recorded digest (dpkg MD5 from md5sums+Conffiles,
+  rpm `FILEDIGESTS` SHA-256, apk `Q1` SHA-1) in a single map and
+  inferring the hash algorithm from the recorded hex length (32→MD5,
+  40→SHA-1, 64→SHA-256). The rpm path honors each file's
+  `FILEVERIFYFLAGS` and skips files whose digest-verify bit is clear
+  (the `setup` package's `/etc/passwd`, `/etc/group`, `/etc/shadow`,
+  `/etc/gshadow`, marked `%verify(not md5)`) — exactly as `rpm -V`
+  does; the nspawn Rocky lab caught that comparing them anyway produced
+  a ~6-file / ~108-record false-positive flood per host. Verification
+  wired via an interface upgrade in the sink, so `--no-provenance` /
+  `NoopProvenance` skip it cleanly.
+- **Three evasion lab implants** (`lab-realistic/implants/`):
+  `evade-timestomp` (back-dated mtime), `evade-pkg-tamper` (append to
+  package-owned `/etc/crontab`) and `evade-fleetwide-clean` (a clean
+  systemd unit planted identically fleet-wide). The last is **expected
+  to evade** — it is the honest boundary of singleton stacking, where a
+  MISS is the documented finding, not a bug. Empirical re-scoring of all
+  three awaits a Debian lab rebuild (the realistic lab is currently torn
+  down); `rpm`/`apk` integrity paths cannot be exercised without a Rocky
+  rebuild and are left unverified by charter.
+
+### Security — hardening across the report binary, collector and detections loader
+- **`linpersist-report` text output now neutralizes terminal-control
+  sequences in untrusted, record-derived fields.** The fleet report,
+  per-host dossier and diff renderers wrote attacker-influenced values
+  (`locus`/path, `content_snippet`, `exec_target`, hostname, os_id,
+  agent_version, module/site_class, signal lists) verbatim to the
+  analyst's TTY. A compromised monitored host could embed ANSI
+  cursor-movement / line-erase / OSC sequences in a filename or file
+  content so that, when the analyst viewed the report in a terminal,
+  the host's own singleton row was overwritten or hidden — defeating
+  the singleton-hunt the tool exists to perform. New `safeCell` helper
+  (`cmd/linpersist-report/render_common.go`) rewrites every C0 control,
+  DEL and C1 control as a visible `\xHH` escape; all three text
+  renderers route record-derived cells through it (via `safeCell` or
+  the `fprintfSafe` wrapper), leaving the renderer's own color escapes
+  intact. The HTML report was already safe (`html/template`
+  auto-escaping). Tests: `render_sanitize_test.go`.
+- **A single oversized NDJSON line no longer aborts the whole fleet
+  report.** `readFile` previously used a `bufio.Scanner` whose
+  `ErrTooLong` propagated up and failed the entire load, so one corrupt
+  or hostile host file (a line > 4 MiB) blinded the analyst to every
+  other host. It now reads via a bounded `bufio.Reader`, counts the
+  oversized line as one skipped line, and continues.
+- **Collector file reads are now hardened against TOCTOU swaps.** Every
+  module previously did `os.Lstat` (size / regular check) then
+  `os.ReadFile(real)`, leaving a window in which an attacker with write
+  access to a scanned directory could swap the target for a much larger
+  file (unbounded read → memory pressure) or a FIFO/device (a read-only
+  open blocks until the module's 30s deadline). New
+  `core.ReadFileCapped` / `core.OpenRegularNoBlock`
+  (`internal/core/readfile.go`) open with `O_NONBLOCK`, `fstat` the
+  resulting descriptor to reject non-regular targets (no pre-open Lstat
+  race), and bound the read with `io.LimitReader`. Symlink-following is
+  preserved (several modules legitimately hash a symlinked locus's
+  target). All 28 module read sites plus the streaming readers
+  (`sysusers`, `tmpfiles`, `cron.periodic`) were migrated. Tests:
+  `internal/core/readfile_test.go`.
+- **Detections loader now rejects SQL-unsafe characters in every value
+  the SQL generator interpolates.** `content_contains_any` was already
+  checked, but `module_in` / `site_class_in` — interpolated into
+  `module = '<v>'` / `site_class = '<v>'` by `detgen` — were not, an
+  asymmetric-escaping footgun should the rule source ever become less
+  trusted. The loader now rejects `'` and `\` in those fields and, when
+  a module registry is supplied, validates `module_in` against it (the
+  previously-unused `modules` argument). No effect on the committed
+  `detections.yaml`; `detgen --verify` output is unchanged. Tests:
+  `internal/detections/detections_test.go`.
+
 ## [0.5.0] - 2026-05-24
 
 v0.5.0 lands the cloud-native sprint deferred from v0.4.0: three new

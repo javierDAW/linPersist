@@ -81,6 +81,26 @@ var Signals = []SignalDef{
 		},
 	},
 	{
+		Name:        SignalRecentCtime7d,
+		Description: "artifact ctime within the last 7 days (central anti-timestomp signal; mtime is forgeable, ctime is not)",
+		EmittedBy:   []string{"core/filemeta"},
+	},
+	{
+		Name:        SignalRecentCtime30d,
+		Description: "artifact ctime within the last 30 days but outside the 7-day window",
+		EmittedBy:   []string{"core/filemeta"},
+	},
+	{
+		Name:        SignalImmutableFlag,
+		Description: "inode carries FS_IMMUTABLE_FL (chattr +i) -- anti-remediation/anti-forensic; queried centrally at the sink",
+		EmittedBy:   []string{"core/inode_flags"},
+	},
+	{
+		Name:        SignalAppendOnlyFlag,
+		Description: "inode carries FS_APPEND_FL (chattr +a) -- append-only; queried centrally at the sink",
+		EmittedBy:   []string{"core/inode_flags"},
+	},
+	{
 		Name:        SignalWorldWritable,
 		Description: "artifact has the 0o002 mode bit set",
 		EmittedBy: []string{
@@ -96,6 +116,11 @@ var Signals = []SignalDef{
 	{
 		Name:        SignalNonPackagePath,
 		Description: "exec_target resolves to a path not owned by any installed dpkg/rpm package",
+		EmittedBy:   []string{"core/provenance"},
+	},
+	{
+		Name:        SignalPackageFileTampered,
+		Description: "locus is a package-owned file whose content no longer matches the package-recorded digest (dpkg md5sums/Conffiles, rpm FILEDIGESTS, or apk Z:)",
 		EmittedBy:   []string{"core/provenance"},
 	},
 	{
@@ -204,6 +229,11 @@ var Signals = []SignalDef{
 		Description: "ssh.authkeys options list contains command=\"...\" forcing a specific command on login",
 		EmittedBy:   []string{"ssh"},
 	},
+	{
+		Name:        SignalSSHRCPresent,
+		Description: "/etc/ssh/sshrc or ~/.ssh/rc exists -- a per-ssh-session exec hook not shipped by default",
+		EmittedBy:   []string{"ssh"},
+	},
 
 	// --- Sudoers ---
 
@@ -215,6 +245,16 @@ var Signals = []SignalDef{
 	{
 		Name:        SignalSudoersAllCommands,
 		Description: "sudoers user-spec record's command list contains the ALL token",
+		EmittedBy:   []string{"sudoers"},
+	},
+	{
+		Name:        SignalInterpreterRunsOrphanScript,
+		Description: "a packaged script interpreter (python3/perl/bash/...) runs a script-file argument that resolves to an orphan package-unowned path",
+		EmittedBy:   []string{"cron", "systemd"},
+	},
+	{
+		Name:        SignalSudoersNopasswdGtfobin,
+		Description: "NOPASSWD sudoers grant on a curated shell-escape GTFOBin (vi/less/awk/find/python/...), equivalent to NOPASSWD:ALL",
 		EmittedBy:   []string{"sudoers"},
 	},
 	{
@@ -233,6 +273,16 @@ var Signals = []SignalDef{
 	{
 		Name:        SignalSSHDAuthorizedKeysCommand,
 		Description: "sshd_config AuthorizedKeysCommand directive present (external authorized_keys helper)",
+		EmittedBy:   []string{"sshd"},
+	},
+	{
+		Name:        SignalSSHDPermitUserEnvironment,
+		Description: "sshd_config PermitUserEnvironment yes (lets ~/.ssh/environment set BASH_ENV/LD_PRELOAD -> login code exec)",
+		EmittedBy:   []string{"sshd"},
+	},
+	{
+		Name:        SignalSSHDEnvInjection,
+		Description: "sshd_config SetEnv/AcceptEnv references a code-exec env var (BASH_ENV/ENV/LD_PRELOAD/LD_LIBRARY_PATH/LD_AUDIT)",
 		EmittedBy:   []string{"sshd"},
 	},
 	{
@@ -287,6 +337,16 @@ var Signals = []SignalDef{
 		EmittedBy:   []string{"systemd"},
 	},
 	{
+		Name:        SignalSystemdGenerator,
+		Description: "record is an executable systemd generator (runs as root at early boot; no unit file) under a system-generators dir",
+		EmittedBy:   []string{"systemd"},
+	},
+	{
+		Name:        SignalSystemdAuxExecUnmanaged,
+		Description: "systemd ExecStartPre/Post/StopPost/Reload/Condition target is orphan, package-unowned or under a tmp dir (drop-in behavior injection)",
+		EmittedBy:   []string{"systemd"},
+	},
+	{
 		Name:        SignalSystemdInstallAliasExternal,
 		Description: "systemd unit's [Install] Alias= lists a target that resolves outside the walked loci",
 		EmittedBy:   []string{"systemd"},
@@ -310,6 +370,11 @@ var Signals = []SignalDef{
 	{
 		Name:        SignalKmodBlacklistDirective,
 		Description: "kmod record's directive verb is blacklist",
+		EmittedBy:   []string{"kmod"},
+	},
+	{
+		Name:        SignalKmodAutoload,
+		Description: "kmod line autoloads a module at boot; its resolved .ko is set as exec_target (pair with non_package_path for a planted-LKM rootkit)",
 		EmittedBy:   []string{"kmod"},
 	},
 
@@ -378,6 +443,16 @@ var Signals = []SignalDef{
 	{
 		Name:        SignalSgidBitSet,
 		Description: "file has the setgid bit (02000); pair with non_package_path for the T1548.001 implant shape",
+		EmittedBy:   []string{"suidbits"},
+	},
+	{
+		Name:        SignalFileCapabilitySet,
+		Description: "file carries a security.capability xattr (file capabilities) -- a privesc primitive no suid-bit scan sees",
+		EmittedBy:   []string{"suidbits"},
+	},
+	{
+		Name:        SignalFileCapPrivileged,
+		Description: "file capability permitted set includes a directly-privesc-capable cap (setuid/setgid/dac_override/sys_admin/sys_module/...)",
 		EmittedBy:   []string{"suidbits"},
 	},
 	{

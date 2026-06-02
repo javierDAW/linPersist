@@ -32,6 +32,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -83,6 +84,77 @@ const DefaultMaxFileSize = 1 << 20
 // Module collects kernel-module persistence sites.
 type Module struct {
 	opts Options
+
+	// koIndex maps a kernel-module name to the logical path of its
+	// compiled .ko, parsed once from /lib/modules/<ver>/modules.dep.
+	// Lets an autoload/options/softdep directive resolve to a real file
+	// for provenance without walking the whole /lib/modules tree.
+	koOnce  sync.Once
+	koIndex map[string]string
+}
+
+// moduleKOPath returns the logical .ko path for a module name, or "".
+// The index is built lazily from every /lib/modules/<ver>/modules.dep:
+// each left-hand-side entry "kernel/.../foo.ko[.xz]:" maps basename
+// "foo" -> "/lib/modules/<ver>/kernel/.../foo.ko[.xz]". First-wins.
+func (m *Module) moduleKOPath(name string) string {
+	m.koOnce.Do(func() {
+		m.koIndex = map[string]string{}
+		vers, err := os.ReadDir(m.resolve("/lib/modules"))
+		if err != nil {
+			return
+		}
+		for _, v := range vers {
+			if !v.IsDir() {
+				continue
+			}
+			depLogical := filepath.Join("/lib/modules", v.Name(), "modules.dep")
+			data, err := core.ReadFileCapped(m.resolve(depLogical), 64*1024*1024)
+			if err != nil {
+				continue
+			}
+			for _, line := range strings.Split(string(data), "\n") {
+				colon := strings.IndexByte(line, ':')
+				if colon <= 0 {
+					continue
+				}
+				rel := strings.TrimSpace(line[:colon])
+				base := filepath.Base(rel)
+				base = strings.TrimSuffix(base, ".xz")
+				base = strings.TrimSuffix(base, ".zst")
+				base = strings.TrimSuffix(base, ".gz")
+				base = strings.TrimSuffix(base, ".ko")
+				name := normalizeModName(base)
+				if name == "" {
+					continue
+				}
+				if _, dup := m.koIndex[name]; !dup {
+					m.koIndex[name] = filepath.Join("/lib/modules", v.Name(), rel)
+				}
+			}
+		}
+	})
+	return m.koIndex[normalizeModName(name)]
+}
+
+// normalizeModName canonicalizes a module name: kernel/modprobe treat
+// '-' and '_' interchangeably, so the index and lookups use '_'.
+func normalizeModName(s string) string {
+	return strings.ReplaceAll(strings.TrimSpace(s), "-", "_")
+}
+
+// resolveModuleKO sets rec.ExecTarget to the named module's compiled .ko
+// (and hashes it) when the module resolves via modules.dep, so the
+// trailing AnnotateExecTargetProvenance flags a package-unowned .ko.
+func (m *Module) resolveModuleKO(rec *core.Record, modName string) {
+	ko := m.moduleKOPath(modName)
+	if ko == "" {
+		return
+	}
+	rec.ExecTarget = ko
+	if sum, ok := core.HashFileCapped(m.resolve(ko), m.opts.MaxFileSize); ok {
+		rec.ExecTargetSHA256 = sum
+	}
 }
 
 // New constructs a kmod Module.
@@ -215,7 +287,7 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 		}))
 		return
 	}
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
@@ -270,16 +342,32 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, raw string, kind 
 					rec.Signals = appendUnique(rec.Signals,
 						core.SignalKmodInstallDirective)
 					rec.ExecTarget = et
+					if strings.HasPrefix(et, "/") {
+						if sum, ok := core.HashFileCapped(m.resolve(et), m.opts.MaxFileSize); ok {
+							rec.ExecTargetSHA256 = sum
+						}
+					}
 					rec.Signals = m.execTargetSignals(rec.Signals, et)
 				}
 			}
 		case "blacklist":
 			rec.Signals = appendUnique(rec.Signals, core.SignalKmodBlacklistDirective)
+		case "options", "softdep":
+			// rest's first token is the module the directive configures;
+			// resolve it to its .ko so a directive referencing a planted,
+			// package-unowned module surfaces via non_package_path.
+			if mod, _ := splitFirstToken(rest); mod != "" {
+				m.resolveModuleKO(&rec, mod)
+			}
 		}
 	default:
-		// kindModulesList / kindModulesLoad: each line is a module
-		// name + optional kernel parameters; no exec_target, no
-		// directive-class signals.
+		// kindModulesList / kindModulesLoad: a bare module name (+ optional
+		// params) scheduled to auto-load at boot. Resolve it to its .ko and
+		// flag the autoload so a non-package .ko (planted LKM) surfaces.
+		if mod, _ := splitFirstToken(canon); mod != "" {
+			rec.Signals = appendUnique(rec.Signals, core.SignalKmodAutoload)
+			m.resolveModuleKO(&rec, mod)
+		}
 	}
 
 	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)

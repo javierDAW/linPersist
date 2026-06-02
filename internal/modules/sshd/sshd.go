@@ -159,7 +159,7 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 		}))
 		return
 	}
-	raw, err := os.ReadFile(real)
+	raw, err := core.ReadFileCapped(real, m.opts.MaxFileSize)
 	if err != nil {
 		emit(m.envelopeRecord(logical, info, []core.RecordError{
 			{Field: "content_sha256", Code: errnoCode(err), Msg: err.Error()},
@@ -228,6 +228,11 @@ func (m *Module) recordFromDirective(logical string, info os.FileInfo, pl parsed
 	}
 	if et := directiveExecTarget(pl.keyword, pl.value); et != "" {
 		rec.ExecTarget = et
+		if strings.HasPrefix(et, "/") {
+			if sum, ok := core.HashFileCapped(m.resolve(et), m.opts.MaxFileSize); ok {
+				rec.ExecTargetSHA256 = sum
+			}
+		}
 	}
 	core.FillFileMeta(&rec, info)
 	signals := m.baseSignals(info, logical)
