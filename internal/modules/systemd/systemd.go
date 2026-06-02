@@ -716,11 +716,18 @@ func (m *Module) auxExecUnmanaged(sections []Section) bool {
 					return true
 				}
 			}
-			if _, err := os.Stat(m.resolve(tok)); errors.Is(err, fs.ErrNotExist) {
-				return true // orphan target
+			// Require the target to EXIST and be package-unowned: a parked
+			// payload, NOT a vendor unit's reference to an optional/absent
+			// binary. The latter (emergency.service, rescue.service, etc.)
+			// floods on minimal/container bases where the optional binary
+			// is simply not installed -- the lab caught exactly that. A
+			// missing target is therefore skipped (its anomaly, if any, is
+			// the main ExecStart's exec_target_orphan, not an aux hook).
+			if _, err := os.Stat(m.resolve(tok)); err != nil {
+				continue
 			}
 			if _, st := m.opts.Provenance.LookupPath(tok); st == core.PkgStatusOrphan {
-				return true // package-unowned target
+				return true // present but package-unowned -> parked payload
 			}
 		}
 	}
