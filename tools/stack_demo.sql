@@ -362,6 +362,7 @@ WHERE
   OR /* sshd_root_login_enabled */ list_contains(signals, 'sshd_permit_root_login_yes')
   OR /* sshd_authorized_keys_command_external */ (list_contains(signals, 'sshd_authorized_keys_command') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')))
   OR /* udev_run_with_non_package */ (list_contains(signals, 'udev_run_directive') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')))
+  OR /* kmod_autoload_unpackaged_module */ (list_contains(signals, 'kmod_autoload') AND list_contains(signals, 'non_package_path') AND module = 'kmod')
   OR /* ssh_sshrc_unmanaged_exec */ (list_contains(signals, 'sshrc_present') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')))
   OR /* file_capability_outside_package */ (list_contains(signals, 'file_cap_privileged') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan')))
   OR /* systemd_generator_unmanaged */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan')) AND module = 'systemd' AND site_class = 'systemd.generator')

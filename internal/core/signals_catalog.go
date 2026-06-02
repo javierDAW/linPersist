@@ -362,6 +362,11 @@ var Signals = []SignalDef{
 		Description: "kmod record's directive verb is blacklist",
 		EmittedBy:   []string{"kmod"},
 	},
+	{
+		Name:        SignalKmodAutoload,
+		Description: "kmod line autoloads a module at boot; its resolved .ko is set as exec_target (pair with non_package_path for a planted-LKM rootkit)",
+		EmittedBy:   []string{"kmod"},
+	},
 
 	// --- udev ---
 

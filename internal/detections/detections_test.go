@@ -378,6 +378,14 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			want: nil,
 		},
 		{
+			name: "autoloaded kernel module resolves to an unpackaged .ko -> rootkit rule",
+			rec: core.Record{
+				Module:  "kmod",
+				Signals: []string{core.SignalKmodAutoload, core.SignalNonPackagePath},
+			},
+			want: []string{"kmod_autoload_unpackaged_module"},
+		},
+		{
 			name: "systemd drop-in ExecStartPre to an unmanaged target -> systemd_aux_exec_unmanaged",
 			rec: core.Record{
 				Module:  "systemd",
