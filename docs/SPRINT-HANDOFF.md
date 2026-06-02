@@ -317,6 +317,15 @@ lab-re-validated — the realistic lab is torn down):
     (`provenance_verify_test.go`). The Rocky lab exercises the positive
     rpm path end-to-end (re-run round 21 with the new binary to observe
     `package_file_tampered` on `/etc/crontab` via FILEDIGESTS).
+    Cross-distro re-confirmed on round 26 (Rocky): all the duel-1/2
+    detections fire identically via rpm provenance/FILEDIGESTS. The rpm
+    `%config` residual FP (package_owned_file_tampered) is empirically
+    just TWO files on a clean Rocky GenericCloud host -- `/etc/sudoers`
+    and `/etc/cloud/cloud.cfg` (cloud-init edits both; `rpm -V` reports
+    them too). FILEVERIFYFLAGS already cut the round-21 baseline from 6
+    files to these 2; they are fleet-identical (not singletons), so LFA
+    is the discriminator and the medium severity is correct. No further
+    fix -- this is the documented `%config` boundary.
 
 - **Red/blue duel hardening** (4-agent Workflow: APT intrusion specialist
   vs blue-team hunter, adjudicated by two architects). 11 real-TTP
