@@ -366,6 +366,16 @@ var Signals = []SignalDef{
 		Description: "systemd .path unit arms a filesystem watch that activates a unit (watched path + target in Relations) — backend/Q12 correlation marker, not a Q7 verdict",
 		EmittedBy:   []string{"systemd"},
 	},
+	{
+		Name:        SignalSystemdTimerTrigger,
+		Description: "systemd .timer unit schedules activation of a unit (OnCalendar/OnBootSec/...; activated target in Relations) — backend/Q12 correlation marker, not a Q7 verdict",
+		EmittedBy:   []string{"systemd"},
+	},
+	{
+		Name:        SignalSystemdSocketTrigger,
+		Description: "systemd .socket unit arms socket activation of a unit (Listen*; activated Service in Relations) — backend/Q12 correlation marker, not a Q7 verdict",
+		EmittedBy:   []string{"systemd"},
+	},
 
 	// --- sysv.init ---
 

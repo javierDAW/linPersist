@@ -664,12 +664,38 @@ var pathWatchKeys = []string{
 	"PathModified", "PathChanged", "PathExists", "PathExistsGlob", "DirectoryNotEmpty",
 }
 
+// timerArmKeys are the [Timer] directives that schedule activation. A
+// .timer with any of these starts its activated unit (Unit=, or the
+// implicit <name>.service) -- the #1 cron-replacement persistence shape.
+var timerArmKeys = []string{
+	"OnCalendar", "OnBootSec", "OnStartupSec", "OnActiveSec", "OnUnitActiveSec", "OnUnitInactiveSec",
+}
+
+// socketListenKeys are the [Socket] directives that arm socket activation.
+// A .socket with any of these starts its activated unit (Service=, or the
+// implicit <name>.service) on the first connection.
+var socketListenKeys = []string{
+	"ListenStream", "ListenDatagram", "ListenSequentialPacket", "ListenFIFO",
+	"ListenSpecial", "ListenNetlink", "ListenMessageQueue", "ListenUSBFunction",
+}
+
 // relationEdges extracts the trigger/dependency edges this unit declares
 // and returns them as "Key=Value" strings plus any marker signals. The
 // edges feed backend/Q12 chain reconstruction; they are never a Q7 input.
+//
+// Coverage: [Unit] OnFailure=/Requires=/Wants=, [Path] watch->Unit=,
+// [Timer] schedule->Unit=, [Socket] listen->Service=, and [Service]
+// EnvironmentFile=. The .timer and .socket edges complete the activation
+// surface the .path branch started: the payload unit's ExecStart already
+// surfaces via the orphan/non_package rules; these edges let the backend
+// reconstruct trigger->payload for .timer/.socket the same way it does for
+// .path. EnvironmentFile= is a pure correlation crumb (the file's RHS shell
+// stays unparsed per the inline-code boundary, scope.md 8.1).
 func (m *Module) relationEdges(sections []Section, logical string) (edges []string, sigs []string) {
 	var hasOnFailure, hasPathWatch, pathUnitExplicit bool
-	var pathUnit string
+	var hasTimerArm, timerUnitExplicit bool
+	var hasSocketListen, socketUnitExplicit bool
+	var pathUnit, timerUnit, socketUnit string
 	for _, s := range sections {
 		switch {
 		case strings.EqualFold(s.Name, "Unit"):
@@ -699,6 +725,38 @@ func (m *Module) relationEdges(sections []Section, logical string) (edges []stri
 					pathUnitExplicit = true
 				}
 			}
+		case strings.EqualFold(s.Name, "Timer"):
+			for _, e := range s.Entries {
+				for _, k := range timerArmKeys {
+					if strings.EqualFold(e.Key, k) && strings.TrimSpace(e.Value) != "" {
+						hasTimerArm = true
+					}
+				}
+				if strings.EqualFold(e.Key, "Unit") && strings.TrimSpace(e.Value) != "" {
+					timerUnit = strings.TrimSpace(e.Value)
+					timerUnitExplicit = true
+				}
+			}
+		case strings.EqualFold(s.Name, "Socket"):
+			for _, e := range s.Entries {
+				for _, k := range socketListenKeys {
+					if strings.EqualFold(e.Key, k) && strings.TrimSpace(e.Value) != "" {
+						hasSocketListen = true
+					}
+				}
+				if strings.EqualFold(e.Key, "Service") && strings.TrimSpace(e.Value) != "" {
+					socketUnit = strings.TrimSpace(e.Value)
+					socketUnitExplicit = true
+				}
+			}
+		case strings.EqualFold(s.Name, "Service"):
+			for _, e := range s.Entries {
+				if strings.EqualFold(e.Key, "EnvironmentFile") && strings.TrimSpace(e.Value) != "" {
+					// Strip a leading "-" (optional-file marker) like systemd does.
+					v := strings.TrimPrefix(strings.TrimSpace(e.Value), "-")
+					edges = append(edges, "EnvironmentFile="+v)
+				}
+			}
 		}
 	}
 	if hasPathWatch {
@@ -710,6 +768,24 @@ func (m *Module) relationEdges(sections []Section, logical string) (edges []stri
 		}
 		sigs = append(sigs, core.SignalSystemdPathTrigger)
 	}
+	if hasTimerArm {
+		if !timerUnitExplicit {
+			timerUnit = implicitUnitFor(logical, ".timer")
+		}
+		if timerUnit != "" {
+			edges = append(edges, "Unit="+timerUnit)
+		}
+		sigs = append(sigs, core.SignalSystemdTimerTrigger)
+	}
+	if hasSocketListen {
+		if !socketUnitExplicit {
+			socketUnit = implicitUnitFor(logical, ".socket")
+		}
+		if socketUnit != "" {
+			edges = append(edges, "Unit="+socketUnit)
+		}
+		sigs = append(sigs, core.SignalSystemdSocketTrigger)
+	}
 	if hasOnFailure {
 		sigs = append(sigs, core.SignalSystemdHasOnFailure)
 	}
@@ -720,9 +796,16 @@ func (m *Module) relationEdges(sections []Section, logical string) (edges []stri
 // carries no explicit [Path] Unit=: systemd defaults to the same
 // basename with a .service suffix (monitor.path → monitor.service).
 func implicitPathUnit(logical string) string {
+	return implicitUnitFor(logical, ".path")
+}
+
+// implicitUnitFor returns the implicit <name>.service a trigger unit
+// activates when it names no explicit target: systemd maps foo.<ext> to
+// foo.service. Returns "" if the basename does not carry the extension.
+func implicitUnitFor(logical, ext string) string {
 	base := filepath.Base(logical)
-	if strings.HasSuffix(base, ".path") {
-		return strings.TrimSuffix(base, ".path") + ".service"
+	if strings.HasSuffix(base, ext) {
+		return strings.TrimSuffix(base, ext) + ".service"
 	}
 	return ""
 }
