@@ -48,6 +48,17 @@ type Record struct {
 	ExecTargetPkgStatus string `json:"exec_target_pkg_status,omitempty"`
 	ExecTargetSigned    *bool  `json:"exec_target_signed,omitempty"`
 
+	// Relations carries structured trigger/dependency edges this artifact
+	// declares to OTHER units or paths, for backend / Q12 chain
+	// reconstruction (NOT a Q7 verdict input). Each entry is a
+	// "Key=Value" string, e.g. "OnFailure=evil.service",
+	// "PathModified=/tmp/.trigger", "Unit=payload.service". Populated by
+	// the systemd module; empty (omitted) for every other module. The
+	// payload arm of a trigger→payload chain is flagged independently by
+	// the exec/orphan rules; this field lets the backend join the
+	// innocuous-looking trigger unit to it.
+	Relations []string `json:"relations,omitempty"`
+
 	Signals []string      `json:"signals,omitempty"`
 	Errors  []RecordError `json:"errors,omitempty"`
 }

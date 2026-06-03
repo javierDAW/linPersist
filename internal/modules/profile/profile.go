@@ -270,7 +270,19 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 	// /usr/local/bin/sync split into two Q12 rows because the profile
 	// arm carried no ExecTarget. See v0.4.0 sprint task #14.
 	var execTargetSigs []string
-	if target := core.ExtractExecTarget(raw); target != "" {
+	// A BASH_ENV=/ENV= per-shell source hook takes precedence over a
+	// plain source/exec line: it is the higher-signal persistence shape
+	// (runs on EVERY non-interactive shell, not just login) and is the
+	// primary reason /etc/environment is in scope. ExtractExecTarget
+	// returns "" on /etc/environment (KEY=value content, no source/exec
+	// lead) so on that locus only this branch can populate ExecTarget.
+	if hook := core.ExtractEnvHookTarget(raw); hook != "" {
+		rec.ExecTarget = hook
+		execTargetSigs = append([]string{core.SignalEnvHookSet}, m.execTargetStatSignals(hook)...)
+		if sum, ok := core.HashFileCapped(m.resolve(hook), m.opts.MaxFileSize); ok {
+			rec.ExecTargetSHA256 = sum
+		}
+	} else if target := core.ExtractExecTarget(raw); target != "" {
 		rec.ExecTarget = target
 		execTargetSigs = m.execTargetStatSignals(target)
 		// Hash the payload so Q6 can stack a worm that drops the same
@@ -408,6 +420,17 @@ func (m *Module) baseSignals(info os.FileInfo, logical string) []string {
 // to fire on the profile arm of a three-arm worm.
 func (m *Module) execTargetStatSignals(target string) []string {
 	var out []string
+	// A target living under a tmp-class path is the textbook dropped-
+	// payload shape; emit interpreter_in_tmp uniformly with every other
+	// module so payload_under_tmp_via_persistence (and the env-hook /
+	// trap rules) can consume it. Judged on the literal path, not the
+	// stat result, so it fires even when the target is absent.
+	for _, prefix := range core.TmpDirs {
+		if strings.HasPrefix(target, prefix) {
+			out = append(out, core.SignalInterpreterInTmp)
+			break
+		}
+	}
 	// Root-resolved so orphan / recent-mtime are judged against the
 	// collected image under --root, not the analyst host.
 	info, err := os.Stat(m.resolve(target))

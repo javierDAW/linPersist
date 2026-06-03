@@ -131,6 +131,22 @@ const (
 	// /etc/ld.so.preload when the file is non-empty.
 	SignalLDPreloadSet = "ld_preload_set"
 
+	// SignalLDLibraryShadowsPackaged fires on an ld.so.conf / ld.so.conf.d
+	// search-path directive that adds a NON-standard directory (not under
+	// /lib, /usr/lib, /lib64, /usr/lib64 or /usr/local/lib) which contains
+	// a *.so* whose basename collides with a package-owned library on a
+	// standard library path. The dynamic linker resolves a SONAME to the
+	// first matching file across its search dirs, so a planted libfoo.so.N
+	// in an attacker-controlled dir placed ahead of the system one hijacks
+	// every process that loads that library (T1574.006, library shadowing
+	// via ld.so.conf.d). Bare path-injection — a non-standard dir whose
+	// libraries collide with nothing — is NOT flagged (it floods on legit
+	// /opt/app/lib installs); only the package-shadowing collision is the
+	// implant tell. Residual FP class: a locally source-built library
+	// (e.g. a custom OpenSSL under /opt) that legitimately shadows the
+	// distro one — rare, and itself worth surfacing.
+	SignalLDLibraryShadowsPackaged = "ld_library_shadows_packaged"
+
 	// SignalExecTargetOrphan set when exec_target points to a file that
 	// does not exist on disk.
 	SignalExecTargetOrphan = "exec_target_orphan"
@@ -374,6 +390,26 @@ const (
 	// pattern to SignalSystemdExternalUnitSymlink.
 	SignalSystemdInstallAliasExternal = "systemd_install_alias_external"
 
+	// SignalSystemdHasOnFailure set when a unit's [Unit] section declares
+	// OnFailure=. systemd starts the named unit(s) whenever this one
+	// enters the failed state — an attacker who can make a routinely-run
+	// unit fail (or who points OnFailure= at a payload service) gets
+	// trigger-on-failure persistence. The named target(s) are recorded as
+	// Relations edges. This is a BACKEND/Q12 correlation marker, NOT a Q7
+	// verdict: the payload service itself is flagged by the exec/orphan
+	// rules; this marks the trigger arm so the backend joins the two.
+	SignalSystemdHasOnFailure = "systemd_has_onfailure"
+
+	// SignalSystemdPathTrigger set on a .path unit that arms a filesystem
+	// watch (PathModified=/PathChanged=/PathExists=/PathExistsGlob=/
+	// DirectoryNotEmpty=). When the watched path event fires, systemd
+	// starts the activated unit (Unit=, or the implicit <name>.service) —
+	// the file-trigger persistence vector (an innocuous .path watching a
+	// dropfile that launches a payload). The watched path(s) and the
+	// activated unit are recorded as Relations edges. BACKEND/Q12 marker,
+	// not a Q7 verdict (the activated service is flagged on its own).
+	SignalSystemdPathTrigger = "systemd_path_trigger"
+
 	// SignalSysvExternalInitSymlink set on sysv.init records whose
 	// locus is a symlink in /etc/rc[0-6].d/ (or the RHEL alternative
 	// /etc/rc.d/rc[0-6].d/) resolving to a target file outside the
@@ -516,4 +552,20 @@ const (
 	SignalTrapCommand      = "trap_command"
 	SignalTrapExitHandler  = "trap_exit_handler"
 	SignalTrapCommandInTmp = "trap_command_in_tmp"
+
+	// SignalEnvHookSet fires on a profile-class file (most dangerously
+	// /etc/environment, which PAM's pam_env reads for EVERY login,
+	// interactive or not) that assigns BASH_ENV= or ENV= to an
+	// absolute path. bash sources $BASH_ENV at the start of every
+	// non-interactive shell, and POSIX sh sources $ENV — so the named
+	// file is an exec primitive that runs on every script/cron/login
+	// invocation. The assignment is recorded with the RHS as ExecTarget
+	// so the existing exec_target signals (non_package_path /
+	// exec_target_orphan / interpreter_in_tmp) co-fire. Existence alone
+	// is informational (some dev setups set BASH_ENV legitimately); the
+	// verdict comes from pairing it with those co-indicators and LFA
+	// singleton stacking. PROMPT_COMMAND and non-absolute / $-expanded
+	// RHS values stay signal-free (arbitrary inline code, not a
+	// resolvable target) — left to LFA. MITRE T1546.004.
+	SignalEnvHookSet = "env_hook_set"
 )

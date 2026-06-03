@@ -57,8 +57,8 @@ var Signals = []SignalDef{
 		Name:        SignalRecentMtime7d,
 		Description: "artifact mtime within the last 7 days (UTC, evaluated against collected_at)",
 		EmittedBy: []string{
-			"atjobs", "cloudinit", "cron", "dbus", "grub", "k8sstatic", "kmod", "ldso",
-			"motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
+			"atjobs", "cloudinit", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod",
+			"ldso", "motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
 			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
 			"linger", "tmpfiles", "sysusers",
 		},
@@ -67,8 +67,8 @@ var Signals = []SignalDef{
 		Name:        SignalRecentMtime30d,
 		Description: "artifact mtime within the last 30 days but outside the 7-day window",
 		EmittedBy: []string{
-			"atjobs", "cloudinit", "cron", "dbus", "grub", "k8sstatic", "kmod", "ldso",
-			"motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
+			"atjobs", "cloudinit", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod",
+			"ldso", "motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
 			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
 			"linger", "tmpfiles", "sysusers",
 		},
@@ -104,8 +104,8 @@ var Signals = []SignalDef{
 		Name:        SignalWorldWritable,
 		Description: "artifact has the 0o002 mode bit set",
 		EmittedBy: []string{
-			"atjobs", "cloudinit", "cron", "dbus", "grub", "k8sstatic", "kmod", "ldso",
-			"motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
+			"atjobs", "cloudinit", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod",
+			"ldso", "motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
 			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
 			"linger", "tmpfiles", "sysusers",
 		},
@@ -156,13 +156,18 @@ var Signals = []SignalDef{
 		Name:        SignalInterpreterInTmp,
 		Description: "exec_target lives under /tmp, /var/tmp, /dev/shm or /run/shm",
 		EmittedBy: []string{
-			"cron", "dbus", "grub", "kmod", "ldso", "pam", "passwd", "ssh", "sshd",
-			"systemd", "sysv", "udev", "xdg",
+			"cron", "dbus", "grub", "kmod", "ldso", "pam", "passwd", "profile",
+			"ssh", "sshd", "systemd", "sysv", "udev", "xdg",
 		},
 	},
 	{
 		Name:        SignalLDPreloadSet,
 		Description: "non-empty line in /etc/ld.so.preload — every record from that file carries it",
+		EmittedBy:   []string{"ldso"},
+	},
+	{
+		Name:        SignalLDLibraryShadowsPackaged,
+		Description: "ld.so.conf.d search-path adds a non-standard dir holding a *.so* whose basename collides with a package-owned library on a standard path (T1574.006 library shadowing)",
 		EmittedBy:   []string{"ldso"},
 	},
 	{
@@ -177,9 +182,9 @@ var Signals = []SignalDef{
 		Name:        SignalNonRootOwner,
 		Description: "artifact under /etc, /usr, /lib, /bin, /sbin is owned by uid != 0",
 		EmittedBy: []string{
-			"cloudinit", "cron", "dbus", "grub", "k8sstatic", "kmod", "ldso", "motd",
-			"netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd", "sudoers",
-			"suidbits", "systemd", "sysv", "udev", "xdg",
+			"cloudinit", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod", "ldso",
+			"motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
+			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
 			"linger", "tmpfiles", "sysusers",
 		},
 	},
@@ -351,6 +356,16 @@ var Signals = []SignalDef{
 		Description: "systemd unit's [Install] Alias= lists a target that resolves outside the walked loci",
 		EmittedBy:   []string{"systemd"},
 	},
+	{
+		Name:        SignalSystemdHasOnFailure,
+		Description: "systemd unit declares [Unit] OnFailure= (trigger-on-failure edge; named target in Relations) — backend/Q12 correlation marker, not a Q7 verdict",
+		EmittedBy:   []string{"systemd"},
+	},
+	{
+		Name:        SignalSystemdPathTrigger,
+		Description: "systemd .path unit arms a filesystem watch that activates a unit (watched path + target in Relations) — backend/Q12 correlation marker, not a Q7 verdict",
+		EmittedBy:   []string{"systemd"},
+	},
 
 	// --- sysv.init ---
 
@@ -468,6 +483,11 @@ var Signals = []SignalDef{
 	{
 		Name:        SignalTrapCommandInTmp,
 		Description: "profile-class trap directive's CMD resolves under /tmp / /var/tmp / /dev/shm",
+		EmittedBy:   []string{"profile"},
+	},
+	{
+		Name:        SignalEnvHookSet,
+		Description: "profile-class file assigns BASH_ENV=/ENV= to an absolute path (per-shell source hook; T1546.004)",
 		EmittedBy:   []string{"profile"},
 	},
 }

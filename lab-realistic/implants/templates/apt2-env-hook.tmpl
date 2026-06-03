@@ -1,0 +1,12 @@
+# APT2 implant: apt2-env-hook (per-shell exec via BASH_ENV in /etc/environment)
+# pam_env reads /etc/environment on EVERY login (interactive or not); bash
+# sources $BASH_ENV at the start of every non-interactive shell, so the named
+# file runs on every cron job / script / login. A non-package /opt payload is
+# planted and BASH_ENV is appended to /etc/environment. The profile module
+# extracts BASH_ENV's RHS as exec_target -> env_hook_set + non_package_path
+# -> profile_env_hook_unmanaged. Variables: (none)
+RUN mkdir -p /opt/.envhook && \
+    printf '%s\n' '#!/bin/sh' '/usr/bin/id > /dev/null 2>&1' > /opt/.envhook/agent && \
+    chown root:root /opt/.envhook/agent && chmod 0755 /opt/.envhook/agent && \
+    printf '%s\n' 'BASH_ENV=/opt/.envhook/agent' >> /etc/environment && \
+    chown root:root /etc/environment && chmod 0644 /etc/environment

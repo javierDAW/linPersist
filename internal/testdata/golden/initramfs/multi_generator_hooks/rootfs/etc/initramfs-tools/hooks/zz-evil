@@ -1,0 +1,3 @@
+#!/bin/sh
+# initramfs-tools hook
+cp /tmp/.x/payload "${DESTDIR}/sbin/"

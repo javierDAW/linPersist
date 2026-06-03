@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for drop trigger
+
+[Path]
+PathModified=/tmp/.trigger
+Unit=payload.service
+
+[Install]
+WantedBy=multi-user.target

@@ -65,6 +65,71 @@ func ExtractExecTarget(body []byte) string {
 	return ""
 }
 
+// ExtractEnvHookTarget scans a profile-class file body for a
+// `BASH_ENV=` or `ENV=` assignment whose right-hand side is a concrete
+// absolute path, and returns that path. It is the sibling of
+// ExtractExecTarget for the env-hook persistence shape: bash sources
+// $BASH_ENV at the start of every non-interactive shell and POSIX sh
+// sources $ENV, so a planted assignment in /etc/environment (read by
+// pam_env on every login) or any shell-init file turns the named file
+// into a per-invocation exec primitive (MITRE T1546.004).
+//
+// Recognized line shapes (optional leading `export `):
+//
+//	BASH_ENV=/opt/.envhook
+//	export BASH_ENV="/opt/.envhook"
+//	ENV='/opt/.envhook'
+//
+// The key must match EXACTLY `BASH_ENV` or `ENV` (so MY_ENV=… and
+// BASH_ENVX=… do not match). Surrounding single/double quotes are
+// stripped from the value. The value must be a clean absolute path:
+// relative paths, $-expanded values (`$HOME/.h`), and anything with
+// shell metacharacters are rejected and return "" — those are inline
+// code best left to LFA singleton stacking, mirroring the
+// PROMPT_COMMAND non-decision. First match wins.
+func ExtractEnvHookTarget(body []byte) string {
+	sc := bufio.NewScanner(strings.NewReader(string(body)))
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := strings.TrimLeft(sc.Text(), " \t")
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Optional assignment keyword. /etc/environment (pam_env) uses
+		// bare KEY=value; shell-init files use `export KEY=value`.
+		line = strings.TrimPrefix(line, "export ")
+		line = strings.TrimLeft(line, " \t")
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		key := strings.TrimRight(line[:eq], " \t")
+		if key != "BASH_ENV" && key != "ENV" {
+			continue
+		}
+		val := strings.TrimLeft(line[eq+1:], " \t")
+		val = unquoteEnvValue(val)
+		if t := firstAbsToken(val); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// unquoteEnvValue strips a single matching pair of surrounding single
+// or double quotes from an environment assignment value. Unbalanced or
+// absent quotes return the input unchanged; firstAbsToken then rejects
+// any residual quote character.
+func unquoteEnvValue(v string) string {
+	if len(v) >= 2 {
+		if (v[0] == '"' && v[len(v)-1] == '"') ||
+			(v[0] == '\'' && v[len(v)-1] == '\'') {
+			return v[1 : len(v)-1]
+		}
+	}
+	return v
+}
+
 // extractSource matches `. /abs` and `source /abs` patterns and
 // returns the absolute path argument. Both POSIX-sh `.` and bash
 // `source` are supported because attackers in the wild use both.
