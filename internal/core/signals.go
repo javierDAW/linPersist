@@ -390,6 +390,26 @@ const (
 	// pattern to SignalSystemdExternalUnitSymlink.
 	SignalSystemdInstallAliasExternal = "systemd_install_alias_external"
 
+	// SignalSystemdHasOnFailure set when a unit's [Unit] section declares
+	// OnFailure=. systemd starts the named unit(s) whenever this one
+	// enters the failed state — an attacker who can make a routinely-run
+	// unit fail (or who points OnFailure= at a payload service) gets
+	// trigger-on-failure persistence. The named target(s) are recorded as
+	// Relations edges. This is a BACKEND/Q12 correlation marker, NOT a Q7
+	// verdict: the payload service itself is flagged by the exec/orphan
+	// rules; this marks the trigger arm so the backend joins the two.
+	SignalSystemdHasOnFailure = "systemd_has_onfailure"
+
+	// SignalSystemdPathTrigger set on a .path unit that arms a filesystem
+	// watch (PathModified=/PathChanged=/PathExists=/PathExistsGlob=/
+	// DirectoryNotEmpty=). When the watched path event fires, systemd
+	// starts the activated unit (Unit=, or the implicit <name>.service) —
+	// the file-trigger persistence vector (an innocuous .path watching a
+	// dropfile that launches a payload). The watched path(s) and the
+	// activated unit are recorded as Relations edges. BACKEND/Q12 marker,
+	// not a Q7 verdict (the activated service is flagged on its own).
+	SignalSystemdPathTrigger = "systemd_path_trigger"
+
 	// SignalSysvExternalInitSymlink set on sysv.init records whose
 	// locus is a symlink in /etc/rc[0-6].d/ (or the RHEL alternative
 	// /etc/rc.d/rc[0-6].d/) resolving to a target file outside the

@@ -1,0 +1,9 @@
+[Unit]
+Description=Health check
+OnFailure=payload.service
+Wants=network-online.target
+Requires=dbus.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/true

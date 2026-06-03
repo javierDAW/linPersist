@@ -356,6 +356,16 @@ var Signals = []SignalDef{
 		Description: "systemd unit's [Install] Alias= lists a target that resolves outside the walked loci",
 		EmittedBy:   []string{"systemd"},
 	},
+	{
+		Name:        SignalSystemdHasOnFailure,
+		Description: "systemd unit declares [Unit] OnFailure= (trigger-on-failure edge; named target in Relations) — backend/Q12 correlation marker, not a Q7 verdict",
+		EmittedBy:   []string{"systemd"},
+	},
+	{
+		Name:        SignalSystemdPathTrigger,
+		Description: "systemd .path unit arms a filesystem watch that activates a unit (watched path + target in Relations) — backend/Q12 correlation marker, not a Q7 verdict",
+		EmittedBy:   []string{"systemd"},
+	},
 
 	// --- sysv.init ---
 

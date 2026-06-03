@@ -632,3 +632,83 @@ func TestResolveExecTarget_NoExecStart(t *testing.T) {
 		t.Fatalf("expected no ExecStart, got path=%q has=%v", path, has)
 	}
 }
+
+// hasStr reports membership in a string slice.
+func hasStr(ss []string, want string) bool {
+	for _, s := range ss {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestRelationEdges_PathExplicitUnit(t *testing.T) {
+	raw := []byte("[Path]\nPathModified=/tmp/.trigger\nUnit=payload.service\n")
+	secs, _ := ParseUnitFile(raw)
+	m := New(Options{})
+	edges, sigs := m.relationEdges(secs, "/etc/systemd/system/watch.path")
+	if !hasStr(edges, "PathModified=/tmp/.trigger") {
+		t.Errorf("missing watched-path edge; edges=%v", edges)
+	}
+	if !hasStr(edges, "Unit=payload.service") {
+		t.Errorf("missing explicit Unit edge; edges=%v", edges)
+	}
+	if !hasStr(sigs, core.SignalSystemdPathTrigger) {
+		t.Errorf("missing systemd_path_trigger; sigs=%v", sigs)
+	}
+	if hasStr(sigs, core.SignalSystemdHasOnFailure) {
+		t.Errorf("onfailure signal should not fire here")
+	}
+}
+
+func TestRelationEdges_PathImplicitUnit(t *testing.T) {
+	// No explicit Unit= → systemd activates <basename>.service.
+	raw := []byte("[Path]\nPathChanged=/var/spool/x\n")
+	secs, _ := ParseUnitFile(raw)
+	m := New(Options{})
+	edges, sigs := m.relationEdges(secs, "/etc/systemd/system/monitor.path")
+	if !hasStr(edges, "Unit=monitor.service") {
+		t.Errorf("implicit Unit edge wrong; edges=%v", edges)
+	}
+	if !hasStr(sigs, core.SignalSystemdPathTrigger) {
+		t.Errorf("missing systemd_path_trigger; sigs=%v", sigs)
+	}
+}
+
+func TestRelationEdges_OnFailureAndDeps(t *testing.T) {
+	raw := []byte("[Unit]\nOnFailure=evil.service\nWants=a.service b.service\nRequires=c.service\nAfter=network.target\n")
+	secs, _ := ParseUnitFile(raw)
+	m := New(Options{})
+	edges, sigs := m.relationEdges(secs, "/etc/systemd/system/hc.service")
+	for _, want := range []string{"OnFailure=evil.service", "Wants=a.service", "Wants=b.service", "Requires=c.service"} {
+		if !hasStr(edges, want) {
+			t.Errorf("missing edge %q; edges=%v", want, edges)
+		}
+	}
+	// After= is ordering-only and must NOT be captured.
+	for _, e := range edges {
+		if e == "After=network.target" {
+			t.Errorf("After= must not be an edge; edges=%v", edges)
+		}
+	}
+	if !hasStr(sigs, core.SignalSystemdHasOnFailure) {
+		t.Errorf("missing systemd_has_onfailure; sigs=%v", sigs)
+	}
+	if hasStr(sigs, core.SignalSystemdPathTrigger) {
+		t.Errorf("path_trigger should not fire on a service unit")
+	}
+}
+
+func TestRelationEdges_NoneOnPlainUnit(t *testing.T) {
+	raw := []byte("[Unit]\nDescription=plain\nAfter=network.target\n[Service]\nExecStart=/usr/bin/true\n")
+	secs, _ := ParseUnitFile(raw)
+	m := New(Options{})
+	edges, sigs := m.relationEdges(secs, "/etc/systemd/system/plain.service")
+	if len(edges) != 0 {
+		t.Errorf("plain unit should yield no edges; got %v", edges)
+	}
+	if len(sigs) != 0 {
+		t.Errorf("plain unit should yield no signals; got %v", sigs)
+	}
+}

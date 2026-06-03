@@ -934,6 +934,25 @@ implants:
     template: apt2-ldso-shadow.tmpl
     vars: {}
 
+  - id: apt2-systemd-pathunit
+    tier: L5
+    variant: armed
+    module: systemd
+    site_class: systemd.unit
+    description: |
+      systemd .path file-trigger persistence: an innocuous-looking
+      zz-watch.path watches /tmp/.cachetrigger and activates a payload
+      service (zz-payload.service, ExecStart=/opt/.p/agent) on change. The
+      relationship-edge work records the trigger->payload edge:
+      systemd_path_trigger + Relations [PathModified=..., Unit=zz-payload.service]
+      so the backend reconstructs the chain. BACKEND/Q12 correlation — NOT a
+      Q7 rule; the payload service surfaces on its own via LFA/non_package_path.
+    expected_signals: [systemd_path_trigger]
+    expected_caught_by: [Q1]
+    expected_q7_rule: null
+    template: apt2-systemd-pathunit.tmpl
+    vars: {}
+
   - id: apt2-sshd-setenv
     tier: L4
     variant: armed
