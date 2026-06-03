@@ -18,7 +18,7 @@ Overview
     info:                    0
   Q8 mtime spikes:           0
   Q11 orphan outside tmp:    2
-  MITRE coverage:            1/25 surfacing, 24 dormant (6 gap, 18 silent)
+  MITRE coverage:            1/27 surfacing, 26 dormant (6 gap, 20 silent)
   Q12 basename clusters:     0
 
 LFA stacking histogram
@@ -56,7 +56,7 @@ OS distribution
   ubuntu  3      6
   debian  1      3
 
-MITRE ATT&CK coverage (1/25 surfacing, 24 dormant (6 gap, 18 silent))
+MITRE ATT&CK coverage (1/27 surfacing, 26 dormant (6 gap, 20 silent))
 ---------------------------------------------------------------------
 Techniques declared in matrix.yaml cross-referenced with live records.
 surfacing             = at least one record carries the technique ID.
@@ -69,14 +69,14 @@ dormant_module_silent = no covering module emitted any record fleet-wide,
                         shape (e.g. grub/xdg in container fleets).
 
   technique  status                 records  hosts  site_classes
-  T1053.003  surfacing              13       6      cron.anacron, cron.d, cron.periodic, cron.user
+  T1053.003  surfacing              13       6      cron.anacron, cron.d, cron.periodic, cron.user, incron.d
   T1053.006  dormant_coverage_gap   0        0      systemd.timer
   T1098.007  dormant_coverage_gap   0        0      passwd.group.privileged
   T1136.001  dormant_coverage_gap   0        0      passwd.group, passwd.group.privileged, passwd.gshadow, passwd.shadow, passwd.user, systemd.sysusers
   T1543.002  dormant_coverage_gap   0        0      systemd.generator, systemd.tmpfiles, systemd.unit
-  T1546.004  dormant_coverage_gap   0        0      profile.system, profile.user, ssh.sshrc
+  T1546.004  dormant_coverage_gap   0        0      mail.aliases, profile.system, profile.user, ssh.sshrc
   T1546.005  dormant_coverage_gap   0        0      profile.trap.system, profile.trap.user
-  T1037      dormant_module_silent  0        0      motd
+  T1037      dormant_module_silent  0        0      motd, xsession.d
   T1037.004  dormant_module_silent  0        0      sysv.init
   T1053.001  dormant_module_silent  0        0      at.jobs
   T1098.004  dormant_module_silent  0        0      ssh.authkeys, sshd.config
@@ -84,16 +84,18 @@ dormant_module_silent = no covering module emitted any record fleet-wide,
   T1542.003  dormant_module_silent  0        0      kernel.grub.config, kernel.grub.dropin
   T1543      dormant_module_silent  0        0      cloudinit.config, cloudinit.script, dbus.session, dbus.system
   T1543.005  dormant_module_silent  0        0      k8s.static-pod
-  T1546      dormant_module_silent  0        0      network.dispatchers, systemd.linger, udev
+  T1546      dormant_module_silent  0        0      logrotate.d, network.dispatchers, systemd.linger, udev
+  T1546.016  dormant_module_silent  0        0      pkgmgr.hook
   T1547      dormant_module_silent  0        0      cloudinit.config, cloudinit.script
   T1547.006  dormant_module_silent  0        0      kmod
   T1547.013  dormant_module_silent  0        0      xdg.autostart
   T1548      dormant_module_silent  0        0      polkit.rules
   T1548.001  dormant_module_silent  0        0      filecap, sgid.system, sgid.user, suid.system, suid.user
   T1548.003  dormant_module_silent  0        0      sudoers
-  T1556      dormant_module_silent  0        0      sshd.config
+  T1556      dormant_module_silent  0        0      nss.nsswitch, sshd.config
   T1556.003  dormant_module_silent  0        0      pam
-  T1574.006  dormant_module_silent  0        0      ldso.conf, ldso.confd, ldso.preload
+  T1574      dormant_module_silent  0        0      sudo.conf.plugin
+  T1574.006  dormant_module_silent  0        0      environment.d, ldso.conf, ldso.confd, ldso.preload
 
 Signal distribution (fleet-wide)
 --------------------------------

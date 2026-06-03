@@ -17,6 +17,7 @@ import (
 	"github.com/jarmidaw/linpersist/internal/core"
 	"github.com/jarmidaw/linpersist/internal/modules/atjobs"
 	"github.com/jarmidaw/linpersist/internal/modules/cloudinit"
+	"github.com/jarmidaw/linpersist/internal/modules/confexec"
 	"github.com/jarmidaw/linpersist/internal/modules/cron"
 	"github.com/jarmidaw/linpersist/internal/modules/dbus"
 	"github.com/jarmidaw/linpersist/internal/modules/grub"
@@ -58,6 +59,7 @@ func All(prov core.Provenance, liveProcs core.LiveProcessSet) []core.Module {
 	return []core.Module{
 		atjobs.New(atjobs.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		cloudinit.New(cloudinit.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		confexec.New(confexec.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		cron.New(cron.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		dbus.New(dbus.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		grub.New(grub.Options{Provenance: prov, LiveProcessSet: liveProcs}),

@@ -57,7 +57,7 @@ var Signals = []SignalDef{
 		Name:        SignalRecentMtime7d,
 		Description: "artifact mtime within the last 7 days (UTC, evaluated against collected_at)",
 		EmittedBy: []string{
-			"atjobs", "cloudinit", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod",
+			"atjobs", "cloudinit", "confexec", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod",
 			"ldso", "motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
 			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
 			"linger", "tmpfiles", "sysusers",
@@ -67,7 +67,7 @@ var Signals = []SignalDef{
 		Name:        SignalRecentMtime30d,
 		Description: "artifact mtime within the last 30 days but outside the 7-day window",
 		EmittedBy: []string{
-			"atjobs", "cloudinit", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod",
+			"atjobs", "cloudinit", "confexec", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod",
 			"ldso", "motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
 			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
 			"linger", "tmpfiles", "sysusers",
@@ -77,7 +77,7 @@ var Signals = []SignalDef{
 		Name:        SignalRecentTargetMtime7d,
 		Description: "resolved exec_target's mtime is within the last 7 days",
 		EmittedBy: []string{
-			"cron", "kmod", "ldso", "pam", "passwd", "profile", "ssh", "systemd", "udev", "xdg",
+			"confexec", "cron", "kmod", "ldso", "pam", "passwd", "profile", "ssh", "systemd", "udev", "xdg",
 		},
 	},
 	{
@@ -104,7 +104,7 @@ var Signals = []SignalDef{
 		Name:        SignalWorldWritable,
 		Description: "artifact has the 0o002 mode bit set",
 		EmittedBy: []string{
-			"atjobs", "cloudinit", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod",
+			"atjobs", "cloudinit", "confexec", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod",
 			"ldso", "motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
 			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
 			"linger", "tmpfiles", "sysusers",
@@ -156,7 +156,7 @@ var Signals = []SignalDef{
 		Name:        SignalInterpreterInTmp,
 		Description: "exec_target lives under /tmp, /var/tmp, /dev/shm or /run/shm",
 		EmittedBy: []string{
-			"cron", "dbus", "grub", "kmod", "ldso", "pam", "passwd", "profile",
+			"confexec", "cron", "dbus", "grub", "kmod", "ldso", "pam", "passwd", "profile",
 			"ssh", "sshd", "systemd", "sysv", "udev", "xdg",
 		},
 	},
@@ -174,7 +174,7 @@ var Signals = []SignalDef{
 		Name:        SignalExecTargetOrphan,
 		Description: "exec_target points to a file that does not exist on disk",
 		EmittedBy: []string{
-			"cron", "dbus", "grub", "kmod", "ldso", "pam", "passwd", "profile", "ssh", "sshd",
+			"confexec", "cron", "dbus", "grub", "kmod", "ldso", "pam", "passwd", "profile", "ssh", "sshd",
 			"systemd", "sysv", "udev", "xdg",
 		},
 	},
@@ -182,7 +182,7 @@ var Signals = []SignalDef{
 		Name:        SignalNonRootOwner,
 		Description: "artifact under /etc, /usr, /lib, /bin, /sbin is owned by uid != 0",
 		EmittedBy: []string{
-			"cloudinit", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod", "ldso",
+			"cloudinit", "confexec", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod", "ldso",
 			"motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
 			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
 			"linger", "tmpfiles", "sysusers",
@@ -364,6 +364,16 @@ var Signals = []SignalDef{
 	{
 		Name:        SignalSystemdPathTrigger,
 		Description: "systemd .path unit arms a filesystem watch that activates a unit (watched path + target in Relations) — backend/Q12 correlation marker, not a Q7 verdict",
+		EmittedBy:   []string{"systemd"},
+	},
+	{
+		Name:        SignalSystemdTimerTrigger,
+		Description: "systemd .timer unit schedules activation of a unit (OnCalendar/OnBootSec/...; activated target in Relations) — backend/Q12 correlation marker, not a Q7 verdict",
+		EmittedBy:   []string{"systemd"},
+	},
+	{
+		Name:        SignalSystemdSocketTrigger,
+		Description: "systemd .socket unit arms socket activation of a unit (Listen*; activated Service in Relations) — backend/Q12 correlation marker, not a Q7 verdict",
 		EmittedBy:   []string{"systemd"},
 	},
 

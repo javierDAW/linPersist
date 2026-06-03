@@ -1,0 +1,6 @@
+# APT2 implant: apt2-logrotate (logrotate postrotate root exec). A postrotate
+# script block runs AS root from cron.daily on rotation. confexec logrotate.d
+# runs the block through the exec_target extractor and lifts the parked
+# /opt hook -> exec_target_orphan -> logrotate_script_unmanaged. Variables: (none)
+RUN printf '%s\n' '/var/log/zz.log {' '  weekly' '  postrotate' '    /opt/.lr/hook' '  endscript' '}' > /etc/logrotate.d/zz-archive && \
+    chown root:root /etc/logrotate.d/zz-archive && chmod 0644 /etc/logrotate.d/zz-archive

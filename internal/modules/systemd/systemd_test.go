@@ -712,3 +712,59 @@ func TestRelationEdges_NoneOnPlainUnit(t *testing.T) {
 		t.Errorf("plain unit should yield no signals; got %v", sigs)
 	}
 }
+
+func TestRelationEdges_TimerImplicitAndExplicit(t *testing.T) {
+	m := New(Options{})
+	// Implicit: backup.timer -> backup.service.
+	secs, _ := ParseUnitFile([]byte("[Timer]\nOnCalendar=daily\n"))
+	edges, sigs := m.relationEdges(secs, "/etc/systemd/system/backup.timer")
+	if !hasStr(edges, "Unit=backup.service") {
+		t.Errorf("implicit timer unit wrong; edges=%v", edges)
+	}
+	if !hasStr(sigs, core.SignalSystemdTimerTrigger) {
+		t.Errorf("missing systemd_timer_trigger; sigs=%v", sigs)
+	}
+	// Explicit Unit=.
+	secs, _ = ParseUnitFile([]byte("[Timer]\nOnBootSec=5min\nUnit=evil.service\n"))
+	edges, _ = m.relationEdges(secs, "/etc/systemd/system/zz.timer")
+	if !hasStr(edges, "Unit=evil.service") {
+		t.Errorf("explicit timer unit wrong; edges=%v", edges)
+	}
+}
+
+func TestRelationEdges_SocketImplicitAndExplicit(t *testing.T) {
+	m := New(Options{})
+	secs, _ := ParseUnitFile([]byte("[Socket]\nListenStream=4444\n"))
+	edges, sigs := m.relationEdges(secs, "/etc/systemd/system/beacon.socket")
+	if !hasStr(edges, "Unit=beacon.service") {
+		t.Errorf("implicit socket unit wrong; edges=%v", edges)
+	}
+	if !hasStr(sigs, core.SignalSystemdSocketTrigger) {
+		t.Errorf("missing systemd_socket_trigger; sigs=%v", sigs)
+	}
+	secs, _ = ParseUnitFile([]byte("[Socket]\nListenStream=/run/x.sock\nService=payload.service\n"))
+	edges, _ = m.relationEdges(secs, "/etc/systemd/system/x.socket")
+	if !hasStr(edges, "Unit=payload.service") {
+		t.Errorf("explicit socket service wrong; edges=%v", edges)
+	}
+}
+
+func TestRelationEdges_EnvironmentFileEdge(t *testing.T) {
+	m := New(Options{})
+	secs, _ := ParseUnitFile([]byte("[Service]\nEnvironmentFile=-/etc/sysconfig/telemetry\nExecStart=/usr/bin/true\n"))
+	edges, _ := m.relationEdges(secs, "/etc/systemd/system/telemetry.service")
+	if !hasStr(edges, "EnvironmentFile=/etc/sysconfig/telemetry") {
+		t.Errorf("EnvironmentFile edge wrong (leading - must be stripped); edges=%v", edges)
+	}
+}
+
+func TestRelationEdges_PlainTimerlessServiceNoTrigger(t *testing.T) {
+	m := New(Options{})
+	secs, _ := ParseUnitFile([]byte("[Service]\nExecStart=/usr/bin/true\n"))
+	_, sigs := m.relationEdges(secs, "/etc/systemd/system/plain.service")
+	for _, s := range sigs {
+		if s == core.SignalSystemdTimerTrigger || s == core.SignalSystemdSocketTrigger {
+			t.Errorf("plain service must not raise timer/socket trigger; sigs=%v", sigs)
+		}
+	}
+}
