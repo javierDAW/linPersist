@@ -249,6 +249,79 @@ detections:
       module_in: [initramfs]
       signals_any: [non_package_path, package_file_tampered]
 
+  # ---------- duel-3: config-embedded exec edges (confexec) -----------
+  # Each fires only when the config's lifted exec edge points at a
+  # non-package/orphan/tmp target. A confexec record exists only when an
+  # exec edge was found, so clean configs never reach these rules; the
+  # large legitimate populations (mailman pipes, needrestart apt hooks,
+  # systemctl postrotate, packaged libnss_sss, stock sudoers.so) resolve
+  # owned and stay signal-only. Residual FP class per rule: a site-local
+  # /usr/local or /opt admin hook, discriminated by LFA singleton stacking.
+
+  - id: mail_alias_pipe_unmanaged
+    description: an /etc/aliases or ~/.forward pipe alias runs a command outside the package universe AS root on every mail delivery to that alias (the classic |program mail backdoor). Packaged pipes (mailman/vacation) resolve owned and stay silent; this fires only on the non-package/orphan co-indicator
+    severity: high
+    mitre: [T1546.004]
+    when:
+      site_class_in: [mail.aliases]
+      signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
+  - id: incron_exec_unmanaged
+    description: an incron (inotify-cron) entry runs a command outside the package universe when a watched path fires a filesystem event — an event-driven cron the time-based cron parser misses. Gated on the non-package/orphan co-indicator
+    severity: high
+    mitre: [T1053.003]
+    when:
+      site_class_in: [incron.d]
+      signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
+  - id: logrotate_script_unmanaged
+    description: a logrotate prerotate/postrotate/firstaction script block runs a command outside the package universe AS root on rotation (daily from cron). Ubiquitous owned-binary postrotate (systemctl/killall/invoke-rc.d) stays silent; this fires only on a parked non-package/orphan hook
+    severity: high
+    mitre: [T1546]
+    when:
+      site_class_in: [logrotate.d]
+      signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
+  - id: pkgmgr_hook_unmanaged
+    description: a package-manager hook (APT DPkg::Pre/Post-Invoke, dnf/yum post-transaction action) runs a command outside the package universe AS root on every package operation — config-as-persistence on the package manager itself. The large legitimate hook population (apt-listchanges/needrestart/debsums) is packaged and stays silent; this fires only on the non-package/orphan co-indicator
+    severity: high
+    mitre: [T1546.016]
+    when:
+      site_class_in: [pkgmgr.hook]
+      signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
+  - id: sudo_plugin_unmanaged
+    description: an /etc/sudo.conf Plugin directive loads a shared object outside the package universe into setuid-root sudo on every invocation. The stock sudoers.so resolves owned and stays silent; this fires only on an unowned/orphan plugin .so
+    severity: critical
+    mitre: [T1574]
+    when:
+      site_class_in: [sudo.conf.plugin]
+      signals_any: [non_package_path, exec_target_orphan]
+
+  - id: nss_module_unmanaged
+    description: an /etc/nsswitch.conf service token outside the curated glibc vendor allowlist resolves to a libnss_<token>.so.2 outside the package universe — glibc dlopens it into every process doing name lookups (Symbiote-class NSS hijack). Packaged third-party modules (libnss_sss/ldap/winbind) are allowlisted and resolve owned; this fires only on an unowned planted module
+    severity: critical
+    mitre: [T1556]
+    when:
+      site_class_in: [nss.nsswitch]
+      signals_any: [non_package_path, exec_target_orphan]
+
+  - id: environment_d_hook_unmanaged
+    description: a systemd environment.d assignment (LD_PRELOAD/LD_AUDIT/BASH_ENV/ENV) names a code-exec target outside the package universe, loaded/sourced into every user session — a third env-delivery surface beyond /etc/environment and ld.so.preload. Owned vendor paths stay silent; this fires only on the non-package/orphan co-indicator
+    severity: high
+    mitre: [T1574.006]
+    when:
+      site_class_in: [environment.d]
+      signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
+  - id: xsession_hook_unmanaged
+    description: an X11 session script (/etc/X11/Xsession.d, xinitrc.d, ~/.xprofile) sources/execs a command outside the package universe on every graphical login. Packaged session scripts stay silent; this fires only on the non-package/orphan co-indicator. Surface exists only where a desktop environment is installed
+    severity: high
+    mitre: [T1037]
+    when:
+      site_class_in: [xsession.d]
+      signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
   - id: file_capability_outside_package
     description: a file carries privileged file capabilities (cap_setuid/setgid/dac_override/sys_admin/...) and is outside the package universe — a setcap privesc/persistence primitive that find -perm -4000 and mode-only scans miss entirely. Gated on non_package_path so the legitimate packaged caps set (ping/cap_net_raw, etc.) stays silent
     severity: critical
