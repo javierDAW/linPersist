@@ -107,6 +107,10 @@ const (
 	PkgMgrRpm
 	// PkgMgrApk means /lib/apk/db/installed was found (Alpine).
 	PkgMgrApk
+	// PkgMgrPacman means /var/lib/pacman/local/ was found (Arch family).
+	PkgMgrPacman
+	// PkgMgrPortage means /var/db/pkg/ was found (Gentoo family).
+	PkgMgrPortage
 )
 
 // String returns the lowercase name of the package manager.
@@ -118,6 +122,10 @@ func (p PackageManager) String() string {
 		return "rpm"
 	case PkgMgrApk:
 		return "apk"
+	case PkgMgrPacman:
+		return "pacman"
+	case PkgMgrPortage:
+		return "portage"
 	default:
 		return "none"
 	}
@@ -378,6 +386,10 @@ func (r *Resolver) Warmup(ctx context.Context) {
 			m, err = r.buildRpmMap(buildCtx)
 		case PkgMgrApk:
 			m, err = r.buildApkMap(buildCtx)
+		case PkgMgrPacman:
+			m, err = r.buildPacmanMap(buildCtx)
+		case PkgMgrPortage:
+			m, err = r.buildPortageMap(buildCtx)
 		}
 		elapsed := time.Since(start)
 
@@ -406,6 +418,12 @@ func (r *Resolver) Warmup(ctx context.Context) {
 			dig, derr = r.buildRpmDigests(buildCtx)
 		case PkgMgrApk:
 			dig, derr = r.buildApkDigests(buildCtx)
+		case PkgMgrPortage:
+			dig, derr = r.buildPortageDigests(buildCtx)
+			// pacman stores per-file hashes only in the gzipped mtree, not
+			// the plaintext `files` index; tamper for pacman is deferred,
+			// so fileDigests stays nil and VerifyPath degrades to Unknown
+			// (ownership / non_package_path still works). Documented gap.
 		}
 		if derr != nil {
 			r.logger.Warn("provenance integrity unavailable",
@@ -516,12 +534,16 @@ func (r *Resolver) detectPackageManager() PackageManager {
 	dpkgDir := r.resolveRoot("/var/lib/dpkg/info")
 	rpmDir := r.resolveRoot("/var/lib/rpm")
 	apkDB := r.resolveRoot("/lib/apk/db/installed")
+	pacmanDir := r.resolveRoot("/var/lib/pacman/local")
+	portageDir := r.resolveRoot("/var/db/pkg")
 
 	dpkgExists := dirExists(dpkgDir)
 	rpmExists := dirExists(rpmDir)
 	apkExists := fileExists(apkDB)
+	pacmanExists := dirExists(pacmanDir)
+	portageExists := dirExists(portageDir)
 
-	if !dpkgExists && !rpmExists && !apkExists {
+	if !dpkgExists && !rpmExists && !apkExists && !pacmanExists && !portageExists {
 		return PkgMgrNone
 	}
 
@@ -529,6 +551,8 @@ func (r *Resolver) detectPackageManager() PackageManager {
 	prefersDpkg := false
 	prefersRpm := false
 	prefersApk := false
+	prefersPacman := false
+	prefersPortage := false
 	for _, id := range osIDs {
 		switch id {
 		case "debian", "ubuntu", "kali", "raspbian", "linuxmint", "mint",
@@ -540,6 +564,11 @@ func (r *Resolver) detectPackageManager() PackageManager {
 			prefersRpm = true
 		case "alpine", "postmarketos", "wolfi", "chainguard":
 			prefersApk = true
+		case "arch", "archarm", "manjaro", "manjaro-arm", "endeavouros",
+			"artix", "garuda", "cachyos", "arcolinux":
+			prefersPacman = true
+		case "gentoo", "funtoo", "calculate":
+			prefersPortage = true
 		}
 	}
 
@@ -550,12 +579,20 @@ func (r *Resolver) detectPackageManager() PackageManager {
 		return PkgMgrDpkg
 	case prefersRpm && rpmExists:
 		return PkgMgrRpm
+	case prefersPacman && pacmanExists:
+		return PkgMgrPacman
+	case prefersPortage && portageExists:
+		return PkgMgrPortage
 	case apkExists:
 		return PkgMgrApk
 	case dpkgExists:
 		return PkgMgrDpkg
 	case rpmExists:
 		return PkgMgrRpm
+	case pacmanExists:
+		return PkgMgrPacman
+	case portageExists:
+		return PkgMgrPortage
 	default:
 		return PkgMgrNone
 	}
@@ -1070,6 +1107,177 @@ func (r *Resolver) buildApkDigests(ctx context.Context) (map[string]string, erro
 		return nil, fmt.Errorf("scan %s: %w", path, err)
 	}
 	return out, nil
+}
+
+// buildPacmanMap walks /var/lib/pacman/local/<name>-<ver>-<rel>/files and
+// reads the `%FILES%` section of each, mapping every listed file (not the
+// directory entries, which end in "/") to the package name. pacman's
+// `files` index lists paths relative to / without a leading slash, so each
+// becomes "/"+line. First-occurrence-wins, as in dpkg.
+func (r *Resolver) buildPacmanMap(ctx context.Context) (map[string]string, error) {
+	base := r.resolveRoot("/var/lib/pacman/local")
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return nil, fmt.Errorf("readdir %s: %w", base, err)
+	}
+	out := make(map[string]string, 40_000)
+	for _, e := range entries {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if !e.IsDir() {
+			continue
+		}
+		pkg := trimLastTwoHyphenFields(e.Name())
+		f, ferr := os.Open(filepath.Join(base, e.Name(), "files"))
+		if ferr != nil {
+			continue
+		}
+		sc := bufio.NewScanner(f)
+		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		inFiles := false
+		for sc.Scan() {
+			line := sc.Text()
+			if strings.HasPrefix(line, "%") && strings.HasSuffix(strings.TrimSpace(line), "%") {
+				inFiles = strings.TrimSpace(line) == "%FILES%"
+				continue
+			}
+			if !inFiles || line == "" || strings.HasSuffix(line, "/") {
+				continue // section header, blank, or a directory entry
+			}
+			abs := "/" + strings.TrimPrefix(line, "/")
+			if _, dup := out[abs]; !dup {
+				out[abs] = pkg
+			}
+		}
+		f.Close()
+	}
+	return out, nil
+}
+
+// buildPortageMap walks /var/db/pkg/<category>/<pkg-version>/CONTENTS and
+// maps every `obj`/`sym` path to "<category>/<pkg-version>". The CONTENTS
+// format is one record per line: `obj <path> <md5> <mtime>`,
+// `sym <path> -> <target> <mtime>`, `dir <path>` — field[1] is the path
+// for obj and sym; dir entries are skipped.
+func (r *Resolver) buildPortageMap(ctx context.Context) (map[string]string, error) {
+	base := r.resolveRoot("/var/db/pkg")
+	cats, err := os.ReadDir(base)
+	if err != nil {
+		return nil, fmt.Errorf("readdir %s: %w", base, err)
+	}
+	out := make(map[string]string, 40_000)
+	for _, cat := range cats {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if !cat.IsDir() {
+			continue
+		}
+		pkgs, perr := os.ReadDir(filepath.Join(base, cat.Name()))
+		if perr != nil {
+			continue
+		}
+		for _, p := range pkgs {
+			if !p.IsDir() {
+				continue
+			}
+			pkgLabel := cat.Name() + "/" + p.Name()
+			f, ferr := os.Open(filepath.Join(base, cat.Name(), p.Name(), "CONTENTS"))
+			if ferr != nil {
+				continue
+			}
+			sc := bufio.NewScanner(f)
+			sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+			for sc.Scan() {
+				fields := strings.Fields(sc.Text())
+				if len(fields) < 2 {
+					continue
+				}
+				if fields[0] != "obj" && fields[0] != "sym" {
+					continue
+				}
+				abs := fields[1]
+				if !strings.HasPrefix(abs, "/") {
+					continue
+				}
+				if _, dup := out[abs]; !dup {
+					out[abs] = pkgLabel
+				}
+			}
+			f.Close()
+		}
+	}
+	return out, nil
+}
+
+// buildPortageDigests re-walks /var/db/pkg/*/*/CONTENTS for the per-file
+// MD5 carried on every `obj` line (`obj <path> <md5> <mtime>`), returning
+// a path -> hex MD5 map. The 32-hex length routes it through the same
+// length-keyed compare path as dpkg md5sums. (sym/dir lines carry no
+// digest and are skipped; pacman has no plaintext digest, hence no
+// buildPacmanDigests.)
+func (r *Resolver) buildPortageDigests(ctx context.Context) (map[string]string, error) {
+	base := r.resolveRoot("/var/db/pkg")
+	cats, err := os.ReadDir(base)
+	if err != nil {
+		return nil, fmt.Errorf("readdir %s: %w", base, err)
+	}
+	out := make(map[string]string, 40_000)
+	for _, cat := range cats {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if !cat.IsDir() {
+			continue
+		}
+		pkgs, perr := os.ReadDir(filepath.Join(base, cat.Name()))
+		if perr != nil {
+			continue
+		}
+		for _, p := range pkgs {
+			if !p.IsDir() {
+				continue
+			}
+			f, ferr := os.Open(filepath.Join(base, cat.Name(), p.Name(), "CONTENTS"))
+			if ferr != nil {
+				continue
+			}
+			sc := bufio.NewScanner(f)
+			sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+			for sc.Scan() {
+				fields := strings.Fields(sc.Text())
+				if len(fields) < 4 || fields[0] != "obj" {
+					continue
+				}
+				abs, md5 := fields[1], fields[2]
+				if !strings.HasPrefix(abs, "/") || len(md5) != 32 {
+					continue
+				}
+				if _, dup := out[abs]; !dup {
+					out[abs] = md5
+				}
+			}
+			f.Close()
+		}
+	}
+	return out, nil
+}
+
+// trimLastTwoHyphenFields strips a trailing "-<version>-<release>" from a
+// pacman local-db directory name (always shaped name-ver-rel), preserving
+// hyphens inside the package name (e.g. linux-firmware-20240101-1 ->
+// linux-firmware). Falls back to the input when it has fewer than 3 fields.
+func trimLastTwoHyphenFields(s string) string {
+	i := strings.LastIndexByte(s, '-')
+	if i <= 0 {
+		return s
+	}
+	j := strings.LastIndexByte(s[:i], '-')
+	if j <= 0 {
+		return s
+	}
+	return s[:j]
 }
 
 // buildRpmMap spawns `rpm -qa --filesbypkg` and streams its output

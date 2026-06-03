@@ -607,6 +607,42 @@ fix (not 8 one-off modules) was built:
   validator are committed; re-run any subset with
   `lab-nspawn/fleet.sh --implants <ids>`.
 
+## Coherence backlog (finite — completeness within the charter, ADR-0016)
+
+Not the infinite tail and not Regime 3 — the bounded set that makes the
+tool consistent with its own "all-Linux, on-disk persistence" promise.
+Prioritised:
+
+1. DONE — branch `provenance-pacman-portage` **provenance for pacman +
+   portage + honest degradation for unsupported managers.** Was the
+   sharpest coherence gap: on Arch/Gentoo/Nix `pkgMgr==PkgMgrNone` made
+   `LookupPath` return Unknown for everything, so `non_package_path` /
+   `package_file_tampered` were SILENTLY INERT — a clean Q7 looked like
+   "nothing found". Added `PkgMgrPacman` (/var/lib/pacman/local/*/files,
+   `%FILES%` parse) and `PkgMgrPortage` (/var/db/pkg/*/*/CONTENTS, obj/sym
+   paths; VerifyPath via the CONTENTS md5 — pacman tamper deferred: hashes
+   live only in the gzipped mtree). detect: os-release prefs (arch/manjaro/
+   endeavouros/artix/… ; gentoo/funtoo/calculate) + presence + precedence.
+   Honest degradation: new `host_meta.pkg_mgr` field (dpkg/rpm/apk/pacman/
+   portage/none) so the backend can tell "empty" from "oracle unavailable",
+   plus a loud stderr Warn on PkgMgrNone. Unit-tested (pacman/portage
+   ownership, portage tamper, arch/manjaro/gentoo detection); `make all`
+   green; live-host (Ubuntu) shows pkg_mgr=dpkg, non_package_path not
+   regressed. NOT nspawn-validated — the lab harness only boots Debian +
+   Rocky (debootstrap/rocky-bootstrap); Arch/Gentoo nspawn is a separate
+   lab effort. NIX is intentionally left to the honest-degradation path
+   (its content-addressed store needs its own resolver design).
+2. TODO — **interpreter/runtime auto-exec coverage.** The tool covers
+   shell-init (profile) + the dynamic linker (ldso) but not interpreter
+   auto-exec: python `*.pth` / `sitecustomize` / `PYTHONSTARTUP`, node
+   `NODE_OPTIONS`/`--require`, perl `PERL5LIB`, ruby `RUBYOPT`, php
+   `auto_prepend_file`. Same Regime-1 shape (known loci, orphan/non-package
+   tell). Fits a `confexec` grammar family or a small `runtimeinit` module.
+3. TODO — finish the loops already opened: duel-3 Tier-3 (`getty_autologin`
+   signal; `mount_shadows_path` via a bounded /proc/self/mountinfo read) +
+   dpkg/rpm maintainer scripts (postinst/preinst/%post) as a pkgmgr.hook
+   sibling.
+
 Still OPEN:
 
 - **eBPF state inspection** (deferred from v0.5.0 candidate
