@@ -48,3 +48,45 @@ func TestExtractExecTarget(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractEnvHookTarget(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		// Negative cases — benign content must NOT produce a hook.
+		{"empty", "", ""},
+		{"comment_only", "# BASH_ENV=/opt/x (commented)\n", ""},
+		{"unrelated_env", "PATH=/usr/local/bin:/usr/bin\nLANG=en_US.UTF-8\n", ""},
+		{"no_assignment", "BASH_ENV\n", ""},
+		// Key must match exactly — suffix/prefix collisions don't fire.
+		{"suffix_collision", "MY_ENV=/opt/x\n", ""},
+		{"prefix_collision", "BASH_ENVX=/opt/x\n", ""},
+		// Non-absolute / dynamic RHS is left to LFA, not a target.
+		{"relative_rhs", "BASH_ENV=hook.sh\n", ""},
+		{"home_expanded", "BASH_ENV=$HOME/.hook\n", ""},
+		{"quoted_expanded", "export BASH_ENV=\"$HOME/.hook\"\n", ""},
+		{"subshell_rhs", "ENV=$(/bin/findhook)\n", ""},
+		// Positive cases.
+		{"bare_bash_env", "BASH_ENV=/opt/.envhook\n", "/opt/.envhook"},
+		{"export_bash_env", "export BASH_ENV=/opt/.envhook\n", "/opt/.envhook"},
+		{"double_quoted", "export BASH_ENV=\"/opt/.envhook\"\n", "/opt/.envhook"},
+		{"single_quoted", "ENV='/opt/.envhook'\n", "/opt/.envhook"},
+		{"posix_env", "ENV=/usr/local/lib/hook.sh\n", "/usr/local/lib/hook.sh"},
+		{"env_under_tmp", "BASH_ENV=/tmp/.x/hook\n", "/tmp/.x/hook"},
+		{"leading_whitespace", "   BASH_ENV=/opt/.envhook\n", "/opt/.envhook"},
+		// Among real /etc/environment KEY=value lines.
+		{"in_environment_file", "PATH=\"/usr/local/sbin:/usr/local/bin:/usr/bin\"\nLANG=C.UTF-8\nBASH_ENV=/opt/.envhook\n", "/opt/.envhook"},
+		// First match wins.
+		{"first_match_wins", "BASH_ENV=/opt/first\nENV=/opt/second\n", "/opt/first"},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			if got := ExtractEnvHookTarget([]byte(c.body)); got != c.want {
+				t.Errorf("ExtractEnvHookTarget(%q) = %q, want %q", c.body, got, c.want)
+			}
+		})
+	}
+}

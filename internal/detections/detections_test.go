@@ -426,6 +426,22 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			want: []string{"ld_preload_target_tampered", "package_owned_file_tampered"},
 		},
 		{
+			name: "ld.so.conf.d search-path shadows a packaged library -> ld_library_shadow_implant",
+			rec: core.Record{
+				Module:  "ldso",
+				Signals: []string{core.SignalLDLibraryShadowsPackaged, core.SignalNonPackagePath},
+			},
+			want: []string{"ld_library_shadow_implant"},
+		},
+		{
+			name: "ld.so.conf.d non-standard dir with no collision (bare path-injection) -> LFA-only, no Q7",
+			rec: core.Record{
+				Module:  "ldso",
+				Signals: []string{core.SignalNonRootOwner},
+			},
+			want: nil,
+		},
+		{
 			name: "netdispatch script outside the package universe -> dispatcher rule fires",
 			rec: core.Record{
 				Module:  "netdispatch",
@@ -448,6 +464,80 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 				Signals: []string{core.SignalPolkitYesConstant, core.SignalRecentMtime7d},
 			},
 			want: []string{"polkit_yes_constant_implant"},
+		},
+		// BASH_ENV/ENV per-shell source hook (duel-2 backlog #1).
+		{
+			name: "BASH_ENV hook points at an orphan target -> profile_env_hook_unmanaged",
+			rec: core.Record{
+				Module:  "profile",
+				Signals: []string{core.SignalEnvHookSet, core.SignalExecTargetOrphan},
+			},
+			want: []string{"profile_env_hook_unmanaged"},
+		},
+		{
+			name: "BASH_ENV hook points at a non-package target -> profile_env_hook_unmanaged",
+			rec: core.Record{
+				Module:  "profile",
+				Signals: []string{core.SignalEnvHookSet, core.SignalNonPackagePath},
+			},
+			want: []string{"profile_env_hook_unmanaged"},
+		},
+		{
+			name: "BASH_ENV hook under /tmp, orphan -> payload_under_tmp + profile_env_hook_unmanaged",
+			rec: core.Record{
+				Module:  "profile",
+				Signals: []string{core.SignalEnvHookSet, core.SignalInterpreterInTmp, core.SignalExecTargetOrphan},
+			},
+			want: []string{"payload_under_tmp_via_persistence", "profile_env_hook_unmanaged"},
+		},
+		{
+			name: "BASH_ENV hook at a package-owned target (armed, no co-indicator) -> suppressed",
+			rec: core.Record{
+				Module:  "profile",
+				Signals: []string{core.SignalEnvHookSet},
+			},
+			want: nil,
+		},
+		{
+			name: "profile record with non_package_path but no env_hook_set -> env-hook rule must NOT fire",
+			rec: core.Record{
+				Module:  "profile",
+				Signals: []string{core.SignalNonPackagePath},
+			},
+			want: nil,
+		},
+		// initramfs early-boot hook (duel-2 backlog #2).
+		{
+			name: "non-package initramfs hook -> initramfs_hook_unmanaged",
+			rec: core.Record{
+				Module:  "initramfs",
+				Signals: []string{core.SignalNonPackagePath},
+			},
+			want: []string{"initramfs_hook_unmanaged"},
+		},
+		{
+			name: "in-place tampered package-owned initramfs hook -> initramfs_hook_unmanaged + package_owned_file_tampered",
+			rec: core.Record{
+				Module:  "initramfs",
+				Signals: []string{core.SignalPackageFileTampered},
+			},
+			want: []string{"initramfs_hook_unmanaged", "package_owned_file_tampered"},
+		},
+		{
+			name: "package-owned pristine initramfs hook (no co-indicator) -> suppressed",
+			rec: core.Record{
+				Module:  "initramfs",
+				Signals: []string{core.SignalRecentMtime30d},
+			},
+			want: nil,
+		},
+		{
+			name: "non_package_path on a non-initramfs module (no other co-indicator) -> initramfs rule must NOT fire",
+			rec: core.Record{
+				Module:  "cron",
+				Signals: []string{core.SignalNonPackagePath},
+			},
+			want: nil,
 		},
 	}
 	for _, tc := range cases {

@@ -163,6 +163,13 @@ detections:
     when:
       signals_all: [ld_preload_set, package_file_tampered]
 
+  - id: ld_library_shadow_implant
+    description: an /etc/ld.so.conf.d (or ld.so.conf) search-path directive adds a non-standard directory containing a shared object whose basename collides with a package-owned system library — the dynamic linker resolves the SONAME to the planted copy first, hijacking every process that loads it (T1574.006 library shadowing via ld.so.conf.d). Fires only on the package-shadowing collision; bare path-injection with no collision is LFA-only. Residual FP class —a locally source-built library legitimately shadowing the distro one, rare and itself worth review
+    severity: critical
+    mitre: [T1574.006]
+    when:
+      signals_all: [ld_library_shadows_packaged]
+
   - id: polkit_admin_rule_implant
     description: polkit rule contains addAdminRule( and was recently modified (recent_mtime_7d) or is non-root-owned. NOTE recent_ctime_7d was trialled here to close the touch -d timestomp bypass but the nspawn lab showed it fires on the image-extracted stock vendor rules under /usr/share/polkit-1 on every freshly-provisioned host — so the touch -d bypass is left to LFA singleton stacking (the attacker drop-in is a content singleton; vendor rules are fleet-common)
     severity: high
@@ -225,6 +232,22 @@ detections:
     when:
       signals_all: [sshrc_present]
       signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
+  - id: profile_env_hook_unmanaged
+    description: a shell-init file (most dangerously /etc/environment, read by pam_env on EVERY login) assigns BASH_ENV= or ENV= to a target outside the package universe (orphan, tmp-class, or non-package) — bash sources $BASH_ENV at the start of every non-interactive shell and POSIX sh sources $ENV, so the named file runs on every cron job / script / login. Existence alone is signal+LFA (rare legit dev use); this fires only with the unmanaged-exec co-indicator
+    severity: high
+    mitre: [T1546.004]
+    when:
+      signals_all: [env_hook_set]
+      signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
+  - id: initramfs_hook_unmanaged
+    description: an early-boot initramfs/initrd hook (initramfs-tools, dracut or mkinitcpio) is either outside the package universe (a planted hook — empty /etc hook dirs make any local file an admin/attacker addition) or a package-owned hook overwritten in place (package_file_tampered — the Bootkit-style initrd hook an orphan-path check misses). The generator copies the hook into the initrd and runs it AS ROOT before the real rootfs mounts. Packaged hooks stack fleet-identically and stay silent; this fires only with the unmanaged/tampered co-indicator
+    severity: high
+    mitre: [T1542]
+    when:
+      module_in: [initramfs]
+      signals_any: [non_package_path, package_file_tampered]
 
   - id: file_capability_outside_package
     description: a file carries privileged file capabilities (cap_setuid/setgid/dac_override/sys_admin/...) and is outside the package universe — a setcap privesc/persistence primitive that find -perm -4000 and mode-only scans miss entirely. Gated on non_package_path so the legitimate packaged caps set (ping/cap_net_raw, etc.) stays silent

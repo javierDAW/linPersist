@@ -40,3 +40,15 @@ need to fire.
 
 `/root/.bashrc` with classic root-shell content (PS1, PATH, alias).
 One record emitted with `site_class=profile.user`. No signals.
+
+### `env_hook_environment`
+
+`/etc/environment` (the `KEY=value` file pam_env reads on EVERY
+login, interactive or not) with a planted `BASH_ENV=/opt/.envhook`
+line among benign PATH/LANG entries. bash sources `$BASH_ENV` at the
+start of every non-interactive shell, so the named file runs on every
+cron job / script / login. One `site_class=profile.system` record
+with `exec_target=/opt/.envhook` and signals
+`["env_hook_set","exec_target_orphan"]` (the target is absent in the
+fixture, so it resolves orphan). Drives the Q7 rule
+`profile_env_hook_unmanaged`. Duel-2 backlog #1.

@@ -18,10 +18,15 @@
 > 1. State: everything below "What is OPEN after v0.5.0" is current.
 >    `make all` is green on main (includes `duckdb-equiv`, the new Go↔SQL
 >    gate — run it before touching Q6/Q12/stats.go or stack_demo.sql).
-> 2. Next work = the **4 remaining duel-2 backlog items** (BASH_ENV in
->    /etc/environment; initramfs/dracut hook MODULE; ld.so.conf.d library
->    shadowing; systemd OnFailure=/.path Q12 relationship edges) — full
->    specs in the "Deferred backlog" block. All other backlog items shipped.
+> 2. Next work = the duel-2 backlog is now **fully shipped** on branch
+>    `duel2-backlog-remaining` (4 commits): #1 BASH_ENV/ENV env-hook
+>    (profile, lab round 28), #2 generator-agnostic initramfs hook module
+>    (initramfs-tools/dracut/mkinitcpio, lab round 29), #3 ld.so.conf.d
+>    library shadowing (ldso, lab round 30), #4 systemd OnFailure=/.path
+>    relationship edges (backend/Q12, live-host validated). Detections
+>    40→43; site_classes 47→48 (boot.initramfs.hook); new Record field
+>    `relations`. Next: merge the branch (PR), then pick from "Still OPEN"
+>    (eBPF state inspection — needs ADR; webshell/supply-chain walk).
 > 3. Detection-add recipe + the recurring discipline (gate every new Q7
 >    rule on a tamper/orphan/non-package co-indicator; recent_ctime floods
 >    on image-built hosts; lab the change before trusting it) are in the
@@ -425,39 +430,124 @@ real FP the lab caught and how it was fixed at the root):
       fire only on their implant host, zero clean-host FPs (apt2-sshrc-hook,
       apt2-kmod-rootkit, apt2-sshd-setenv).
     - DONE scope.md §8.1 boundaries doc (73e2b58).
-    - STILL TODO (heavier, fresh-session — each with the architect-agreed
-      approach so it can start cold):
-      1. **BASH_ENV / ENV in /etc/environment** (profile module). The
-         profile module already walks /etc/environment; extend its
-         extractor (or a sibling) to recognize `BASH_ENV=`/`ENV=`
-         assignments and treat the RHS path as an exec_target candidate,
-         so the existing orphan/non_package/tmp signals fire on
-         `/opt/.envhook`. Reuse `core.ExtractExecTarget` patterns.
-         PROMPT_COMMAND stays signal+LFA (arbitrary inline code).
-      2. **initramfs/dracut hook module** (NEW module — biggest). Walk
-         Debian `/etc/initramfs-tools/scripts/{init-top,init-premount,
-         init-bottom,local-top,...}` + `/etc/initramfs-tools/hooks`, and
-         Rocky `/etc/dracut.conf.d/` + `/usr/lib/dracut/modules.d/`. Each
-         executable hook = an ExecTarget=self record (site_class
-         `boot.initramfs.hook`) with provenance + the central ctime/tamper.
-         The compiled `/boot/initrd.img` cpio stays OOS (documented).
-         Register in modset, matrix.yaml (both copies), a detection gated
-         on non_package/orphan. Mirror the suidbits/dbus module shape.
-      3. **ld.so.conf.d library SHADOW** (ldso module, trickiest — keep
-         it precise). Do NOT make the search-path dir an exec_target (that
-         FP-floods on /usr/local/lib). Instead: for each ld.so.conf.d
-         directory entry that is non-standard AND package-unowned,
-         enumerate its `*.so*` and emit `ld_library_shadows_packaged` ONLY
-         when a planted .so's SONAME/basename collides with a
-         package-owned library on the standard path. Bare path-injection
-         stays LFA-only.
-      4. **systemd OnFailure= / .path Unit= relationship EDGES** (systemd
-         module). Parse OnFailure=/Requires=/Wants= and the [Path]
-         PathModified=/PathChanged=/Unit= into a relationship-edge signal
-         (e.g. `systemd_has_onfailure` + the named target) for BACKEND/Q12
-         correlation — NOT a new Q7 rule (the payload arm already fires
-         via interpreter/orphan rules; this just emits the trigger→payload
-         edge so the backend reconstructs the chain).
+    - DONE + LAB-VALIDATED (round 28, Debian) **BASH_ENV / ENV in
+      /etc/environment** (duel-2 backlog #1). New sibling extractor
+      `core.ExtractEnvHookTarget` recognizes `BASH_ENV=`/`ENV=` assignments
+      (optional `export `, quote-stripped) and returns the RHS only when it
+      is a clean absolute path ($-expanded/relative RHS stays signal-free —
+      same non-decision as PROMPT_COMMAND). The profile module checks the
+      env-hook FIRST (higher-signal than a plain source/exec line; the only
+      branch that can populate ExecTarget on /etc/environment's KEY=value
+      content), sets it as ExecTarget, and emits new signal `env_hook_set`.
+      `execTargetStatSignals` also gained `interpreter_in_tmp` (latent gap,
+      now uniform with every other module; profile added to its catalog
+      EmittedBy). Detection `profile_env_hook_unmanaged` (high, T1546.004)
+      gated `signals_all:[env_hook_set]` + `signals_any:[non_package_path,
+      exec_target_orphan, interpreter_in_tmp]` — same shape as
+      `ssh_sshrc_unmanaged_exec`. Detections 41. Tests: 18-case extractor
+      table, 5 detection-matcher goldens, module golden `env_hook_environment`
+      (env_hook_set + exec_target_orphan via the real collector). `make all`
+      green (incl. duckdb-equiv). Lab round 28 (Debian, 6 hosts) via
+      `apt2-env-hook`: validate-evade.py all PASS — env_hook_set +
+      non_package_path (real dpkg provenance resolved /opt/.envhook/agent
+      orphan) + profile_env_hook_unmanaged in Q7 on the implant host only;
+      env_hook_set on 1/6 hosts, profile_env_hook_unmanaged fires exactly
+      once fleet-wide, ZERO clean-host FP on the 5 baseline hosts.
+      2. DONE + LAB-VALIDATED (round 29, Debian)
+         **initramfs hook module** (duel-2 backlog #2). NEW module
+         `internal/modules/initramfs/`, generator-AGNOSTIC — covers all of
+         Linux, not just two distros: initramfs-tools (Debian/Ubuntu/Mint/
+         Devuan/Kali), dracut (RHEL/Rocky/Alma/Fedora/SUSE/Gentoo) and
+         mkinitcpio (Arch/Manjaro/Artix). Recursively walks each generator's
+         hook/script dirs (local /etc + package /usr); one
+         `boot.initramfs.hook` record per regular file, ExecTarget=self so
+         provenance flags a non-package hook and the sink's
+         package_file_tampered covers an in-place overwrite of a packaged
+         hook (Bootkit shape). Local /etc dirs are empty on a stock host
+         (verified) → any file there is an addition; /usr hooks stack
+         fleet-identically. MITRE T1542 (parent; no Linux initramfs
+         sub-technique). Detection `initramfs_hook_unmanaged` (high),
+         `module_in:[initramfs]` + `signals_any:[non_package_path,
+         package_file_tampered]`. Detections 41→42. site_classes 47→48.
+         modset 25→26. Registered in modset + both matrix.yaml copies.
+         Tests: 4 unit + 2 golden (multi_generator_hooks, clean_empty) + 4
+         detection-matcher goldens; stats MITRE-panel golden bumped 24→25
+         techniques. `make all` green. Live-host smoke (real Ubuntu WSL):
+         42 initramfs records all under /usr/share (package-owned), 0 under
+         /etc, ZERO non_package_path / tamper / Q7 FP. OOS (documented in
+         matrix notes): compiled initrd cpio + config file-baking
+         (dracut.conf.d install_items, mkinitcpio.conf FILES=). Lab round 29
+         (Debian, 6 hosts) via `apt2-initramfs-hook`: validate-evade.py all
+         PASS — planted /etc/initramfs-tools/hooks hook → non_package_path
+         (real dpkg provenance) + initramfs_hook_unmanaged on the implant
+         host only; fires exactly once fleet-wide; the 5 clean hosts each
+         carry 5 package-owned /usr/share hook records with ZERO
+         non_package_path. The same recursive walk + provenance path covers
+         dracut + mkinitcpio (unit/golden-validated).
+      3. DONE + LAB-VALIDATED (round 30, Debian)
+         **ld.so.conf.d library SHADOW** (duel-2 backlog #3). Extends the
+         `ldso` module: a search-path directive that adds a NON-standard dir
+         (not under /lib, /usr/lib, /lib64, /usr/lib64 or /usr/local/lib —
+         prefix match, so multiarch + sanctioned local dirs are exempt)
+         whose `*.so*` basename collides with a package-OWNED library on a
+         standard path emits the new signal `ld_library_shadows_packaged`,
+         with the planted .so as ExecTarget (so non_package_path co-fires).
+         The search-path dir is still NEVER an exec_target (the v0.2.0
+         FP-flood); only the colliding planted .so is. Bare path-injection
+         (non-standard dir, no collision) stays signal-free / LFA-only.
+         Collision check: `shadowingSo` enumerates the dir's .so files and,
+         for each basename, looks across the memoized standard lib dirs
+         (base + multiarch subdirs) for a same-named PkgStatusOwned file.
+         Detection `ld_library_shadow_implant` (critical, T1574.006) gated
+         `signals_all:[ld_library_shadows_packaged]`. Detections 42→43.
+         No new site_class (enriches ldso.confd/conf), so matrix stays 48.
+         Tests: 2 unit (collision fires w/ exec_target=planted .so +
+         non_package_path; standard dir + no-collision control stay clean)
+         + 2 detection-matcher goldens. `make all` green. Live-host smoke
+         (real Ubuntu): 7 ldso records, ZERO ld_library_shadows_packaged /
+         Q7 FP — the host's two non-/lib dirs (libfakeroot, wsl) are under
+         the /usr/lib prefix so are exempt by design. Residual FP class
+         (documented in the signal): a locally source-built lib legitimately
+         shadowing the distro one. Lab round 30 (Debian, 6 hosts) via
+         `apt2-ldso-shadow` (plants /opt/.perflib/libc.so.6 + a .conf):
+         validate-evade.py all PASS — ld_library_shadows_packaged +
+         non_package_path (real dpkg provenance) + ld_library_shadow_implant
+         (critical) on the implant host only; fires exactly once fleet-wide,
+         ZERO ld_library_shadows_packaged on the 5 clean hosts.
+      4. DONE + LAB-VALIDATED (round 31, Debian)
+         **systemd OnFailure= / .path Unit= relationship EDGES** (duel-2
+         backlog #4). BACKEND/Q12 correlation, NOT a Q7 rule. New additive
+         Record field `Relations []string` (json `relations,omitempty`,
+         schema stays 1 per convention) carrying `Key=Value` edges —
+         populated ONLY by systemd, empty for every other module. The
+         systemd module's `relationEdges` extracts [Unit]
+         OnFailure=/Requires=/Wants= targets (After=/Before= excluded —
+         ordering only) and [Path] PathModified=/PathChanged=/PathExists=/
+         PathExistsGlob=/DirectoryNotEmpty= watches + the activated Unit=
+         (explicit, or implicit <basename>.service). Two marker signals:
+         `systemd_has_onfailure` (OnFailure= present) and
+         `systemd_path_trigger` (.path arms a watch) — Requires=/Wants= are
+         edge-only (ubiquitous, no signal, so Q7/the human report stay
+         clean). No detection: the payload arm is already flagged by the
+         exec/orphan rules; this records the trigger→payload edge so the
+         backend joins them. Detections unchanged (43); no new site_class
+         (matrix 48). Tests: 4 unit (path explicit/implicit Unit, OnFailure
+         + deps with After= excluded, plain unit yields nothing) + golden
+         `path_trigger_and_onfailure`; one existing golden gained an
+         additive `relations` field (no other churn). `make all` green.
+         Live-host smoke (real Ubuntu, 698 systemd units): 217 records with
+         relations, 26 systemd_has_onfailure, 6 systemd_path_trigger — all
+         on legit vendor units (apport-autoreport.path, e2scrub@.service,
+         systemd-ask-password-*.path) with their Unit=/OnFailure= edges
+         correctly captured; real-systemd parse validated end-to-end. These
+         markers on vendor units are BY DESIGN (backend graph edges, not
+         verdicts). Lab round 31 (Debian, 6 hosts) via `apt2-systemd-pathunit`:
+         validate-evade.py all PASS — the planted zz-watch.path carries
+         systemd_path_trigger + Relations [PathModified=/tmp/.cachetrigger,
+         Unit=zz-payload.service], and the activated zz-payload.service
+         resolves non_package_path (the chain's payload arm). Both implant
+         units exist on the implant host only; the 5 clean hosts carry
+         neither.
   - **scope boundaries now documented in scope.md §8.1** (recent_ctime
     live-FS limit, initrd cpio OOS, %config edits report tampered, inline
     interpreter code is signal+LFA).

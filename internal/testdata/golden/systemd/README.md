@@ -104,3 +104,13 @@ in `errors[]` and a canonical form that contains only the parseable
 content (the `[Service]` and `[Install]` sections plus the valid
 keys). Verifies the "never panic on malformed input" robustness
 contract.
+
+### `path_trigger_and_onfailure`
+
+A `.path` unit (`watcher.path`) arming `PathModified=/tmp/.trigger` with an
+explicit `Unit=payload.service`, and a service (`healthcheck.service`) with
+`OnFailure=payload.service` plus `Wants=`/`Requires=` deps. Exercises the
+relationship-edge extraction (duel-2 backlog #4): `relations` captures the
+trigger→payload edges and `systemd_path_trigger` / `systemd_has_onfailure`
+mark the trigger arms for backend/Q12 correlation. NOT a Q7 verdict — the
+payload service is flagged on its own by the exec/orphan rules.
