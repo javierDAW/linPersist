@@ -735,10 +735,12 @@ branch `finish-backlog`:
   unowned path) is already covered by the exec-edge/non_package rules.
 
 Detections 54→56, site_classes 58→62, modules 28→30. make all green;
-live-host (Ubuntu): all three new modules ZERO Q7 FP (maintscript 0 records,
-pkgrepo 0, webroot collects only on signal). Lab implants
-`apt2-{maintscript-payload,repo-trusted,webshell}` committed; validate on
-Debian via `lab-nspawn/fleet.sh --implants ...` + validate-evade.py.
+live-host (Ubuntu): all three new modules ZERO Q7 FP. LAB-VALIDATED on
+Debian nspawn round 50: maintscript_execs_unmanaged_payload +
+pkgrepo_gpgcheck_disabled fire on their implant host only (2 Q7 fleet-wide),
+the webshell is collected signal-only with its co-indicator, and ZERO
+maintscript/pkgrepo Q7-gating FP on the clean hosts (the 19-FP maintscript
+flood is gone).
 **This completes the finite coherence backlog — what remains is explicitly
 the long tail (Regime 2, ROI-driven) and out-of-scope regimes (ADR-0016).**
 
