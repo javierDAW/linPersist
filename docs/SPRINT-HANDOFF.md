@@ -628,10 +628,17 @@ Prioritised:
    plus a loud stderr Warn on PkgMgrNone. Unit-tested (pacman/portage
    ownership, portage tamper, arch/manjaro/gentoo detection); `make all`
    green; live-host (Ubuntu) shows pkg_mgr=dpkg, non_package_path not
-   regressed. NOT nspawn-validated — the lab harness only boots Debian +
-   Rocky (debootstrap/rocky-bootstrap); Arch/Gentoo nspawn is a separate
-   lab effort. NIX is intentionally left to the honest-degradation path
-   (its content-addressed store needs its own resolver design).
+   regressed. LAB-VALIDATED on real Arch (nspawn round 40, via the new
+   arch-bootstrap): host_meta.pkg_mgr=pacman on the whole fleet (provenance
+   NOT inert), the implant files resolved non_package_path via the real
+   pacman DB, 4 detections fired (one per implant host), zero Q7 clean-host
+   FP. (12 clean-host non_package SIGNALS were all correct — 11 orphan
+   targets absent from the minimal bootstrap, e.g. /usr/bin/quotaon without
+   the quota pkg, a known base-fidelity artifact like Debian minbase/udev;
+   1 a genuinely-unowned admin config /etc/locale.conf — none fire Q7, all
+   fleet-common so not LFA singletons.) Gentoo/portage nspawn pending (the
+   gentoo-bootstrap is built; run `--suite gentoo`). NIX stays on the
+   honest-degradation path (content-addressed store needs its own resolver).
 2. DONE — branch `runtimeinit-python` **interpreter/runtime auto-exec.**
    New `runtimeinit` module (site_class `runtime.python`): walks the
    CPython site/dist-packages dirs (globbed across distro layouts +
@@ -649,8 +656,9 @@ Prioritised:
    module NAMES not paths → LFA (documented). Detections 51→53,
    site_classes 56→58, modules 27→28. make all green; live-host (Ubuntu):
    2 code-.pth + the symlinked sitecustomize collected, ALL package-owned,
-   ZERO Q7 FP. Not nspawn-validated yet — covered by the multi-distro lab
-   (next).
+   ZERO Q7 FP. LAB-VALIDATED on real Arch (nspawn round 40): the planted
+   .pth in Arch's site-packages -> non_package_path (real pacman provenance)
+   + python_runtime_hook_unmanaged, zero Q7 clean-host FP.
 3. TODO — finish the loops already opened: duel-3 Tier-3 (`getty_autologin`
    signal; `mount_shadows_path` via a bounded /proc/self/mountinfo read) +
    dpkg/rpm maintainer scripts (postinst/preinst/%post) as a pkgmgr.hook
