@@ -647,9 +647,11 @@ Prioritised:
    FIXED on branch `provenance-usrmerge-collapse`: `usrMergeAlternates` now
    returns the basename under all four bin/sbin merge dirs (was 1:1 pairs),
    so the /sbin record resolves owned. Generic (helps any distro), unit-
-   tested; re-run `--suite gentoo` to confirm the unix_chkpwd FP is gone.
-   NIX stays on the honest-degradation path (content-addressed store needs
-   its own resolver).
+   tested; CONFIRMED on Gentoo round 42 — unix_chkpwd FP gone,
+   suid_binary_outside_package_path 0 fleet-wide, all 4 implants still PASS.
+   **Coherence #1 is FULLY CLOSED: dpkg/rpm/apk/pacman/portage all
+   lab-validated end-to-end.** NIX stays on the honest-degradation path
+   (content-addressed store needs its own resolver).
 2. DONE — branch `runtimeinit-python` **interpreter/runtime auto-exec.**
    New `runtimeinit` module (site_class `runtime.python`): walks the
    CPython site/dist-packages dirs (globbed across distro layouts +
