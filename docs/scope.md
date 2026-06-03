@@ -258,6 +258,40 @@ they are honest engagement limits, not silent gaps:
   hook that loads a pinned BPF object from an unowned path — is already
   covered by the existing exec-edge / `non_package_path` rules. Pair
   linpersist with an eBPF-aware runtime sensor for the kernel surface.
+- **FP-economics gates on the modal small-N install (duel-final).** Three
+  collectors deliberately stay SILENT on the common benign shape, leaving
+  the rare malicious shape to LFA, because firing on the benign shape would
+  flood an analyst on a single-host deployment (where every record is a
+  content singleton):
+  - *Webroot.* A settled web install (old mtime, mode 0644) emits nothing;
+    `webroot.script` records require a co-indicator (`recent_mtime_*` or
+    `world_writable`). A single web server with thousands of legitimate
+    `/var/www` files is therefore quiet; a freshly-dropped or world-writable
+    shell still surfaces. `non_root_owner` is NOT emitted (web content is
+    owned by `www-data`/`apache` by design). Trade-off: a webshell dropped
+    with a backdated mtime and 0644 into an existing docroot is left to LFA
+    content-singleton stacking across a heterogeneous fleet.
+  - *Maintainer-script exec edges.* `parseMaintscript` lifts an unmanaged
+    exec only when the target is under a tmp-class dir (unconditional) or
+    under `/opt` **with a hidden `/.` segment**. A present vendor SDK sourced
+    by a postinst (`. /opt/vendorsdk/helper.sh`) is benign and common on
+    hosts with commercial agents, so a non-hidden `/opt` payload is left to
+    LFA on the script-body singleton rather than firing `non_package_path`
+    on every such package.
+  - *Python `.pth` files.* setuptools/pip editable plumbing
+    (`distutils-precedence.pth`, `__editable__*.pth`, `_distutils_hack` /
+    `_virtualenv` import lines) is skipped — ubiquitous on dev/CI/data-science
+    boxes and not package-owned, so emitting it would fire
+    `python_runtime_hook_unmanaged` 15–40× per workstation with zero TPs.
+    Plain path-only `.pth` (sys.path additions) are likewise left to LFA,
+    mirroring how `ldso` treats a bare `ld.so.conf.d` dir entry. A real
+    planted code-`.pth` does not match the plumbing shape and still surfaces.
+- **Provenance-blind hosts are flagged, not silently weaker.** On a host
+  with no detected package manager (`host_meta.pkg_mgr` == `none`/empty —
+  distroless / from-scratch / appliance images) the `non_package_path` /
+  `package_file_tampered` gate cannot run. The report surfaces a
+  coverage-degraded banner listing those hosts so an analyst does not read
+  "0 findings" as "clean" when it means "could not verify ownership".
 
 ### 8.2 Coverage model — what stays uncovered, and why
 

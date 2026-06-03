@@ -472,16 +472,22 @@ func parseMaintscript(raw []byte, _ string, _ *Module) []Edge {
 	return out
 }
 
-// underSuspiciousDir reports whether an absolute path is under a tmp-class
-// or /opt directory — where a bare-lead command in a maintainer script is a
-// dropped-payload tell, not ordinary plumbing.
+// underSuspiciousDir reports whether a maintainer-script exec edge is a
+// dropped-payload tell. A tmp-class path (/tmp,/var/tmp,/dev/shm,/run/shm)
+// always qualifies. /opt is split from tmp: a PRESENT vendor SDK under /opt
+// (e.g. `. /opt/vendorsdk/postinst-helper.sh`) is benign and common on
+// hosts with commercial agents, so it would flood a non_package verdict on
+// every such package (duel-final HIGH). So /opt qualifies ONLY when the
+// path carries a HIDDEN segment (a `/.`-prefixed component) — the implant-
+// hiding shape (/opt/.x/agent) that a vendor SDK never uses. A non-hidden
+// /opt payload is left to LFA on the script-body singleton.
 func underSuspiciousDir(p string) bool {
 	for _, d := range core.TmpDirs {
 		if strings.HasPrefix(p, d) {
 			return true
 		}
 	}
-	return strings.HasPrefix(p, "/opt/")
+	return strings.HasPrefix(p, "/opt/") && strings.Contains(p, "/.")
 }
 
 func firstCodeLine(raw []byte) string {

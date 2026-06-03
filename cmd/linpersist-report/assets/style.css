@@ -98,6 +98,7 @@ h2 { font-size: 16px; margin: 14px 0 6px; }
 p { margin: 0 0 12px; }
 p.lede { color: var(--fg-mute); margin-top: 0; }
 .hint { color: var(--fg-mute); font-size: 12px; margin: 6px 0 18px; }
+.muted { color: var(--fg-mute); }
 
 /* Card grid (overview) */
 .cards {
@@ -220,3 +221,21 @@ footer a { color: var(--accent); }
   thead th { position: static; }
   .bars .row .name { width: 140px; }
 }
+
+/* coverage-degraded banner (provenance-blind hosts) */
+.banner-warn {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn);
+  border-left: 4px solid var(--warn);
+  border-radius: 4px;
+  background: var(--bg-alt);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.banner-warn code { color: var(--warn); }
+.banner-warn details { margin-top: 6px; }
+.banner-warn summary { cursor: pointer; color: var(--fg-mute); }
+.banner-warn ul { margin: 6px 0 0; padding-left: 20px; }
+.banner-warn .muted { color: var(--fg-mute); }

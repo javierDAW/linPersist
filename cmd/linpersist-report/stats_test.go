@@ -295,3 +295,63 @@ func TestQ3_RecordCommonAcrossPeerGroups(t *testing.T) {
 			len(rows), rows)
 	}
 }
+
+// TestDegradedHostsBanner verifies computeOverview flags hosts whose
+// provenance pipeline did not run (pkg_mgr none/empty) so the report can
+// warn that "0 findings" there means "could not verify", not "clean".
+func TestDegradedHostsBanner(t *testing.T) {
+	mk := func(host, osID, pkgMgr string) core.Record {
+		return core.Record{
+			HostID:   host,
+			HostMeta: core.HostMeta{OSID: osID, PkgMgr: pkgMgr},
+			Module:   "cron", SiteClass: "cron.d", ContentNormSHA256: "x",
+		}
+	}
+	recs := []core.Record{
+		mk("debianbox", "debian", "dpkg"), // healthy
+		mk("rockybox", "rocky", "rpm"),    // healthy
+		mk("distroless", "", "none"),      // degraded: explicit none
+		mk("scratch", "", ""),             // degraded: empty
+	}
+	ov := computeOverview(recs)
+	if len(ov.DegradedHosts) != 2 {
+		t.Fatalf("want 2 degraded hosts, got %d: %+v", len(ov.DegradedHosts), ov.DegradedHosts)
+	}
+	got := map[string]bool{}
+	for _, d := range ov.DegradedHosts {
+		got[d.Host] = true
+	}
+	if !got["distroless"] || !got["scratch"] {
+		t.Errorf("expected distroless+scratch flagged, got %+v", ov.DegradedHosts)
+	}
+	if got["debianbox"] || got["rockybox"] {
+		t.Error("a host with a real pkg_mgr must NOT be flagged degraded")
+	}
+}
+
+// TestQ1RanksCoIndicatorsFirst verifies a singleton carrying structural
+// tells outranks a bare content-singleton (the duel-final triage fix).
+func TestQ1RanksCoIndicatorsFirst(t *testing.T) {
+	mk := func(host, norm string, sigs []string) core.Record {
+		return core.Record{
+			HostID: host, HostMeta: core.HostMeta{OSID: "debian"},
+			Module: "cron", SiteClass: "cron.d", Locus: "/etc/cron.d/" + host,
+			ContentNormSHA256: norm, Signals: sigs,
+		}
+	}
+	recs := []core.Record{
+		mk("bare1", "n1", nil),
+		mk("bare2", "n2", nil),
+		mk("hot", "n3", []string{core.SignalNonPackagePath, core.SignalRecentMtime7d}),
+	}
+	rows := computeQ1(recs)
+	if len(rows) != 3 {
+		t.Fatalf("want 3 singletons, got %d", len(rows))
+	}
+	if rows[0].CoIndicators != 2 || rows[0].SampleHost != "hot" {
+		t.Errorf("co-indicator-bearing singleton must rank first, got %+v", rows[0])
+	}
+	if rows[len(rows)-1].CoIndicators != 0 {
+		t.Errorf("bare singletons must rank last, got %+v", rows[len(rows)-1])
+	}
+}

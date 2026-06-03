@@ -191,6 +191,17 @@ func (m *Module) scanDir(realDir string, seen map[string]struct{}, emit func(cor
 		if rerr != nil || len(raw) == 0 {
 			continue
 		}
+		// Skip setuptools/pip plumbing .pth (distutils-precedence.pth,
+		// __editable__*.pth, the _distutils_hack/editable-finder imports).
+		// pip editable installs and setuptools write these by the dozen on
+		// dev/CI/data-science boxes; they carry an `import` line but are NOT
+		// package-owned, so without this they each fire a HIGH Q7
+		// python_runtime_hook_unmanaged verdict (15-40 per workstation,
+		// zero true positives — the duel-final flood). They are a fixed,
+		// recognizable shape; a real planted .pth does not match it.
+		if isPth && isSetuptoolsPlumbing(name, raw) {
+			continue
+		}
 		// A *.pth file is only an exec hook when it carries a code line
 		// (CPython exec()s lines beginning with `import`). Plain path-list
 		// .pth are sys.path additions (search-path injection) — left to LFA.
@@ -244,6 +255,33 @@ func (m *Module) baseSignals(info os.FileInfo, logical string) []string {
 		}
 	}
 	return out
+}
+
+// isSetuptoolsPlumbing recognizes the fixed-shape .pth files setuptools and
+// pip editable installs write. These carry an `import` line but are benign
+// package-management plumbing, ubiquitous on any host with pip-installed or
+// editable packages. Matched by the canonical filenames and by an import
+// line that only references the setuptools/editable finder machinery.
+func isSetuptoolsPlumbing(name string, raw []byte) bool {
+	if name == "distutils-precedence.pth" || strings.HasPrefix(name, "__editable__") {
+		return true
+	}
+	sawImport := false
+	for _, line := range strings.Split(string(raw), "\n") {
+		t := strings.TrimLeft(line, " \t")
+		if !strings.HasPrefix(t, "import ") {
+			continue
+		}
+		sawImport = true
+		// A code line that touches anything other than the known finders
+		// means it is NOT pure plumbing -> do not skip.
+		if !strings.Contains(t, "__editable__") &&
+			!strings.Contains(t, "_distutils_hack") &&
+			!strings.Contains(t, "_virtualenv") {
+			return false
+		}
+	}
+	return sawImport // every import line was setuptools/editable plumbing
 }
 
 // pthHasCodeLine reports whether a .pth body has a line CPython would
