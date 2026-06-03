@@ -577,6 +577,22 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			want: []string{"pkgmgr_hook_unmanaged"},
 		},
 		{
+			name: "getty autologin via drop-in -> getty_autologin_dropin",
+			rec: core.Record{
+				Module:  "systemd",
+				Signals: []string{core.SignalGettyAutologin, core.SignalSystemdDropin},
+			},
+			want: []string{"getty_autologin_dropin"},
+		},
+		{
+			name: "getty autologin in a vendor base unit (no drop-in) -> signal+LFA only, no Q7",
+			rec: core.Record{
+				Module:  "systemd",
+				Signals: []string{core.SignalGettyAutologin},
+			},
+			want: nil,
+		},
+		{
 			name: "planted python sitecustomize/.pth -> python_runtime_hook_unmanaged",
 			rec: core.Record{
 				Module:  "runtimeinit",
