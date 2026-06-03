@@ -18,15 +18,15 @@
 > 1. State: everything below "What is OPEN after v0.5.0" is current.
 >    `make all` is green on main (includes `duckdb-equiv`, the new Go↔SQL
 >    gate — run it before touching Q6/Q12/stats.go or stack_demo.sql).
-> 2. Next work = the duel-2 backlog is now **fully shipped** on branch
->    `duel2-backlog-remaining` (4 commits): #1 BASH_ENV/ENV env-hook
->    (profile, lab round 28), #2 generator-agnostic initramfs hook module
->    (initramfs-tools/dracut/mkinitcpio, lab round 29), #3 ld.so.conf.d
->    library shadowing (ldso, lab round 30), #4 systemd OnFailure=/.path
->    relationship edges (backend/Q12, live-host validated). Detections
->    40→43; site_classes 47→48 (boot.initramfs.hook); new Record field
->    `relations`. Next: merge the branch (PR), then pick from "Still OPEN"
->    (eBPF state inspection — needs ADR; webshell/supply-chain walk).
+> 2. Next work = duel-2 backlog merged to main (PR #3). **Duel-3** is
+>    lab-validated on branch `duel3-confexec` (3 commits, round 32) and
+>    AWAITING MERGE — the generic `confexec` module (8 config-embedded
+>    exec-edge sites) + systemd .socket/.timer/EnvironmentFile relations
+>    edges. Detections 43→51, site_classes 48→56, modules 26→27. See the
+>    "Duel-3" section below. Next: merge `duel3-confexec` (PR), then the
+>    architect-agreed Tier-3 deferred items (`getty_autologin` signal,
+>    `mount_shadows_path` /proc/self/mountinfo enrichment) or "Still OPEN"
+>    (eBPF — needs ADR; webshell/supply-chain walk).
 > 3. Detection-add recipe + the recurring discipline (gate every new Q7
 >    rule on a tamper/orphan/non-package co-indicator; recent_ctime floods
 >    on image-built hosts; lab the change before trusting it) are in the
@@ -552,7 +552,7 @@ real FP the lab caught and how it was fixed at the root):
     live-FS limit, initrd cpio OOS, %config edits report tampered, inline
     interpreter code is signal+LFA).
 
-## Duel-3 (config-embedded exec edges) — branch `duel3-confexec`, IN REVIEW
+## Duel-3 (config-embedded exec edges) — branch `duel3-confexec`, LAB-VALIDATED (round 32)
 
 A third red/blue/architects Workflow (re-run via `lab-nspawn/redblue-duel.workflow.js`,
 REPO_CONTEXT updated to mark the duel-2 backlog covered) found the dominant
@@ -594,11 +594,18 @@ fix (not 8 one-off modules) was built:
   `mount_shadows_path` (a bounded /proc/self/mountinfo read recording the
   bind-mount desync without reading mounted bytes). Specs in the duel-3
   architect output.
-- **PENDING: nspawn round.** Lab implants `apt2-{mail-alias,nss-hijack,
-  apt-hook,incron,logrotate,sudo-plugin,environmentd,xsession,systemd-timer}`
-  + a data-driven `validate-evade.py` branch are committed. Run
-  `sudo lab-nspawn/fleet.sh --round N --implants apt2-mail-alias,apt2-nss-hijack,apt2-apt-hook,apt2-incron,apt2-logrotate,apt2-sudo-plugin,apt2-environmentd,apt2-xsession,apt2-systemd-timer`
-  then `python3 lab-nspawn/validate-evade.py lab-nspawn/out/round-N`.
+- **LAB-VALIDATED — nspawn round 32 (Debian, 11 hosts).** All 9 implants
+  `apt2-{mail-alias,nss-hijack,apt-hook,incron,logrotate,sudo-plugin,
+  environmentd,xsession,systemd-timer}` PASS via signal-exact
+  `validate-evade.py`: each confexec site lifted its non-package/orphan exec
+  edge (real dpkg provenance) and fired its detection; the .timer
+  reconstructed the timer->payload edge + the payload service resolved
+  non_package_path. Each of the 8 confexec detections fired EXACTLY ONCE
+  fleet-wide (on its implant host); ZERO confexec non_package/orphan on the
+  clean hosts. (apt2-sudo-plugin also tripped package_file_tampered by
+  overwriting the owned /etc/sudo.conf.) Lab implants + data-driven
+  validator are committed; re-run any subset with
+  `lab-nspawn/fleet.sh --implants <ids>`.
 
 Still OPEN:
 
