@@ -91,6 +91,11 @@ var Signals = []SignalDef{
 		EmittedBy:   []string{"core/filemeta"},
 	},
 	{
+		Name:        SignalMountShadowsPath,
+		Description: "collected artifact's locus is a single-file bind/overlay mount target (/proc/self/mountinfo) — runtime-vs-disk desync; advisory/LFA, not a Q7 verdict",
+		EmittedBy:   []string{"core/mountinfo"},
+	},
+	{
 		Name:        SignalImmutableFlag,
 		Description: "inode carries FS_IMMUTABLE_FL (chattr +i) -- anti-remediation/anti-forensic; queried centrally at the sink",
 		EmittedBy:   []string{"core/inode_flags"},
@@ -374,6 +379,11 @@ var Signals = []SignalDef{
 	{
 		Name:        SignalSystemdSocketTrigger,
 		Description: "systemd .socket unit arms socket activation of a unit (Listen*; activated Service in Relations) — backend/Q12 correlation marker, not a Q7 verdict",
+		EmittedBy:   []string{"systemd"},
+	},
+	{
+		Name:        SignalGettyAutologin,
+		Description: "getty/agetty/login ExecStart enables --autologin/-a (or login -f) — a console/serial credential-bypass; signal+LFA, promoted to Q7 only via a drop-in override",
 		EmittedBy:   []string{"systemd"},
 	},
 

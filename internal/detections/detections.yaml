@@ -241,6 +241,13 @@ detections:
       signals_all: [env_hook_set]
       signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
 
+  - id: getty_autologin_dropin
+    description: a getty/serial-getty drop-in override enables console/serial autologin (agetty --autologin / login -f) — a credential bypass dropping an automatic shell, introduced by a drop-in rather than the vendor base unit. Every path is package-owned so there is no orphan/non-package tell; the drop-in-override shape is the discriminator. Residual FP class —a kiosk/appliance/cloud-init image that legitimately configures autologin via a drop-in (fleet-common; LFA discriminates a single fresh override). Bare getty_autologin (vendor base unit) stays signal+LFA only
+    severity: medium
+    mitre: [T1556, T1078]
+    when:
+      signals_all: [getty_autologin, systemd_dropin]
+
   - id: python_runtime_hook_unmanaged
     description: a Python interpreter startup hook (sitecustomize.py / usercustomize.py, or a *.pth with an `import` code line) on a site/dist-packages dir is outside the package universe, or a package-owned one was overwritten in place — CPython auto-executes it in every interpreter invocation (every script / cron / `python3 -c`). Shipped hooks (a packaged sitecustomize.py, distutils-precedence.pth) resolve owned and stay silent; this fires only on the non-package/tamper co-indicator
     severity: high

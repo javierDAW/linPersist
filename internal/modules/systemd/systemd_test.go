@@ -768,3 +768,25 @@ func TestRelationEdges_PlainTimerlessServiceNoTrigger(t *testing.T) {
 		}
 	}
 }
+
+func TestGettyAutologin(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"vendor getty (no autologin)", "[Service]\nExecStart=-/sbin/agetty -o '-p -- \\u' --noclear - $TERM\n", false},
+		{"agetty --autologin root", "[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin root --noclear %I $TERM\n", true},
+		{"agetty -a", "[Service]\nExecStart=-/sbin/agetty -a admin - linux\n", true},
+		{"login -f", "[Service]\nExecStart=/bin/login -f operator\n", true},
+		{"unrelated exec", "[Service]\nExecStart=/usr/bin/sshd -D\n", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			secs, _ := ParseUnitFile([]byte(c.body))
+			if got := gettyAutologin(secs); got != c.want {
+				t.Errorf("gettyAutologin = %v, want %v", got, c.want)
+			}
+		})
+	}
+}

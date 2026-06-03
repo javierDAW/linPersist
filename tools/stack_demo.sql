@@ -367,6 +367,7 @@ WHERE
   OR /* sshd_login_env_injection */ ((list_contains(signals, 'sshd_permit_user_environment') OR list_contains(signals, 'sshd_env_injection')) AND module = 'sshd')
   OR /* ssh_sshrc_unmanaged_exec */ (list_contains(signals, 'sshrc_present') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')))
   OR /* profile_env_hook_unmanaged */ (list_contains(signals, 'env_hook_set') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')))
+  OR /* getty_autologin_dropin */ (list_contains(signals, 'getty_autologin') AND list_contains(signals, 'systemd_dropin'))
   OR /* python_runtime_hook_unmanaged */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'package_file_tampered')) AND module = 'runtimeinit')
   OR /* php_autoprepend_unmanaged */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')) AND site_class = 'php.ini')
   OR /* initramfs_hook_unmanaged */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'package_file_tampered')) AND module = 'initramfs')

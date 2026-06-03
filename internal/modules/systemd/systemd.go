@@ -611,6 +611,10 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, siteClass string,
 	if m.hasExternalAlias(sections) {
 		rec.Signals = appendUnique(rec.Signals, core.SignalSystemdInstallAliasExternal)
 	}
+	// getty/agetty/login autologin -- a console/serial credential bypass.
+	if gettyAutologin(sections) {
+		rec.Signals = appendUnique(rec.Signals, core.SignalGettyAutologin)
+	}
 
 	// Mtime-based signals on the locus file.
 	now := m.opts.Now()
@@ -898,6 +902,40 @@ func (m *Module) auxExecUnmanaged(sections []Section) bool {
 			}
 			if _, st := m.opts.Provenance.LookupPath(tok); st == core.PkgStatusOrphan {
 				return true // present but package-unowned -> parked payload
+			}
+		}
+	}
+	return false
+}
+
+// gettyAutologin reports whether any Exec* line runs agetty/getty with
+// --autologin / -a, or login with -f -- a console/serial credential
+// bypass. Scans every Exec* value (a drop-in often adds the autologin via
+// ExecStart= reset + a new ExecStart, or a different Exec verb).
+func gettyAutologin(sections []Section) bool {
+	for _, s := range sections {
+		for _, e := range s.Entries {
+			if !strings.HasPrefix(strings.ToLower(e.Key), "exec") {
+				continue
+			}
+			fields := strings.Fields(stripExecPrefixes(e.Value))
+			if len(fields) == 0 {
+				continue
+			}
+			base := filepath.Base(fields[0])
+			switch base {
+			case "agetty", "getty":
+				for _, f := range fields[1:] {
+					if f == "--autologin" || f == "-a" || strings.HasPrefix(f, "--autologin=") {
+						return true
+					}
+				}
+			case "login":
+				for _, f := range fields[1:] {
+					if f == "-f" {
+						return true
+					}
+				}
 			}
 		}
 	}
