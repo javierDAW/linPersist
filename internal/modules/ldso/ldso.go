@@ -67,6 +67,13 @@ const DefaultMaxFileSize = 1 << 20
 // Module collects dynamic-linker persistence artifacts.
 type Module struct {
 	opts Options
+
+	// stdLibDirs memoizes the resolved set of standard library
+	// directories (base + multiarch subdirs) used by the shadow check.
+	// Computed lazily on first use within a single Collect; Collect is
+	// single-goroutine so no lock is needed.
+	stdLibDirs    []string
+	stdLibDirsSet bool
 }
 
 // New constructs a Module with default fallbacks for unset Options.
@@ -384,8 +391,120 @@ func (m *Module) recordFromConfLine(logical string, info os.FileInfo, siteClass 
 	core.FillFileMeta(&rec, info)
 
 	signals := m.baseSignals(info, logical)
+
+	// Library-shadow check. A search-path directive that adds a
+	// NON-standard directory holding a *.so* whose basename collides with
+	// a package-owned library on a standard path is the ld.so.conf.d
+	// library-hijack shape (T1574.006). Unlike the search-path dir itself
+	// (deliberately never an exec_target — it floods), the colliding
+	// PLANTED .so is a precise, low-FP target: it only fires on a real
+	// shadow. Bare path-injection (a non-standard dir colliding with
+	// nothing) stays signal-free, surfaced by LFA singleton stacking only.
+	if pl.kind == confLineSearchPath {
+		if planted, ok := m.shadowingSo(pl.target); ok {
+			rec.ExecTarget = planted
+			signals = append(signals, core.SignalLDLibraryShadowsPackaged)
+			if h, hok := m.hashExecTarget(planted); hok {
+				rec.ExecTargetSHA256 = h
+			}
+			rec.Signals = core.DedupSignals(signals)
+			core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, planted)
+			core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, planted)
+			return rec
+		}
+	}
+
 	rec.Signals = core.DedupSignals(signals)
 	return rec
+}
+
+// standardLibDirs returns the resolved-LOGICAL set of standard library
+// directories: the four base dirs plus any immediate multiarch subdir
+// (e.g. x86_64-linux-gnu). A library found here is the system one a
+// planted shadow would hijack. Memoized for the lifetime of one Collect.
+func (m *Module) standardLibDirs() []string {
+	if m.stdLibDirsSet {
+		return m.stdLibDirs
+	}
+	base := []string{"/lib", "/usr/lib", "/lib64", "/usr/lib64"}
+	out := make([]string, 0, len(base)*2)
+	for _, d := range base {
+		out = append(out, d)
+		ents, err := os.ReadDir(m.resolve(d))
+		if err != nil {
+			continue
+		}
+		for _, e := range ents {
+			if e.IsDir() {
+				out = append(out, filepath.Join(d, e.Name()))
+			}
+		}
+	}
+	m.stdLibDirs = out
+	m.stdLibDirsSet = true
+	return out
+}
+
+// isStandardLibDir reports whether dir is (under) a conventional system
+// library path. These are excluded from the shadow check: a *.so* under
+// them IS the system library, and /usr/local/lib is the sanctioned
+// local-install location, so neither is an attacker-controlled shadow
+// dir. The match is by prefix so multiarch subdirs are covered.
+func isStandardLibDir(dir string) bool {
+	dir = strings.TrimRight(dir, "/")
+	for _, std := range []string{"/lib", "/usr/lib", "/lib64", "/usr/lib64", "/usr/local/lib"} {
+		if dir == std || strings.HasPrefix(dir, std+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// shadowingSo inspects a non-standard search-path directory and returns
+// the LOGICAL path of the first *.so* it contains whose basename
+// collides with a package-OWNED library on a standard library path —
+// the textbook ld.so.conf.d shadow implant. Returns ("", false) when
+// the dir is standard, a glob, unreadable, empty, or holds only
+// non-colliding libraries.
+func (m *Module) shadowingSo(searchDir string) (string, bool) {
+	if searchDir == "" || hasGlobMeta(searchDir) || !strings.HasPrefix(searchDir, "/") {
+		return "", false
+	}
+	if isStandardLibDir(searchDir) {
+		return "", false
+	}
+	ents, err := os.ReadDir(m.resolve(searchDir))
+	if err != nil {
+		return "", false
+	}
+	stdDirs := m.standardLibDirs()
+	for _, e := range ents {
+		name := e.Name()
+		if !isSharedLib(name) {
+			continue
+		}
+		// Only consider regular files / symlinks to them, not subdirs.
+		if e.IsDir() {
+			continue
+		}
+		for _, sd := range stdDirs {
+			candidate := filepath.Join(sd, name)
+			fi, serr := os.Lstat(m.resolve(candidate))
+			if serr != nil || fi.IsDir() {
+				continue
+			}
+			if _, status := m.opts.Provenance.LookupPath(candidate); status == core.PkgStatusOwned {
+				return filepath.Join(searchDir, name), true
+			}
+		}
+	}
+	return "", false
+}
+
+// isSharedLib reports whether a filename looks like a shared object:
+// `libfoo.so`, `libfoo.so.1`, `libfoo.so.1.2.3`.
+func isSharedLib(name string) bool {
+	return strings.HasSuffix(name, ".so") || strings.Contains(name, ".so.")
 }
 
 // envelopeRecord builds a record that represents the file itself

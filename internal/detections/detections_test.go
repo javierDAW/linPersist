@@ -426,6 +426,22 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			want: []string{"ld_preload_target_tampered", "package_owned_file_tampered"},
 		},
 		{
+			name: "ld.so.conf.d search-path shadows a packaged library -> ld_library_shadow_implant",
+			rec: core.Record{
+				Module:  "ldso",
+				Signals: []string{core.SignalLDLibraryShadowsPackaged, core.SignalNonPackagePath},
+			},
+			want: []string{"ld_library_shadow_implant"},
+		},
+		{
+			name: "ld.so.conf.d non-standard dir with no collision (bare path-injection) -> LFA-only, no Q7",
+			rec: core.Record{
+				Module:  "ldso",
+				Signals: []string{core.SignalNonRootOwner},
+			},
+			want: nil,
+		},
+		{
 			name: "netdispatch script outside the package universe -> dispatcher rule fires",
 			rec: core.Record{
 				Module:  "netdispatch",

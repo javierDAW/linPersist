@@ -166,6 +166,11 @@ var Signals = []SignalDef{
 		EmittedBy:   []string{"ldso"},
 	},
 	{
+		Name:        SignalLDLibraryShadowsPackaged,
+		Description: "ld.so.conf.d search-path adds a non-standard dir holding a *.so* whose basename collides with a package-owned library on a standard path (T1574.006 library shadowing)",
+		EmittedBy:   []string{"ldso"},
+	},
+	{
 		Name:        SignalExecTargetOrphan,
 		Description: "exec_target points to a file that does not exist on disk",
 		EmittedBy: []string{

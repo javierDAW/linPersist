@@ -479,14 +479,36 @@ real FP the lab caught and how it was fixed at the root):
          carry 5 package-owned /usr/share hook records with ZERO
          non_package_path. The same recursive walk + provenance path covers
          dracut + mkinitcpio (unit/golden-validated).
-      3. **ld.so.conf.d library SHADOW** (ldso module, trickiest — keep
-         it precise). Do NOT make the search-path dir an exec_target (that
-         FP-floods on /usr/local/lib). Instead: for each ld.so.conf.d
-         directory entry that is non-standard AND package-unowned,
-         enumerate its `*.so*` and emit `ld_library_shadows_packaged` ONLY
-         when a planted .so's SONAME/basename collides with a
-         package-owned library on the standard path. Bare path-injection
-         stays LFA-only.
+      3. DONE + LAB-VALIDATED (round 30, Debian)
+         **ld.so.conf.d library SHADOW** (duel-2 backlog #3). Extends the
+         `ldso` module: a search-path directive that adds a NON-standard dir
+         (not under /lib, /usr/lib, /lib64, /usr/lib64 or /usr/local/lib —
+         prefix match, so multiarch + sanctioned local dirs are exempt)
+         whose `*.so*` basename collides with a package-OWNED library on a
+         standard path emits the new signal `ld_library_shadows_packaged`,
+         with the planted .so as ExecTarget (so non_package_path co-fires).
+         The search-path dir is still NEVER an exec_target (the v0.2.0
+         FP-flood); only the colliding planted .so is. Bare path-injection
+         (non-standard dir, no collision) stays signal-free / LFA-only.
+         Collision check: `shadowingSo` enumerates the dir's .so files and,
+         for each basename, looks across the memoized standard lib dirs
+         (base + multiarch subdirs) for a same-named PkgStatusOwned file.
+         Detection `ld_library_shadow_implant` (critical, T1574.006) gated
+         `signals_all:[ld_library_shadows_packaged]`. Detections 42→43.
+         No new site_class (enriches ldso.confd/conf), so matrix stays 48.
+         Tests: 2 unit (collision fires w/ exec_target=planted .so +
+         non_package_path; standard dir + no-collision control stay clean)
+         + 2 detection-matcher goldens. `make all` green. Live-host smoke
+         (real Ubuntu): 7 ldso records, ZERO ld_library_shadows_packaged /
+         Q7 FP — the host's two non-/lib dirs (libfakeroot, wsl) are under
+         the /usr/lib prefix so are exempt by design. Residual FP class
+         (documented in the signal): a locally source-built lib legitimately
+         shadowing the distro one. Lab round 30 (Debian, 6 hosts) via
+         `apt2-ldso-shadow` (plants /opt/.perflib/libc.so.6 + a .conf):
+         validate-evade.py all PASS — ld_library_shadows_packaged +
+         non_package_path (real dpkg provenance) + ld_library_shadow_implant
+         (critical) on the implant host only; fires exactly once fleet-wide,
+         ZERO ld_library_shadows_packaged on the 5 clean hosts.
       4. **systemd OnFailure= / .path Unit= relationship EDGES** (systemd
          module). Parse OnFailure=/Requires=/Wants= and the [Path]
          PathModified=/PathChanged=/Unit= into a relationship-edge signal
