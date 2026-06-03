@@ -45,6 +45,16 @@ const (
 	// anti-timestomp rationale as SignalRecentCtime7d.
 	SignalRecentCtime30d = "recent_ctime_30d"
 
+	// SignalMountShadowsPath set (at the emit sink) when a collected
+	// artifact's locus is, at runtime, a SINGLE-FILE bind/overlay mount
+	// target per /proc/self/mountinfo — the on-disk inode the agent hashed
+	// is masked by a different file the kernel actually serves. Records the
+	// runtime-vs-disk DESYNC without reading the mounted bytes (the agent
+	// stays a disk walker, not an EDR; scope.md §8). Advisory / LFA-triage
+	// enrichment, never a Q7 verdict on its own — legit single-file binds
+	// exist (some container/snap setups). Directory mounts are excluded.
+	SignalMountShadowsPath = "mount_shadows_path"
+
 	// SignalImmutableFlag set when the artifact's inode carries the
 	// ext/xfs/btrfs FS_IMMUTABLE_FL flag (chattr +i), queried centrally
 	// at the emit sink via FS_IOC_GETFLAGS. Dual purpose: (1) anti-
@@ -425,6 +435,18 @@ const (
 	// first connection. The activated unit is recorded as a Relations edge.
 	// BACKEND/Q12 correlation marker, not a Q7 verdict.
 	SignalSystemdSocketTrigger = "systemd_socket_trigger"
+
+	// SignalGettyAutologin set when a getty/serial-getty/container-getty
+	// unit's ExecStart invokes agetty/getty with --autologin (or -a), or
+	// login with -f -- a credential bypass that drops an automatic shell on
+	// the console/serial line. Every path involved is package-owned (the
+	// LFA-clean boundary), so this is the rare on-disk tell for a
+	// console-autologin backdoor. Legitimate on kiosk/appliance/serial/
+	// cloud-init fleets, so it is recorded for LFA singleton stacking and
+	// only promoted to a Q7 verdict when introduced via a drop-in override
+	// (getty_autologin_dropin) -- a vendor base-unit autologin stays
+	// signal-only. MITRE T1556 / T1078.
+	SignalGettyAutologin = "getty_autologin"
 
 	// SignalSysvExternalInitSymlink set on sysv.init records whose
 	// locus is a symlink in /etc/rc[0-6].d/ (or the RHEL alternative
