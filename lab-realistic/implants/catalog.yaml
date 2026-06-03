@@ -953,6 +953,145 @@ implants:
     template: apt2-systemd-pathunit.tmpl
     vars: {}
 
+  # ===== duel-3: config-embedded exec edges (confexec) + systemd edges =====
+
+  - id: apt2-mail-alias
+    tier: L5
+    variant: armed
+    module: confexec
+    site_class: mail.aliases
+    description: |
+      A |command pipe alias in /etc/aliases runs AS root on every mail
+      delivery -> mail.aliases lifts the pipe argv0 -> non_package_path ->
+      mail_alias_pipe_unmanaged.
+    expected_signals: [non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: mail_alias_pipe_unmanaged
+    template: apt2-mail-alias.tmpl
+    vars: {}
+
+  - id: apt2-nss-hijack
+    tier: L5
+    variant: armed
+    module: confexec
+    site_class: nss.nsswitch
+    description: |
+      Symbiote-class NSS hijack: a custom nsswitch passwd token names a
+      planted unowned libnss_zzevil.so.2 glibc dlopens into every lookup ->
+      nss.nsswitch resolves it -> non_package_path -> nss_module_unmanaged (critical).
+    expected_signals: [non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: nss_module_unmanaged
+    template: apt2-nss-hijack.tmpl
+    vars: {}
+
+  - id: apt2-apt-hook
+    tier: L5
+    variant: armed
+    module: confexec
+    site_class: pkgmgr.hook
+    description: |
+      apt.conf.d DPkg::Pre-Invoke runs AS root on every apt operation ->
+      pkgmgr.hook lifts the quoted command -> non_package_path ->
+      pkgmgr_hook_unmanaged.
+    expected_signals: [non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: pkgmgr_hook_unmanaged
+    template: apt2-apt-hook.tmpl
+    vars: {}
+
+  - id: apt2-incron
+    tier: L4
+    variant: armed
+    module: confexec
+    site_class: incron.d
+    description: |
+      incron (inotify-cron) entry runs a command on a watched-path event --
+      an event-driven cron the time-based parser misses. incron.d lifts the
+      orphan command -> exec_target_orphan -> incron_exec_unmanaged.
+    expected_signals: [exec_target_orphan]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: incron_exec_unmanaged
+    template: apt2-incron.tmpl
+    vars: {}
+
+  - id: apt2-logrotate
+    tier: L4
+    variant: armed
+    module: confexec
+    site_class: logrotate.d
+    description: |
+      logrotate postrotate script block runs AS root from cron.daily ->
+      logrotate.d extracts the parked /opt hook -> exec_target_orphan ->
+      logrotate_script_unmanaged.
+    expected_signals: [exec_target_orphan]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: logrotate_script_unmanaged
+    template: apt2-logrotate.tmpl
+    vars: {}
+
+  - id: apt2-sudo-plugin
+    tier: L5
+    variant: armed
+    module: confexec
+    site_class: sudo.conf.plugin
+    description: |
+      /etc/sudo.conf Plugin line loads an unowned .so inside setuid-root sudo
+      on every invocation -> sudo.conf.plugin lifts the .so -> non_package_path
+      -> sudo_plugin_unmanaged (critical).
+    expected_signals: [non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: sudo_plugin_unmanaged
+    template: apt2-sudo-plugin.tmpl
+    vars: {}
+
+  - id: apt2-environmentd
+    tier: L4
+    variant: armed
+    module: confexec
+    site_class: environment.d
+    description: |
+      systemd environment.d LD_PRELOAD names an unowned .so loaded into every
+      user session -> environment.d lifts the .so -> non_package_path ->
+      environment_d_hook_unmanaged.
+    expected_signals: [non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: environment_d_hook_unmanaged
+    template: apt2-environmentd.tmpl
+    vars: {}
+
+  - id: apt2-xsession
+    tier: L4
+    variant: armed
+    module: confexec
+    site_class: xsession.d
+    description: |
+      An /etc/X11/Xsession.d drop-in execs a payload on every graphical login
+      -> xsession.d extracts the orphan command -> exec_target_orphan ->
+      xsession_hook_unmanaged.
+    expected_signals: [exec_target_orphan]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: xsession_hook_unmanaged
+    template: apt2-xsession.tmpl
+    vars: {}
+
+  - id: apt2-systemd-timer
+    tier: L5
+    variant: armed
+    module: systemd
+    site_class: systemd.unit
+    description: |
+      .timer -> orphan .service activation chain (the #1 cron-replacement
+      shape). The relations work records the timer->service edge
+      (systemd_timer_trigger + Unit edge); the payload service surfaces via
+      non_package_path. BACKEND/Q12 correlation -- the .timer itself is not a
+      Q7 verdict.
+    expected_signals: [systemd_timer_trigger]
+    expected_caught_by: [Q1]
+    expected_q7_rule: null
+    template: apt2-systemd-timer.tmpl
+    vars: {}
+
   - id: apt2-sshd-setenv
     tier: L4
     variant: armed

@@ -410,6 +410,22 @@ const (
 	// not a Q7 verdict (the activated service is flagged on its own).
 	SignalSystemdPathTrigger = "systemd_path_trigger"
 
+	// SignalSystemdTimerTrigger set on a .timer unit that schedules
+	// activation (OnCalendar=/OnBootSec=/OnUnitActiveSec=/...). systemd
+	// starts the activated unit (Unit=, or the implicit <name>.service) on
+	// the schedule -- the most common cron-replacement persistence shape.
+	// The activated unit is recorded as a Relations edge. BACKEND/Q12
+	// correlation marker, not a Q7 verdict (the activated service is
+	// flagged on its own via the exec/orphan rules).
+	SignalSystemdTimerTrigger = "systemd_timer_trigger"
+
+	// SignalSystemdSocketTrigger set on a .socket unit that arms socket
+	// activation (ListenStream=/ListenDatagram=/...). systemd starts the
+	// activated unit (Service=, or the implicit <name>.service) on the
+	// first connection. The activated unit is recorded as a Relations edge.
+	// BACKEND/Q12 correlation marker, not a Q7 verdict.
+	SignalSystemdSocketTrigger = "systemd_socket_trigger"
+
 	// SignalSysvExternalInitSymlink set on sysv.init records whose
 	// locus is a symlink in /etc/rc[0-6].d/ (or the RHEL alternative
 	// /etc/rc.d/rc[0-6].d/) resolving to a target file outside the

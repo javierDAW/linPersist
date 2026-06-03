@@ -1,0 +1,7 @@
+# APT2 implant: apt2-incron (inotify-cron event-triggered exec). An incron.d
+# entry runs a command when a watched path fires a filesystem event -- an
+# event-driven cron the time-based cron parser misses. confexec incron.d
+# lifts column-3 argv0 -> exec_target_orphan -> incron_exec_unmanaged. Variables: (none)
+RUN mkdir -p /etc/incron.d && \
+    printf '%s\n' '/etc/passwd IN_MODIFY /opt/.i/exfil' > /etc/incron.d/zz-watch && \
+    chown root:root /etc/incron.d/zz-watch && chmod 0644 /etc/incron.d/zz-watch

@@ -1,0 +1,9 @@
+# APT2 implant: apt2-sudo-plugin (sudo.conf plugin .so load). A Plugin line in
+# /etc/sudo.conf loads an arbitrary .so inside setuid-root sudo on every
+# invocation. confexec sudo.conf.plugin lifts the .so path ->
+# non_package_path -> sudo_plugin_unmanaged (critical). Variables: (none)
+RUN mkdir -p /opt/.s && \
+    printf 'PLANTED-SUDO-PLUGIN\n' > /opt/.s/audit.so && \
+    chown root:root /opt/.s/audit.so && chmod 0644 /opt/.s/audit.so && \
+    printf '%s\n' 'Plugin zz_audit /opt/.s/audit.so' >> /etc/sudo.conf && \
+    chown root:root /etc/sudo.conf && chmod 0644 /etc/sudo.conf
