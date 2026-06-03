@@ -1161,6 +1161,10 @@ duckdb -c "
 
 ## ADR index (latest first)
 
+- ADR-0016 — coverage philosophy (enumerative coverage, three regimes,
+  two load-bearing assumptions; how to triage a duel finding). Companion
+  to scope.md §8.2.
+- ADR-0015 — host tags via `--tag key=value`.
 - ADR-0014 — systemd structural family (linger, tmpfiles, sysusers).
 - ADR-0013 — `detections.yaml` as single source of truth.
 - ADR-0012 — `linpersist-report --host` per-host dossier mode.

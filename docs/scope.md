@@ -244,3 +244,56 @@ they are honest engagement limits, not silent gaps:
   scoring but are not decoded — chasing obfuscation with substring rules
   is an arms race the agent does not enter. The unique content makes them
   LFA singletons.
+
+### 8.2 Coverage model — what stays uncovered, and why
+
+`linpersist`'s coverage is **enumerative**: a persistence site is
+covered only where a module walks its locus and parses its grammar. The
+Linux persistence surface is open-ended, so coverage is best understood
+as **three regimes**, not a percentage. (Architectural rationale:
+ADR-0016.)
+
+1. **Covered well — the tool's domain.** On-disk artifacts at *known
+   loci* carrying a structural tell (orphan / non-package / tmp /
+   tampered / recently-changed), surfaced by fleet rarity (LFA). The 56
+   site_classes in `matrix.yaml` live here; recall is high and FPs are
+   calibrated low. This is what the engagement buys.
+
+2. **A long tail, inside the model.** Every other config-file-with-an-
+   exec-edge that does not yet have a parser: language-runtime auto-exec
+   (Python `.pth`/`sitecustomize`, `NODE_OPTIONS`, `PERL5LIB`, ...),
+   obscure scheduler/init variants, per-application hooks. New software
+   adds new sites. We extend coverage here by value; **we do not claim to
+   exhaust it.** A finding here is a prioritisation question, not a
+   defect.
+
+3. **Out of scope, by design — another tool's job.** A point-in-time,
+   agentless, disk-walk collector cannot (and should not) see:
+   in-memory / fileless implants; the *runtime* view when it diverges
+   from disk (bind-mount/overlay shadowing, rootkit-hidden entries, a
+   deleted-but-open file); kernel/eBPF/loaded-module state; firmware /
+   pre-OS bootkits; and anything that exists only between scans or only
+   at trigger time. Covering this regime means becoming an EDR — a
+   resident agent with entirely different cost, footprint and false-
+   positive characteristics. Pair `linpersist` with such tools; it does
+   not replace them.
+
+**Two assumptions that, if false, silently defeat the tool** — state
+them to the client up front:
+
+- **Package metadata is trusted.** The non-package / tampered signals
+  trust the dpkg/rpm/apk database. A *malicious package-owned* binary (a
+  poisoned repository, a trojaned package) resolves as "owned" and stays
+  silent. `linpersist` is not a supply-chain attestation (SBOM /
+  signature) tool.
+- **Fleet rarity needs a heterogeneous fleet.** On a single host, or a
+  uniformly-imaged fleet where the implant is baked into the golden
+  image, the singleton model degrades. Persistence built from only
+  owned binaries on owned paths (or malicious *arguments* to a
+  legitimate directive) carries no structural tell and is recorded for
+  rarity analysis only.
+
+The honest one-line summary: **`linpersist` is a high-precision,
+low-false-positive, agentless triage layer over on-disk persistence
+state — one layer of a defensive stack, with deliberate, documented
+boundaries, not the whole stack.**
