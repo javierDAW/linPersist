@@ -304,14 +304,71 @@ func parseNsswitch(raw []byte, _ string, m *Module) []Edge {
 
 // --- systemd environment.d ---
 
-// envHookKeys are the environment.d assignments that turn a path into a
-// per-session code-exec/dlopen edge. LD_PRELOAD/LD_AUDIT name a .so glibc
-// loads into every process of the session; BASH_ENV/ENV name a script the
-// shell sources. LD_LIBRARY_PATH is deliberately excluded (a search-dir
-// list, the ld.so.conf-shadow shape, not a direct target). Locale/toolkit
-// vars (LANG, QT_*, GTK_*) are ignored -- they lift nothing.
+// envHookKeys are the environment.d assignments whose value is a single
+// path that turns into a per-session code-exec/dlopen edge. LD_PRELOAD/
+// LD_AUDIT name a .so glibc loads into every session process; BASH_ENV/ENV
+// name a script the shell sources; PYTHONSTARTUP names a file CPython
+// sources in every interactive interpreter. LD_LIBRARY_PATH / PERL5LIB /
+// RUBYLIB are search-dir LISTS (the ld.so.conf-shadow shape, not a direct
+// target) and are excluded; PERL5OPT=-M / RUBYOPT=-r carry module NAMES
+// not paths (inline-code boundary, LFA). NODE_OPTIONS is handled specially
+// below (it carries `--require <path>` flags, not a bare path).
 var envHookKeys = map[string]struct{}{
-	"LD_PRELOAD": {}, "LD_AUDIT": {}, "BASH_ENV": {}, "ENV": {},
+	"LD_PRELOAD": {}, "LD_AUDIT": {}, "BASH_ENV": {}, "ENV": {}, "PYTHONSTARTUP": {},
+}
+
+// nodeRequireFlags are the NODE_OPTIONS flags that name a module Node
+// loads before the entrypoint — `--require <path>` / `--import <path>`
+// (and their `=`-joined forms). The argument, when an absolute path, is
+// the exec edge.
+var nodeRequireFlags = []string{"--require", "--import"}
+
+// nodeRequirePath returns the first absolute path argument of a
+// `--require`/`--import` flag inside a NODE_OPTIONS value (space-separated
+// or `=`-joined), or "" if none.
+func nodeRequirePath(val string) string {
+	fields := strings.Fields(val)
+	for i, f := range fields {
+		for _, flag := range nodeRequireFlags {
+			if f == flag && i+1 < len(fields) {
+				if p := cmdArg0(fields[i+1]); p != "" {
+					return p
+				}
+			}
+			if strings.HasPrefix(f, flag+"=") {
+				if p := cmdArg0(strings.TrimPrefix(f, flag+"=")); p != "" {
+					return p
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// parsePhpIni lifts the script named by php.ini auto_prepend_file /
+// auto_append_file -- a PHP file the engine runs before/after every
+// request (web + CLI). extension/zend_extension .so loads are
+// search-path-based and left to LFA.
+func parsePhpIni(raw []byte, _ string, _ *Module) []Edge {
+	var out []Edge
+	eachLine(raw, func(line string) {
+		if strings.HasPrefix(line, ";") { // php.ini comment marker
+			return
+		}
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			return
+		}
+		key := strings.ToLower(strings.TrimSpace(line[:eq]))
+		if key != "auto_prepend_file" && key != "auto_append_file" {
+			return
+		}
+		val := strings.Trim(strings.TrimSpace(line[eq+1:]), "\"'")
+		if arg0 := cmdArg0(val); arg0 != "" {
+			out = append(out, Edge{Target: arg0, Snippet: line})
+		}
+	})
+	return out
 }
 
 // parseEnvironmentD parses systemd environment.d KEY=VALUE files and lifts
@@ -328,10 +385,16 @@ func parseEnvironmentD(raw []byte, _ string, _ *Module) []Edge {
 			return
 		}
 		key := strings.ToUpper(strings.TrimSpace(line[:eq]))
+		val := strings.Trim(strings.TrimSpace(line[eq+1:]), "\"'")
+		if key == "NODE_OPTIONS" {
+			if p := nodeRequirePath(val); p != "" {
+				out = append(out, Edge{Target: p, Snippet: line})
+			}
+			return
+		}
 		if _, ok := envHookKeys[key]; !ok {
 			return
 		}
-		val := strings.Trim(strings.TrimSpace(line[eq+1:]), "\"'")
 		// LD_PRELOAD may list several .so separated by space/colon; take
 		// the first absolute token.
 		toks := strings.FieldsFunc(val, func(r rune) bool { return r == ' ' || r == ':' })

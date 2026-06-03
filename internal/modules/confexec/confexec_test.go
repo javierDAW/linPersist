@@ -223,3 +223,36 @@ func TestEnvironmentD(t *testing.T) {
 		}
 	}
 }
+
+func TestPhpAutoPrepend(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "etc/php/8.2/cli/php.ini", "; comment\nauto_prepend_file = /opt/.php/shell.php\nmemory_limit = 128M\n")
+	write(t, root, "etc/php/8.2/fpm/php.ini", "auto_append_file = \"/usr/share/php/legit.php\"\n")
+	write(t, root, "usr/share/php/legit.php", "<?php")
+	recs := collect(t, root, "/usr/share/php/legit.php")
+	if r := find(recs, "php.ini", "/opt/.php/shell.php"); r == nil || !hasSig(r, core.SignalNonPackagePath) {
+		t.Errorf("auto_prepend_file payload not lifted/non_package; recs=%v", recs)
+	}
+	if r := find(recs, "php.ini", "/usr/share/php/legit.php"); r != nil && hasSig(r, core.SignalNonPackagePath) {
+		t.Errorf("owned auto_append_file must not carry non_package_path")
+	}
+}
+
+func TestEnvironmentD_PythonAndNode(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "etc/environment.d/90-py.conf", "PYTHONSTARTUP=/opt/.py/startup.py\n")
+	write(t, root, "etc/environment.d/91-node.conf", "NODE_OPTIONS=--require /opt/.node/hook.js --max-old-space-size=512\n")
+	write(t, root, "etc/environment.d/92-locale.conf", "LANG=C.UTF-8\nPERL5OPT=-Mevil\n") // module NAME, not a path -> ignored
+	recs := collect(t, root)
+	if find(recs, "environment.d", "/opt/.py/startup.py") == nil {
+		t.Errorf("PYTHONSTARTUP path not lifted; recs=%v", recs)
+	}
+	if find(recs, "environment.d", "/opt/.node/hook.js") == nil {
+		t.Errorf("NODE_OPTIONS --require path not lifted; recs=%v", recs)
+	}
+	for _, r := range recs {
+		if r.SiteClass == "environment.d" && r.ExecTarget != "/opt/.py/startup.py" && r.ExecTarget != "/opt/.node/hook.js" {
+			t.Errorf("unexpected environment.d edge %q (PERL5OPT module name must be inert)", r.ExecTarget)
+		}
+	}
+}

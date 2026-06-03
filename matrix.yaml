@@ -1147,3 +1147,46 @@ site_classes:
       command is lifted. Densely populated with PACKAGED scripts on desktops
       (im-config, fontconfig) -- all owned, silent under the gate; absent on
       headless server fleets.
+
+  # ============ coherence #2: language-runtime auto-exec ================
+
+  - site_class: runtime.python
+    module: runtimeinit
+    mitre: [T1546]
+    loci:
+      - /usr/lib/python3*/{,dist-packages/,site-packages/}
+      - /usr/lib64/python3*/{,site-packages/}
+      - /usr/local/lib/python3*/{dist-packages/,site-packages/}
+      - /root/.local/lib/python3*/site-packages/
+      - /home/*/.local/lib/python3*/site-packages/
+    status: implemented
+    test_coverage: unit
+    notes: |
+      Python interpreter startup-hook files CPython's site.py auto-executes:
+      sitecustomize.py / usercustomize.py, and *.pth files carrying a code
+      line (a line beginning `import`, which CPython exec()s — the
+      `import os; os.system(...)` persistence .pth). ExecTarget is the file
+      itself, so provenance gates it: a shipped sitecustomize.py /
+      distutils-precedence.pth resolves OWNED and stays silent (both are
+      common + package-owned on a stock host — the provenance gate is
+      load-bearing); a PLANTED file (non_package_path) or an in-place-edited
+      owned one (package_file_tampered) surfaces. Plain path-list .pth
+      (sys.path additions) are the search-path-injection shape, left to LFA.
+
+  - site_class: php.ini
+    module: confexec
+    mitre: [T1546]
+    loci:
+      - /etc/php.ini
+      - /etc/php/*/*/php.ini
+      - /etc/php*/php.ini
+      - /etc/php.d/*.ini
+    status: implemented
+    test_coverage: unit
+    notes: |
+      php.ini auto_prepend_file / auto_append_file name a PHP script the
+      engine runs before/after every request (web + CLI) — config-as-exec on
+      the language runtime. The absolute path is lifted to exec_target;
+      owned vendor paths stay silent, a non-package/orphan prepend trips the
+      detection. Extension/zend_extension .so loads are search-path-based and
+      left to LFA.
