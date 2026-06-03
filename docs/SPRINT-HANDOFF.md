@@ -628,20 +628,70 @@ Prioritised:
    plus a loud stderr Warn on PkgMgrNone. Unit-tested (pacman/portage
    ownership, portage tamper, arch/manjaro/gentoo detection); `make all`
    green; live-host (Ubuntu) shows pkg_mgr=dpkg, non_package_path not
-   regressed. NOT nspawn-validated — the lab harness only boots Debian +
-   Rocky (debootstrap/rocky-bootstrap); Arch/Gentoo nspawn is a separate
-   lab effort. NIX is intentionally left to the honest-degradation path
-   (its content-addressed store needs its own resolver design).
-2. TODO — **interpreter/runtime auto-exec coverage.** The tool covers
-   shell-init (profile) + the dynamic linker (ldso) but not interpreter
-   auto-exec: python `*.pth` / `sitecustomize` / `PYTHONSTARTUP`, node
-   `NODE_OPTIONS`/`--require`, perl `PERL5LIB`, ruby `RUBYOPT`, php
-   `auto_prepend_file`. Same Regime-1 shape (known loci, orphan/non-package
-   tell). Fits a `confexec` grammar family or a small `runtimeinit` module.
+   regressed. LAB-VALIDATED on real Arch (nspawn round 40, via the new
+   arch-bootstrap): host_meta.pkg_mgr=pacman on the whole fleet (provenance
+   NOT inert), the implant files resolved non_package_path via the real
+   pacman DB, 4 detections fired (one per implant host), zero Q7 clean-host
+   FP. (12 clean-host non_package SIGNALS were all correct — 11 orphan
+   targets absent from the minimal bootstrap, e.g. /usr/bin/quotaon without
+   the quota pkg, a known base-fidelity artifact like Debian minbase/udev;
+   1 a genuinely-unowned admin config /etc/locale.conf — none fire Q7, all
+   fleet-common so not LFA singletons.) Gentoo/portage nspawn pending (the
+   gentoo-bootstrap is built; run `--suite gentoo`). NIX stays on the
+   honest-degradation path (content-addressed store needs its own resolver).
+2. DONE — branch `runtimeinit-python` **interpreter/runtime auto-exec.**
+   New `runtimeinit` module (site_class `runtime.python`): walks the
+   CPython site/dist-packages dirs (globbed across distro layouts +
+   per-user ~/.local) for `sitecustomize.py` / `usercustomize.py` and
+   *.pth files carrying an `import` code line; ExecTarget=self so
+   provenance gates it (a shipped sitecustomize / distutils-precedence.pth
+   resolves OWNED and stays silent — the gate is load-bearing, both are
+   common+packaged; a planted/tampered one fires). Detection
+   `python_runtime_hook_unmanaged`. Follows symlinks (Debian ships
+   sitecustomize as a symlink to /etc/pythonX/ — live-host smoke caught
+   this, fixed with os.Stat). PHP added to confexec (site_class `php.ini`:
+   auto_prepend_file/auto_append_file → `php_autoprepend_unmanaged`); the
+   environment.d env-hook grammar extended with PYTHONSTARTUP (path) and
+   NODE_OPTIONS `--require/--import <path>`. PERL5OPT=-M / RUBYOPT=-r carry
+   module NAMES not paths → LFA (documented). Detections 51→53,
+   site_classes 56→58, modules 27→28. make all green; live-host (Ubuntu):
+   2 code-.pth + the symlinked sitecustomize collected, ALL package-owned,
+   ZERO Q7 FP. LAB-VALIDATED on real Arch (nspawn round 40): the planted
+   .pth in Arch's site-packages -> non_package_path (real pacman provenance)
+   + python_runtime_hook_unmanaged, zero Q7 clean-host FP.
 3. TODO — finish the loops already opened: duel-3 Tier-3 (`getty_autologin`
    signal; `mount_shadows_path` via a bounded /proc/self/mountinfo read) +
    dpkg/rpm maintainer scripts (postinst/preinst/%post) as a pkgmgr.hook
    sibling.
+
+### Multi-distro nspawn lab (Arch + Gentoo) — validates coherence #1 + #2
+
+The nspawn lab now boots Arch and Gentoo, the same way it does Debian
+(debootstrap) and Rocky (cloud-image extract), so pacman/portage
+provenance (#1) and the runtimeinit module (#2) can be validated on real
+distro package DBs. Built `lab-nspawn/arch-bootstrap.sh` (official Arch
+bootstrap tarball → real /var/lib/pacman/local) and
+`lab-nspawn/gentoo-bootstrap.sh` (official **systemd** stage3 → real
+/var/db/pkg with per-file md5). Each writes `$CACHE/<suite>.base.tar`, the
+same contract `fleet.sh --suite` already uses for rocky9. NOTE: like the
+rest of `lab-nspawn/`, these scripts are LOCAL-ONLY (the dir is
+gitignored); the TRACKED pieces are the implant `apt2-python-hook` +
+catalog entry. New lab implant `apt2-python-hook` (a code .pth in the
+python site dir) validates runtimeinit AND, being a non-package file,
+doubles as a pacman/portage non_package_path check.
+
+Run (each suite needs its base built once, as root):
+```
+! sudo apt install -y curl zstd tar xz-utils libguestfs-tools
+! sudo lab-nspawn/arch-bootstrap.sh
+! sudo lab-nspawn/fleet.sh --suite arch --round 40 \
+    --implants apt2-python-hook,apt2-mail-alias,apt2-systemd-pathunit,apt2-initramfs-hook
+python3 lab-nspawn/validate-evade.py lab-nspawn/out/round-40
+# then the same with: ! sudo lab-nspawn/gentoo-bootstrap.sh ; --suite gentoo
+```
+Expect: each implant's detection fires with `non_package_path` resolved by
+the real pacman/portage DB (proving #1), and `python_runtime_hook_unmanaged`
+fires on Arch's site-packages (proving #2), zero clean-host FP.
 
 Still OPEN:
 

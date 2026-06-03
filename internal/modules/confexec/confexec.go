@@ -112,6 +112,14 @@ var sites = []site{
 		parse: parseNsswitch,
 	},
 	{
+		class: "php.ini",
+		mitre: []string{"T1546"},
+		loci: []string{
+			"/etc/php.ini", "/etc/php/*/*/php.ini", "/etc/php*/php.ini", "/etc/php.d/*.ini",
+		},
+		parse: parsePhpIni,
+	},
+	{
 		class: "environment.d",
 		mitre: []string{"T1574.006"},
 		loci: []string{
