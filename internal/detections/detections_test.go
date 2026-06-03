@@ -577,6 +577,39 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			want: []string{"pkgmgr_hook_unmanaged"},
 		},
 		{
+			name: "planted python sitecustomize/.pth -> python_runtime_hook_unmanaged",
+			rec: core.Record{
+				Module:  "runtimeinit",
+				Signals: []string{core.SignalNonPackagePath},
+			},
+			want: []string{"python_runtime_hook_unmanaged"},
+		},
+		{
+			name: "in-place tampered owned python hook -> python_runtime_hook_unmanaged + tamper",
+			rec: core.Record{
+				Module:  "runtimeinit",
+				Signals: []string{core.SignalPackageFileTampered},
+			},
+			want: []string{"python_runtime_hook_unmanaged", "package_owned_file_tampered"},
+		},
+		{
+			name: "php.ini auto_prepend to a non-package script -> php_autoprepend_unmanaged",
+			rec: core.Record{
+				Module:    "confexec",
+				SiteClass: "php.ini",
+				Signals:   []string{core.SignalNonPackagePath},
+			},
+			want: []string{"php_autoprepend_unmanaged"},
+		},
+		{
+			name: "owned python hook (no co-indicator) -> suppressed",
+			rec: core.Record{
+				Module:  "runtimeinit",
+				Signals: []string{core.SignalRecentMtime30d},
+			},
+			want: nil,
+		},
+		{
 			name: "confexec record whose edge resolves OWNED (no co-indicator) -> suppressed",
 			rec: core.Record{
 				Module:    "confexec",

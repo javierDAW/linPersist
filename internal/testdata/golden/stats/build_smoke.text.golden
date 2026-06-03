@@ -84,7 +84,7 @@ dormant_module_silent = no covering module emitted any record fleet-wide,
   T1542.003  dormant_module_silent  0        0      kernel.grub.config, kernel.grub.dropin
   T1543      dormant_module_silent  0        0      cloudinit.config, cloudinit.script, dbus.session, dbus.system
   T1543.005  dormant_module_silent  0        0      k8s.static-pod
-  T1546      dormant_module_silent  0        0      logrotate.d, network.dispatchers, systemd.linger, udev
+  T1546      dormant_module_silent  0        0      logrotate.d, network.dispatchers, php.ini, runtime.python, systemd.linger, udev
   T1546.016  dormant_module_silent  0        0      pkgmgr.hook
   T1547      dormant_module_silent  0        0      cloudinit.config, cloudinit.script
   T1547.006  dormant_module_silent  0        0      kmod

@@ -32,6 +32,7 @@ import (
 	"github.com/jarmidaw/linpersist/internal/modules/passwd"
 	"github.com/jarmidaw/linpersist/internal/modules/polkit"
 	"github.com/jarmidaw/linpersist/internal/modules/profile"
+	"github.com/jarmidaw/linpersist/internal/modules/runtimeinit"
 	"github.com/jarmidaw/linpersist/internal/modules/ssh"
 	"github.com/jarmidaw/linpersist/internal/modules/sshd"
 	"github.com/jarmidaw/linpersist/internal/modules/sudoers"
@@ -74,6 +75,7 @@ func All(prov core.Provenance, liveProcs core.LiveProcessSet) []core.Module {
 		passwd.New(passwd.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		polkit.New(polkit.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		profile.New(profile.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		runtimeinit.New(runtimeinit.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		ssh.New(ssh.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		sshd.New(sshd.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		sudoers.New(sudoers.Options{Provenance: prov, LiveProcessSet: liveProcs}),

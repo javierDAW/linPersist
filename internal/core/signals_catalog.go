@@ -58,7 +58,7 @@ var Signals = []SignalDef{
 		Description: "artifact mtime within the last 7 days (UTC, evaluated against collected_at)",
 		EmittedBy: []string{
 			"atjobs", "cloudinit", "confexec", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod",
-			"ldso", "motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
+			"ldso", "motd", "netdispatch", "pam", "passwd", "polkit", "profile", "runtimeinit", "ssh", "sshd",
 			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
 			"linger", "tmpfiles", "sysusers",
 		},
@@ -68,7 +68,7 @@ var Signals = []SignalDef{
 		Description: "artifact mtime within the last 30 days but outside the 7-day window",
 		EmittedBy: []string{
 			"atjobs", "cloudinit", "confexec", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod",
-			"ldso", "motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
+			"ldso", "motd", "netdispatch", "pam", "passwd", "polkit", "profile", "runtimeinit", "ssh", "sshd",
 			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
 			"linger", "tmpfiles", "sysusers",
 		},
@@ -105,7 +105,7 @@ var Signals = []SignalDef{
 		Description: "artifact has the 0o002 mode bit set",
 		EmittedBy: []string{
 			"atjobs", "cloudinit", "confexec", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod",
-			"ldso", "motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
+			"ldso", "motd", "netdispatch", "pam", "passwd", "polkit", "profile", "runtimeinit", "ssh", "sshd",
 			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
 			"linger", "tmpfiles", "sysusers",
 		},
@@ -183,7 +183,7 @@ var Signals = []SignalDef{
 		Description: "artifact under /etc, /usr, /lib, /bin, /sbin is owned by uid != 0",
 		EmittedBy: []string{
 			"cloudinit", "confexec", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod", "ldso",
-			"motd", "netdispatch", "pam", "passwd", "polkit", "profile", "ssh", "sshd",
+			"motd", "netdispatch", "pam", "passwd", "polkit", "profile", "runtimeinit", "ssh", "sshd",
 			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
 			"linger", "tmpfiles", "sysusers",
 		},
