@@ -1173,6 +1173,33 @@ site_classes:
       owned one (package_file_tampered) surfaces. Plain path-list .pth
       (sys.path additions) are the search-path-injection shape, left to LFA.
 
+  - site_class: maintscript.dpkg
+    module: confexec
+    mitre: [T1546.016]
+    loci:
+      - /var/lib/dpkg/info/*.preinst
+      - /var/lib/dpkg/info/*.postinst
+      - /var/lib/dpkg/info/*.prerm
+      - /var/lib/dpkg/info/*.postrm
+      - /var/lib/dpkg/info/*.config
+    status: implemented
+    test_coverage: unit
+    notes: |
+      dpkg maintainer scripts run AS ROOT at install/upgrade/remove. They
+      are package METADATA (siblings of *.md5sums in /var/lib/dpkg/info),
+      not package FILES, so they carry no recorded digest — package_file_tampered
+      cannot fire and the script's own path is in no .list (routing it through
+      LookupPath would flood non_package_path on every script). So the script
+      file itself is NEVER provenance-checked; instead the shared shell-body
+      extractor lifts the first absolute exec/source the script names and runs
+      provenance on THAT payload edge. A stock script execs only packaged tools
+      (update-alternatives, ldconfig, systemctl, `. /usr/share/debconf/confmodule`)
+      → owned edge → silent; a postinst edited to run /tmp/.x or an /opt payload
+      → interpreter_in_tmp / exec_target_orphan / non_package_path. The tampered
+      script is also a fleet LFA singleton (every host runs the same stock
+      postinst byte-for-byte). The rpm arm (header scriptlets, no on-disk inode)
+      is a documented follow-up. Reuses the confexec record/detection machinery.
+
   - site_class: php.ini
     module: confexec
     mitre: [T1546]
@@ -1190,3 +1217,71 @@ site_classes:
       owned vendor paths stay silent, a non-package/orphan prepend trips the
       detection. Extension/zend_extension .so loads are search-path-based and
       left to LFA.
+
+  # ============ supply-chain: package-repo origin/trust (pkgrepo) =========
+
+  - site_class: pkgrepo.apt
+    module: pkgrepo
+    mitre: [T1195.001]
+    loci:
+      - /etc/apt/sources.list
+      - /etc/apt/sources.list.d/*.list
+      - /etc/apt/sources.list.d/*.sources
+    status: implemented
+    test_coverage: unit
+    notes: |
+      apt repo declarations (one-line and deb822). repo_gpgcheck_disabled
+      fires on [trusted=yes] / Trusted: yes (accepts unsigned packages — a
+      root-code install channel, the high-signal supply-chain tell, ->
+      pkgrepo_gpgcheck_disabled). repo_origin_added fires on an enabled repo
+      whose base host is outside the small distro/vendor-canonical allowlist
+      — SIGNAL-ONLY/LFA (third-party repos are common and structurally
+      identical to an attacker repo). A record is emitted only when a signal
+      applies, so a stock signed+canonical repo set yields nothing. file:/
+      cdrom: sources are local (no origin signal). The DB-poisoning /
+      trojaned-but-owned-package case is OUT OF SCOPE (needs GPG attestation
+      + network = Regime 3; the on-disk hash-mismatch half is already covered
+      by package_file_tampered).
+
+  - site_class: pkgrepo.yum
+    module: pkgrepo
+    mitre: [T1195.001]
+    loci:
+      - /etc/yum.repos.d/*.repo
+      - /etc/dnf/repos.d/*.repo
+      - /etc/zypp/repos.d/*.repo
+    status: implemented
+    test_coverage: unit
+    notes: |
+      yum/dnf/zypp INI .repo sections. gpgcheck=0 -> repo_gpgcheck_disabled
+      (-> pkgrepo_gpgcheck_disabled); an enabled section whose baseurl/
+      metalink/mirrorlist host is off the canonical allowlist ->
+      repo_origin_added (signal-only/LFA). enabled=0 sections are skipped.
+
+  # ============ webshell surface (webroot) -- signal-only =================
+
+  - site_class: webroot.script
+    module: webroot
+    mitre: [T1505.003]
+    loci:
+      - /var/www
+      - /var/www/html
+      - /srv/www
+      - /srv/http
+      - /usr/share/nginx/html
+      - /var/lib/tomcat/webapps
+    status: implemented
+    test_coverage: unit
+    notes: |
+      Web-executable files (php/phtml/phar/jsp/asp/aspx/cfm + .cgi) under the
+      conventional document roots, walked recursively (bounded: per-file size
+      cap + a total-record cap). A pure COLLECTOR: one record per file with
+      its content_sha256 (the LFA pivot) and the cheap co-indicators
+      recent_mtime_*/world_writable. NO detection and NO provenance by design
+      -- web content is essentially never package-owned, so non_package_path
+      is structurally always-true and would flood; content/eval heuristics are
+      the inline-code arms race (scope.md 8.1). The discriminator is left to
+      the backend: a webshell is the rare LFA content-hash SINGLETON across a
+      fleet of identical app servers, ranked by recent_mtime/world_writable.
+      non_root_owner is deliberately NOT emitted (www-data ownership is the
+      norm). MITRE T1505.003.

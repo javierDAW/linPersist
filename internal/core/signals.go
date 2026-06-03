@@ -591,6 +591,21 @@ const (
 	SignalTrapExitHandler  = "trap_exit_handler"
 	SignalTrapCommandInTmp = "trap_command_in_tmp"
 
+	// SignalRepoGpgcheckDisabled fires on a package-manager repository that
+	// accepts UNSIGNED packages: apt `[trusted=yes]` / deb822 `Trusted: yes`,
+	// or yum/dnf/zypp `gpgcheck=0`. The repo becomes an arbitrary-root-code
+	// install channel for anyone who can MITM it or stand up a mirror. Low
+	// legitimate prevalence -- the high-signal supply-chain tell, promoted to
+	// a Q7 verdict. MITRE T1195.001.
+	SignalRepoGpgcheckDisabled = "repo_gpgcheck_disabled"
+
+	// SignalRepoOriginAdded fires on an enabled repo whose base host is not
+	// in the embedded distro/vendor-canonical allowlist. Third-party repos
+	// (Docker, NodeSource, corporate mirrors) are common and structurally
+	// identical to an attacker repo, so this is SIGNAL-ONLY (LFA discriminates
+	// the rare singleton); never a standalone Q7 verdict.
+	SignalRepoOriginAdded = "repo_origin_added"
+
 	// SignalEnvHookSet fires on a profile-class file (most dangerously
 	// /etc/environment, which PAM's pam_env reads for EVERY login,
 	// interactive or not) that assigns BASH_ENV= or ENV= to an

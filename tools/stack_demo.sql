@@ -379,6 +379,8 @@ WHERE
   OR /* nss_module_unmanaged */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan')) AND site_class = 'nss.nsswitch')
   OR /* environment_d_hook_unmanaged */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')) AND site_class = 'environment.d')
   OR /* xsession_hook_unmanaged */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')) AND site_class = 'xsession.d')
+  OR /* pkgrepo_gpgcheck_disabled */ list_contains(signals, 'repo_gpgcheck_disabled')
+  OR /* maintscript_execs_unmanaged_payload */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan') OR list_contains(signals, 'interpreter_in_tmp')) AND site_class = 'maintscript.dpkg')
   OR /* file_capability_outside_package */ (list_contains(signals, 'file_cap_privileged') AND (list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan')))
   OR /* systemd_generator_unmanaged */ ((list_contains(signals, 'non_package_path') OR list_contains(signals, 'exec_target_orphan')) AND module = 'systemd' AND site_class = 'systemd.generator')
   OR /* systemd_aux_exec_unmanaged */ list_contains(signals, 'systemd_aux_exec_unmanaged')

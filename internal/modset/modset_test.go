@@ -10,7 +10,7 @@ import (
 // a smaller binary.
 func TestAll_Count(t *testing.T) {
 	t.Parallel()
-	const want = 28
+	const want = 30
 	if got := len(All(nil, nil)); got != want {
 		t.Fatalf("All() returned %d modules, want %d", got, want)
 	}

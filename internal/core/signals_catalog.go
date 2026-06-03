@@ -58,8 +58,8 @@ var Signals = []SignalDef{
 		Description: "artifact mtime within the last 7 days (UTC, evaluated against collected_at)",
 		EmittedBy: []string{
 			"atjobs", "cloudinit", "confexec", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod",
-			"ldso", "motd", "netdispatch", "pam", "passwd", "polkit", "profile", "runtimeinit", "ssh", "sshd",
-			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
+			"ldso", "motd", "netdispatch", "pam", "passwd", "pkgrepo", "polkit", "profile", "runtimeinit", "ssh", "sshd",
+			"sudoers", "suidbits", "systemd", "sysv", "udev", "webroot", "xdg",
 			"linger", "tmpfiles", "sysusers",
 		},
 	},
@@ -68,8 +68,8 @@ var Signals = []SignalDef{
 		Description: "artifact mtime within the last 30 days but outside the 7-day window",
 		EmittedBy: []string{
 			"atjobs", "cloudinit", "confexec", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod",
-			"ldso", "motd", "netdispatch", "pam", "passwd", "polkit", "profile", "runtimeinit", "ssh", "sshd",
-			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
+			"ldso", "motd", "netdispatch", "pam", "passwd", "pkgrepo", "polkit", "profile", "runtimeinit", "ssh", "sshd",
+			"sudoers", "suidbits", "systemd", "sysv", "udev", "webroot", "xdg",
 			"linger", "tmpfiles", "sysusers",
 		},
 	},
@@ -110,8 +110,8 @@ var Signals = []SignalDef{
 		Description: "artifact has the 0o002 mode bit set",
 		EmittedBy: []string{
 			"atjobs", "cloudinit", "confexec", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod",
-			"ldso", "motd", "netdispatch", "pam", "passwd", "polkit", "profile", "runtimeinit", "ssh", "sshd",
-			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
+			"ldso", "motd", "netdispatch", "pam", "passwd", "pkgrepo", "polkit", "profile", "runtimeinit", "ssh", "sshd",
+			"sudoers", "suidbits", "systemd", "sysv", "udev", "webroot", "xdg",
 			"linger", "tmpfiles", "sysusers",
 		},
 	},
@@ -188,7 +188,7 @@ var Signals = []SignalDef{
 		Description: "artifact under /etc, /usr, /lib, /bin, /sbin is owned by uid != 0",
 		EmittedBy: []string{
 			"cloudinit", "confexec", "cron", "dbus", "grub", "initramfs", "k8sstatic", "kmod", "ldso",
-			"motd", "netdispatch", "pam", "passwd", "polkit", "profile", "runtimeinit", "ssh", "sshd",
+			"motd", "netdispatch", "pam", "passwd", "pkgrepo", "polkit", "profile", "runtimeinit", "ssh", "sshd",
 			"sudoers", "suidbits", "systemd", "sysv", "udev", "xdg",
 			"linger", "tmpfiles", "sysusers",
 		},
@@ -504,6 +504,16 @@ var Signals = []SignalDef{
 		Name:        SignalTrapCommandInTmp,
 		Description: "profile-class trap directive's CMD resolves under /tmp / /var/tmp / /dev/shm",
 		EmittedBy:   []string{"profile"},
+	},
+	{
+		Name:        SignalRepoGpgcheckDisabled,
+		Description: "package-manager repo accepts unsigned packages (apt trusted=yes / yum gpgcheck=0) — a supply-chain install-channel tell (T1195.001)",
+		EmittedBy:   []string{"pkgrepo"},
+	},
+	{
+		Name:        SignalRepoOriginAdded,
+		Description: "enabled repo whose base host is outside the distro/vendor-canonical allowlist — signal+LFA only, never a standalone verdict (third-party repos are common)",
+		EmittedBy:   []string{"pkgrepo"},
 	},
 	{
 		Name:        SignalEnvHookSet,

@@ -577,6 +577,33 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			want: []string{"pkgmgr_hook_unmanaged"},
 		},
 		{
+			name: "dpkg maintainer script execs a /tmp payload -> maintscript_execs_unmanaged_payload",
+			rec: core.Record{
+				Module:    "confexec",
+				SiteClass: "maintscript.dpkg",
+				Signals:   []string{core.SignalInterpreterInTmp, core.SignalExecTargetOrphan},
+			},
+			want: []string{"payload_under_tmp_via_persistence", "maintscript_execs_unmanaged_payload"},
+		},
+		{
+			name: "repo accepts unsigned packages -> pkgrepo_gpgcheck_disabled",
+			rec: core.Record{
+				Module:    "pkgrepo",
+				SiteClass: "pkgrepo.apt",
+				Signals:   []string{core.SignalRepoGpgcheckDisabled},
+			},
+			want: []string{"pkgrepo_gpgcheck_disabled"},
+		},
+		{
+			name: "repo_origin_added alone -> signal+LFA only, no Q7",
+			rec: core.Record{
+				Module:    "pkgrepo",
+				SiteClass: "pkgrepo.apt",
+				Signals:   []string{core.SignalRepoOriginAdded},
+			},
+			want: nil,
+		},
+		{
 			name: "getty autologin via drop-in -> getty_autologin_dropin",
 			rec: core.Record{
 				Module:  "systemd",

