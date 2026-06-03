@@ -180,6 +180,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// so each file's chattr flags are queried at most once per run. The
 	// runner serializes the sink, so a plain map needs no lock.
 	inodeFlagCache := map[string][]string{}
+	// Single-file bind/overlay mount targets, read once from
+	// /proc/self/mountinfo. Tags any collected locus whose on-disk inode is
+	// masked at runtime by a file-mount (the bind-shadow desync). One read,
+	// orthogonal to the /proc process snapshot, so always built.
+	mountShadowSet := core.BuildMountShadowSet()
 	sink := func(rec core.Record) {
 		rec.SchemaV = core.SchemaVersion
 		rec.HostID = hostID
@@ -214,6 +219,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 				inodeFlagCache[rec.Locus] = flags
 			}
 			rec.Signals = append(rec.Signals, flags...)
+			// Runtime bind/overlay shadow of this locus (advisory; the
+			// disk-walk hashed the underlying inode, not the mounted file).
+			rec.Signals = append(rec.Signals,
+				core.MountShadowSignals(rec.Locus, mountShadowSet)...)
 		}
 		rec.Signals = core.DedupSignals(rec.Signals)
 		if err := emitter.Emit(rec); err != nil {

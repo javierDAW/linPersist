@@ -672,10 +672,30 @@ Prioritised:
    ZERO Q7 FP. LAB-VALIDATED on real Arch (nspawn round 40): the planted
    .pth in Arch's site-packages -> non_package_path (real pacman provenance)
    + python_runtime_hook_unmanaged, zero Q7 clean-host FP.
-3. TODO — finish the loops already opened: duel-3 Tier-3 (`getty_autologin`
-   signal; `mount_shadows_path` via a bounded /proc/self/mountinfo read) +
-   dpkg/rpm maintainer scripts (postinst/preinst/%post) as a pkgmgr.hook
-   sibling.
+3. DONE (the two clean Tier-3 items) — branch `coherence3-getty-mount`:
+   - `getty_autologin` (systemd module): a getty/serial-getty ExecStart with
+     agetty `--autologin`/`-a` or login `-f` — a console/serial credential
+     bypass. Recorded for LFA (every path is package-owned, the LFA-clean
+     boundary); promoted to Q7 only via `getty_autologin_dropin`
+     (signals_all:[getty_autologin, systemd_dropin] — the override shape),
+     medium, with the kiosk/appliance FP class documented. A vendor base-unit
+     autologin stays signal-only.
+   - `mount_shadows_path` (core/mountinfo, computed at the emit sink): tags a
+     collected locus that is, at runtime, a SINGLE-FILE bind/overlay mount
+     target per /proc/self/mountinfo — the on-disk inode the agent hashed is
+     masked by a different served file. Directory mounts are EXCLUDED (the
+     discriminator: masking one packaged file is the anti-forensic shape;
+     dir overlays are WSL/container plumbing). Advisory/LFA only, NO Q7
+     verdict, never reads the mounted bytes (stays a disk walker, scope.md §8).
+   Detections 54. make all green; live-host (Ubuntu/WSL): getty_autologin 0,
+   mount_shadows_path 0 despite WSL's many DIR overlays (the file-only gate
+   excludes them — exactly the conservative design).
+   STILL TODO (small, deferred): dpkg/rpm **maintainer scripts**
+   (postinst/preinst/%post). Murkier than the others — maintainer scripts
+   are dpkg/rpm METADATA, not package FILES, so they carry no md5sums/
+   FILEDIGESTS entry and the package_file_tampered oracle does not apply; a
+   tampered postinst would need a freshness/LFA signal, not the
+   non-package/tamper gate. Needs its own small design; lower ROI.
 
 ### Multi-distro nspawn lab (Arch + Gentoo) — validates coherence #1 + #2
 
