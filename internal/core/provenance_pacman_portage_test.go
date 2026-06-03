@@ -126,3 +126,43 @@ func TestDetectPackageManager_ArchGentoo(t *testing.T) {
 		})
 	}
 }
+
+// TestUsrMergeCollapse covers the Gentoo full usr-merge case the round-41
+// lab exposed: portage records /sbin/unix_chkpwd but the file is reached at
+// /usr/bin/unix_chkpwd (/sbin -> /usr/bin), so a LookupPath under /usr/bin
+// must resolve via the bin/sbin merge equivalence -> owned (not a critical
+// suid_binary_outside_package_path false positive on every Gentoo host).
+func TestUsrMergeCollapse(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "etc/os-release"), "ID=gentoo\n")
+	// portage records the binary under /sbin (the ebuild install path).
+	writeFile(t, filepath.Join(root, "var/db/pkg/sys-libs/pam-1.7.2/CONTENTS"),
+		"obj /sbin/unix_chkpwd 86b53b98383517c4d050aa30548627f5 1773007575\n")
+	r := NewResolver(nullLogger(), WithProvenanceRoot(root))
+	r.Warmup(context.Background())
+	// suidbits would query the post-merge path; it must resolve OWNED.
+	if pkg, status := r.LookupPath("/usr/bin/unix_chkpwd"); status != PkgStatusOwned || pkg != "sys-libs/pam-1.7.2" {
+		t.Errorf("LookupPath(/usr/bin/unix_chkpwd) = (%q,%q); want (sys-libs/pam-1.7.2, owned) via usr-merge collapse", pkg, status)
+	}
+	// And the recorded /sbin form still resolves directly.
+	if _, status := r.LookupPath("/sbin/unix_chkpwd"); status != PkgStatusOwned {
+		t.Errorf("direct /sbin lookup should be owned")
+	}
+}
+
+func TestUsrMergeAlternates_BinCollapse(t *testing.T) {
+	got := usrMergeAlternates("/usr/bin/foo")
+	want := map[string]bool{"/bin/foo": true, "/usr/sbin/foo": true, "/sbin/foo": true}
+	if len(got) != len(want) {
+		t.Fatalf("usrMergeAlternates(/usr/bin/foo) = %v; want the 3 sibling bin dirs", got)
+	}
+	for _, g := range got {
+		if !want[g] {
+			t.Errorf("unexpected alternate %q", g)
+		}
+	}
+	// lib pair stays one-to-one.
+	if l := usrMergeAlternates("/usr/lib/x.so"); len(l) != 1 || l[0] != "/lib/x.so" {
+		t.Errorf("lib alternate = %v; want [/lib/x.so]", l)
+	}
+}

@@ -491,23 +491,45 @@ func (r *Resolver) LookupPath(path string) (string, PkgStatus) {
 	return "", PkgStatusOrphan
 }
 
-// usrMergeAlternates returns the usr-merge sibling form of path, or
-// nil if path does not match any of the merged prefixes. The pairs
-// are documented in the filesystem(7) man page on Debian/Ubuntu and
-// in the rpm packaging guidelines on Fedora/RHEL.
+// binMergeDirs are the executable directories that collapse into a single
+// equivalence class on a usr-merged system. Debian/Ubuntu keep /usr/bin and
+// /usr/sbin distinct (only /bin->/usr/bin, /sbin->/usr/sbin); Arch, Fedora
+// and Gentoo merge ALL FOUR into /usr/bin. A package DB may record any of
+// these forms (Gentoo portage records /sbin/unix_chkpwd while the file is
+// reached at /usr/bin/unix_chkpwd), so a lookup under any one must try the
+// same basename under all of them.
+var binMergeDirs = []string{"/usr/bin/", "/bin/", "/usr/sbin/", "/sbin/"}
+
+// libMergePairs are the /usr-merge library-dir pairs (one-to-one).
+var libMergePairs = [...]struct{ a, b string }{
+	{"/usr/lib/", "/lib/"},
+	{"/usr/lib64/", "/lib64/"},
+	{"/usr/lib32/", "/lib32/"},
+}
+
+// usrMergeAlternates returns the usr-merge sibling forms of path, or nil
+// if path matches no merged prefix. For an executable path it returns the
+// basename under every OTHER bin/sbin merge dir (covering the full
+// /bin,/sbin,/usr/sbin -> /usr/bin collapse on Arch/Fedora/Gentoo); for a
+// library path it returns the one /usr<->non-/usr sibling. Extra
+// non-matching candidates on a non-merged host simply miss the map and are
+// harmless (a wrong "owned" would be a false negative, never the false
+// positive we are eliminating). See filesystem(7) / the rpm + portage
+// packaging guidelines.
 func usrMergeAlternates(path string) []string {
-	// Pairs ordered by prevalence in the dpkg manifest: most binaries
-	// live under /usr/bin (post-merge) and the manifest carries the
-	// /bin form. The reverse direction is rarer but still happens for
-	// /usr-prefixed paths in some packages.
-	pairs := [...]struct{ a, b string }{
-		{"/usr/bin/", "/bin/"},
-		{"/usr/sbin/", "/sbin/"},
-		{"/usr/lib/", "/lib/"},
-		{"/usr/lib64/", "/lib64/"},
-		{"/usr/lib32/", "/lib32/"},
+	for _, d := range binMergeDirs {
+		if strings.HasPrefix(path, d) {
+			base := path[len(d):]
+			out := make([]string, 0, len(binMergeDirs)-1)
+			for _, alt := range binMergeDirs {
+				if alt != d {
+					out = append(out, alt+base)
+				}
+			}
+			return out
+		}
 	}
-	for _, p := range pairs {
+	for _, p := range libMergePairs {
 		switch {
 		case strings.HasPrefix(path, p.a):
 			return []string{p.b + path[len(p.a):]}
