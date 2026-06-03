@@ -292,6 +292,28 @@ they are honest engagement limits, not silent gaps:
   `package_file_tampered` gate cannot run. The report surfaces a
   coverage-degraded banner listing those hosts so an analyst does not read
   "0 findings" as "clean" when it means "could not verify ownership".
+- **The peerless single-role host — the discriminator ladder (ADR-0017).**
+  LFA content-rarity only discriminates where a valid comparand population
+  exists, and homogeneity is a property of a `(host, site_class)` pair,
+  not of a host: the one bastion *does* have peers for its base `cron.d`
+  yet has **none** for its bespoke `authorized_keys`. Any single-purpose
+  host (the one DB, web, jump, CI, monitoring box) carries files that are
+  **unique-by-design**, and each becomes a Q1 content-singleton. The
+  backend therefore descends a ladder per `(host, site_class)`:
+  **(1)** a structural co-indicator (orphan/non-package/tmp/tamper/…) →
+  **actionable regardless of population**; **(2)** a sized homogeneous
+  cohort (`os_id`+tags, ≥ peer-floor) → cohort-LFA; **(3)** a prior
+  snapshot of the host → within-host diff; **(4)** none of the above →
+  the bare content-singleton (`co=0`) is **INFORMATIONAL ONLY — ranked
+  and shown, never suppressed, never deleted**. The Q1 panel renders this
+  as two groups (Actionable vs Informational). The **irreducible
+  boundary**: a settled, tell-free implant on a peerless host seen on
+  first contact (no prior snapshot) is a `co=0` singleton indistinguishable
+  from the benign unique-by-design files at the same locus — linpersist's
+  honest role there is **triage, not adjudication**. Restore verdict-power
+  by deploying across role replicas (≥ peer-floor), re-scanning over time
+  (diff), or pairing with host-baselining / EDR. This is a sibling of the
+  packaged-LOLBin and golden-image boundaries, not a defect.
 
 ### 8.2 Coverage model — what stays uncovered, and why
 

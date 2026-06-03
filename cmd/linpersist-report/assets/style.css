@@ -239,3 +239,13 @@ footer a { color: var(--accent); }
 .banner-warn summary { cursor: pointer; color: var(--fg-mute); }
 .banner-warn ul { margin: 6px 0 0; padding-left: 20px; }
 .banner-warn .muted { color: var(--fg-mute); }
+
+/* ADR-0017 Q1 ladder partition group headers */
+h3.grp-ok, h3.grp-info {
+  font-size: 14px;
+  margin: 22px 0 4px;
+  padding-left: 8px;
+  border-left: 3px solid var(--fg-mute);
+}
+h3.grp-ok { border-left-color: var(--warn); }
+h3.grp-info { border-left-color: var(--fg-mute); color: var(--fg-mute); }

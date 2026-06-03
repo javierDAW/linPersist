@@ -40,7 +40,7 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	// gate skipped entirely, so "0 findings" on them means "could not
 	// verify", not "clean". Make that loud.
 	if n := len(report.Overview.DegradedHosts); n > 0 {
-		warn := a.orange(fmt.Sprintf("⚠ coverage degraded on %d host(s): no package manager detected — provenance (non_package_path / package_file_tampered) gate did NOT run; absence of findings is NOT proof of clean.", n))
+		warn := a.orange(fmt.Sprintf("⚠ coverage degraded on %d host(s): no package manager detected — provenance (non_package_path / package_file_tampered) gate did NOT run; absence of findings is NOT proof of clean. Treat these hosts as HIGHER priority for manual review + EDR pairing, not lower (ADR-0017).", n))
 		fmt.Fprintln(out, warn)
 		for i, dh := range report.Overview.DegradedHosts {
 			if i >= 10 {
@@ -171,29 +171,66 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	fmt.Fprintln(out)
 
 	// --- Q1: pure LFA -----------------------------------------------
+	// ADR-0017 discriminator ladder: partition singletons into ACTIONABLE
+	// (rung-1: a structural co-indicator is present, so the row is real
+	// regardless of fleet population) and INFORMATIONAL (rung-4: a bare
+	// content-singleton with no tell — weak without a peer cohort or a
+	// prior snapshot). The informational group is NEVER suppressed; it is
+	// shown as a separate, labelled section so the doc does not outrun the
+	// mechanism (ADR-0017) and so a true positive hiding in it stays visible.
+	var q1Actionable, q1Info []SingletonRow
+	for _, r := range report.Q1Singletons {
+		if r.CoIndicators > 0 {
+			q1Actionable = append(q1Actionable, r)
+		} else {
+			q1Info = append(q1Info, r)
+		}
+	}
 	textSection(out, a, fmt.Sprintf("Q1 · LFA singletons (%d)", len(report.Q1Singletons)))
-	fmt.Fprintln(out, "Records whose content_norm_sha256 appears on exactly one host.")
-	fmt.Fprintln(out, "Ranked by co-indicators (co=structural tells: recent/writable/orphan/tamper). co=0 is a bare singleton — informational, weak at small N.")
+	fmt.Fprintln(out, "Records whose content_norm_sha256 appears on exactly one host, split by the ADR-0017 ladder.")
 	fmt.Fprintln(out)
-	if len(report.Q1Singletons) == 0 {
-		fmt.Fprintln(out, "  no rows")
+
+	fmt.Fprintln(out, a.bold(fmt.Sprintf("  Actionable — rung 1: structural co-indicator present (%d)", len(q1Actionable))))
+	fmt.Fprintln(out, "  Real regardless of fleet population (orphan/non-package/tmp/tamper/recent/…); co ranks severity.")
+	if len(q1Actionable) == 0 {
+		fmt.Fprintln(out, "    no rows")
 	} else {
 		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  co\tmodule\tsite_class\tcontent_norm\tsample_host\tsample_locus\tsnippet")
-		const q1Cap = 200
+		for _, r := range q1Actionable {
+			fprintfSafe(tw, "  %d\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.CoIndicators, r.Module, r.SiteClass, r.ContentNorm, r.SampleHost,
+				r.SampleLocus, r.SampleSnippet)
+		}
+		tw.Flush()
+	}
+	fmt.Fprintln(out)
+
+	fmt.Fprintln(out, a.bold(fmt.Sprintf("  Informational — rung 4: bare content-novelty, no structural tell (%d)", len(q1Info))))
+	fmt.Fprintln(out, "  NOT a verdict and NOT suppressed: triage these. At N=1 every record is a singleton; rarity")
+	fmt.Fprintln(out, "  alone is weak here. Restore verdict-power via a sized peer cohort (Q3), a prior snapshot")
+	fmt.Fprintln(out, "  (diff mode), or EDR/host-baselining. Sorted by rec (recent_{mtime,ctime} count) — a freshly-")
+	fmt.Fprintln(out, "  changed unique file is the likelier implant. disc=novelty-only means provenance was structurally")
+	fmt.Fprintln(out, "  inapplicable (no tell was ever possible); disc=no-tell means a tell could have fired and did not.")
+	if len(q1Info) == 0 {
+		fmt.Fprintln(out, "    no rows")
+	} else {
+		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "  rec\tdisc\tmodule\tsite_class\tcontent_norm\tsample_host\tsample_locus\tsnippet")
+		const q1Cap = 300
 		shown := 0
-		for _, r := range report.Q1Singletons {
+		for _, r := range q1Info {
 			if shown >= q1Cap {
 				break
 			}
-			fprintfSafe(tw, "  %d\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				r.CoIndicators, r.Module, r.SiteClass, r.ContentNorm, r.SampleHost,
+			fprintfSafe(tw, "  %d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.Recency, r.Disc, r.Module, r.SiteClass, r.ContentNorm, r.SampleHost,
 				r.SampleLocus, r.SampleSnippet)
 			shown++
 		}
 		tw.Flush()
-		if rest := len(report.Q1Singletons) - shown; rest > 0 {
-			fmt.Fprintf(out, "  … %d more bare singletons not shown (all co=0; see HTML/JSON for the full list)\n", rest)
+		if rest := len(q1Info) - shown; rest > 0 {
+			fmt.Fprintf(out, "  … %d more informational rows not shown in text (full list in HTML/JSON; none suppressed)\n", rest)
 		}
 	}
 	fmt.Fprintln(out)
