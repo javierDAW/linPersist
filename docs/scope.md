@@ -244,6 +244,20 @@ they are honest engagement limits, not silent gaps:
   scoring but are not decoded — chasing obfuscation with substring rules
   is an arms race the agent does not enter. The unique content makes them
   LFA singletons.
+- **eBPF / kernel state is not inspected.** Malicious eBPF persistence
+  (a hidden program attached to a tracepoint/kprobe, a BPF-LSM hook) lives
+  in the kernel, not on disk. Enumerating it (`/sys/fs/bpf` pins,
+  `/proc/<pid>/fdinfo` prog_ids) yields only a name list with no
+  FP-defensible discriminator — it is dominated by legitimate loaders
+  (systemd-networkd/resolved, Cilium, Calico, Falco, bpftrace) and telling
+  a malicious program from a benign one requires reading bytecode, which
+  needs `bpf(2)`/CGO or a resident watcher. That breaks the no-CGO /
+  no-daemon / point-in-time invariants, so eBPF state is OUT OF SCOPE by
+  charter (Regime 3 per ADR-0016; eBPF *loading* was already rejected in
+  ADR-0010). The only disk-resident sliver — a systemd unit or initramfs
+  hook that loads a pinned BPF object from an unowned path — is already
+  covered by the existing exec-edge / `non_package_path` rules. Pair
+  linpersist with an eBPF-aware runtime sensor for the kernel surface.
 
 ### 8.2 Coverage model — what stays uncovered, and why
 

@@ -1109,6 +1109,54 @@ implants:
     template: apt2-python-hook.tmpl
     vars: {}
 
+  - id: apt2-maintscript-payload
+    tier: L5
+    variant: armed
+    module: confexec
+    site_class: maintscript.dpkg
+    description: |
+      dpkg maintainer-script root exec: appends a /opt payload to an
+      installed package's postinst (dpkg runs it as root on install/upgrade).
+      maintscript.dpkg lifts the /opt edge -> non_package_path/orphan ->
+      maintscript_execs_unmanaged_payload.
+    expected_signals: [non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: maintscript_execs_unmanaged_payload
+    template: apt2-maintscript-payload.tmpl
+    vars: {}
+
+  - id: apt2-repo-trusted
+    tier: L4
+    variant: armed
+    module: pkgrepo
+    site_class: pkgrepo.apt
+    description: |
+      Supply-chain: an apt source with [trusted=yes] makes apt install
+      UNSIGNED packages from an attacker host as root. pkgrepo ->
+      repo_gpgcheck_disabled -> pkgrepo_gpgcheck_disabled (+ repo_origin_added
+      signal-only on the non-canonical host).
+    expected_signals: [repo_gpgcheck_disabled]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: pkgrepo_gpgcheck_disabled
+    template: apt2-repo-trusted.tmpl
+    vars: {}
+
+  - id: apt2-webshell
+    tier: L4
+    variant: armed
+    module: webroot
+    site_class: webroot.script
+    description: |
+      Webshell under DocumentRoot: a PHP shell in /var/www/html. webroot
+      collects it (content_sha256 + world_writable/recent_mtime co-indicators).
+      SIGNAL-ONLY by design (non_package floods on web content) — surfaced by
+      LFA singleton-ness + the co-indicators, no Q7 detection.
+    expected_signals: [world_writable, recent_mtime_7d]
+    expected_caught_by: [Q1]
+    expected_q7_rule: null
+    template: apt2-webshell.tmpl
+    vars: {}
+
   - id: apt2-sshd-setenv
     tier: L4
     variant: armed

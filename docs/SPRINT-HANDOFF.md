@@ -690,12 +690,57 @@ Prioritised:
    Detections 54. make all green; live-host (Ubuntu/WSL): getty_autologin 0,
    mount_shadows_path 0 despite WSL's many DIR overlays (the file-only gate
    excludes them — exactly the conservative design).
-   STILL TODO (small, deferred): dpkg/rpm **maintainer scripts**
-   (postinst/preinst/%post). Murkier than the others — maintainer scripts
-   are dpkg/rpm METADATA, not package FILES, so they carry no md5sums/
-   FILEDIGESTS entry and the package_file_tampered oracle does not apply; a
-   tampered postinst would need a freshness/LFA signal, not the
-   non-package/tamper gate. Needs its own small design; lower ROI.
+   DONE (dpkg arm) — branch `finish-backlog`: dpkg **maintainer scripts**
+   are a confexec site `maintscript.dpkg` (loci /var/lib/dpkg/info/*.{preinst,
+   postinst,prerm,postrm,config}). The script file's own path is NEVER
+   provenance-checked (it is metadata in no .list — would flood); a dedicated
+   `parseMaintscript` grammar lifts ONLY a sourced/exec'd/bare-lead absolute
+   path UNDER a tmp/opt dir (the dropped-payload shape). Live-host smoke
+   forced this: the generic ExtractExecTarget flooded 19 Q7 FPs on real
+   Debian (case patterns /dev/*), update-alternatives path args, optional-dep
+   sources absent->orphan); the tmp/opt-restricted grammar -> 0 records on a
+   clean host, still catches `. /tmp/.x` / `/opt/.x &`. Detection
+   maintscript_execs_unmanaged_payload. rpm arm deferred (header scriptlets
+   have no on-disk inode; batched `rpm -qa --qf` query is a separate follow-up).
+
+## Finish-backlog (workflow-designed) — the Still OPEN items, closed coherently
+
+A 6-agent design+review Workflow (`lab-nspawn/finish-backlog.workflow.js`)
+adjudicated the four remaining items; both architects converged. Outcome on
+branch `finish-backlog`:
+
+- **maintainer-scripts (dpkg)** — BUILT (above).
+- **supply-chain → pkgrepo module** (NEW). Sub-vector B only: parse apt
+  sources (one-line + deb822) + yum/dnf/zypp .repo. `repo_gpgcheck_disabled`
+  (apt trusted=yes / gpgcheck=0 → detection `pkgrepo_gpgcheck_disabled`, the
+  high-signal unsigned-channel tell) + `repo_origin_added` (non-canonical
+  base host → SIGNAL-ONLY/LFA, third-party repos are common). site_classes
+  pkgrepo.apt/pkgrepo.yum. Sub-vector A (trojaned-but-owned package) is
+  ALREADY covered by package_file_tampered; DB-poisoning/signature trust is
+  Regime 3 (needs GPG+network) — scope-out.
+- **webshell → webroot module** (NEW, SIGNAL-ONLY). Walk docroots (bounded:
+  per-file size + record cap), hash web-executable files (php/jsp/asp/... +
+  .cgi), emit content_sha256 + recent_mtime/world_writable co-indicators.
+  NO detection and NO provenance by design (non_package floods on web
+  content; content/eval heuristics are the inline-code arms race) — the
+  webshell is the rare LFA content-hash singleton, ranked by the
+  co-indicators. non_root_owner deliberately NOT emitted (www-data is the
+  norm). site_class webroot.script.
+- **eBPF state — SCOPE-OUT** (Regime 3, documented in scope.md §8.1). A
+  /sys/fs/bpf or /proc/fdinfo enumerator yields a name list with no
+  FP-defensible discriminator (dominated by legit loaders) and needs
+  bpf(2)/CGO to be meaningful → breaks the no-CGO/no-daemon invariants
+  (ADR-0010 already rejected eBPF load; ADR-0016 names it Regime 3). The
+  disk-resident sliver (a unit/hook loading a pinned BPF object from an
+  unowned path) is already covered by the exec-edge/non_package rules.
+
+Detections 54→56, site_classes 58→62, modules 28→30. make all green;
+live-host (Ubuntu): all three new modules ZERO Q7 FP (maintscript 0 records,
+pkgrepo 0, webroot collects only on signal). Lab implants
+`apt2-{maintscript-payload,repo-trusted,webshell}` committed; validate on
+Debian via `lab-nspawn/fleet.sh --implants ...` + validate-evade.py.
+**This completes the finite coherence backlog — what remains is explicitly
+the long tail (Regime 2, ROI-driven) and out-of-scope regimes (ADR-0016).**
 
 ### Multi-distro nspawn lab (Arch + Gentoo) — validates coherence #1 + #2
 

@@ -408,16 +408,80 @@ func parseEnvironmentD(raw []byte, _ string, _ *Module) []Edge {
 	return out
 }
 
-// --- X11 session scripts ---
+// --- shell-body sites (X11 session scripts, dpkg maintainer scripts) ---
 
-// parseXsession runs a graphical-login script body through the shared
-// exec_target extractor (same model as profile.d), lifting the first
-// absolute sourced/exec'd command.
-func parseXsession(raw []byte, _ string, _ *Module) []Edge {
+// parseShellBody runs a shell script body through the shared exec_target
+// extractor, lifting the first absolute sourced/exec'd command. Shared by
+// the xsession.d (graphical-login scripts) and maintscript.dpkg (dpkg
+// maintainer scripts) sites: in both, a clean script execs only packaged
+// tools (owned edges -> silent) and a planted payload under /tmp,/opt
+// surfaces as the lifted ExecTarget. The script file's OWN path is never
+// provenance-checked (only the lifted payload edge is), which is exactly
+// what the maintainer-script case needs -- the script is package metadata
+// in no .list, so routing its own path through LookupPath would flood
+// non_package_path on every script.
+func parseShellBody(raw []byte, _ string, _ *Module) []Edge {
 	if t := core.ExtractExecTarget(raw); t != "" {
 		return []Edge{{Target: t, Snippet: firstCodeLine(raw)}}
 	}
 	return nil
+}
+
+// maintExecPrefixes are the line prefixes that unambiguously run/source a
+// named file in a maintainer script. The bare-absolute-lead heuristic that
+// ExtractExecTarget uses is too loose for these complex shell bodies (it
+// mis-lifts case patterns like `/dev/*)`, update-alternatives path args,
+// and conffile references as exec targets, flooding non_package_path), so
+// parseMaintscript uses ONLY these explicit exec forms plus a bare lead
+// restricted to suspicious dirs.
+var maintExecPrefixes = []string{
+	". ", "source ", "exec ", "sh ", "bash ", "dash ", "ksh ", "zsh ",
+	"/bin/sh ", "/bin/bash ", "/bin/dash ", "/usr/bin/sh ", "/usr/bin/bash ",
+}
+
+// parseMaintscript extracts exec edges from a dpkg maintainer-script body,
+// lifting ONLY a sourced/exec'd/interpreter-run or bare-lead absolute path
+// that lives under a tmp-class or /opt directory — the unambiguous
+// dropped-payload shape (`. /tmp/.x`, `exec /opt/.evil`, `/tmp/.x &`).
+// A maintainer script legitimately sources/execs MANY absolute paths under
+// /usr/share, /etc, /var (debconf confmodule, apache helpers, conffiles,
+// optional-dependency files that are absent->orphan, case patterns the
+// generic extractor mis-lifts); none of those are a tell, so restricting
+// the whole grammar to tmp/opt makes it zero-FP-by-construction (verified
+// on a real Debian host: 0 records) while still catching the textbook
+// install-time payload. A payload sourced from some other unowned dir is
+// left to LFA on the script-body hash (a tampered script is a fleet
+// singleton).
+func parseMaintscript(raw []byte, _ string, _ *Module) []Edge {
+	var out []Edge
+	eachLine(raw, func(line string) {
+		cand := ""
+		for _, p := range maintExecPrefixes {
+			if strings.HasPrefix(line, p) {
+				cand = cmdArg0(strings.TrimSpace(line[len(p):]))
+				break
+			}
+		}
+		if cand == "" {
+			cand = cmdArg0(line) // bare-absolute-lead
+		}
+		if cand != "" && underSuspiciousDir(cand) {
+			out = append(out, Edge{Target: cand, Snippet: line})
+		}
+	})
+	return out
+}
+
+// underSuspiciousDir reports whether an absolute path is under a tmp-class
+// or /opt directory — where a bare-lead command in a maintainer script is a
+// dropped-payload tell, not ordinary plumbing.
+func underSuspiciousDir(p string) bool {
+	for _, d := range core.TmpDirs {
+		if strings.HasPrefix(p, d) {
+			return true
+		}
+	}
+	return strings.HasPrefix(p, "/opt/")
 }
 
 func firstCodeLine(raw []byte) string {

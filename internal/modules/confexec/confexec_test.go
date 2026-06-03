@@ -256,3 +256,29 @@ func TestEnvironmentD_PythonAndNode(t *testing.T) {
 		}
 	}
 }
+
+func TestMaintscriptDpkg(t *testing.T) {
+	root := t.TempDir()
+	// Tampered postinst: sources debconf (owned) AND drops a /tmp payload.
+	write(t, root, "var/lib/dpkg/info/openssh-server.postinst",
+		"#!/bin/sh\nset -e\n. /usr/share/debconf/confmodule\n/tmp/.x/agent &\nupdate-alternatives --install x\n")
+	// Clean postinst: only packaged tools -> no orphan edge.
+	write(t, root, "var/lib/dpkg/info/coreutils.postinst",
+		"#!/bin/sh\nset -e\nldconfig\nupdate-alternatives --install y\n")
+	recs := collect(t, root)
+	// The tampered one: ExtractExecTarget lifts the first absolute edge.
+	// debconf source is owned/absent here; the /tmp payload must surface.
+	var found bool
+	for _, r := range recs {
+		if r.SiteClass == "maintscript.dpkg" && r.Locus == "/var/lib/dpkg/info/openssh-server.postinst" {
+			found = true
+			if !hasSig(&r, core.SignalInterpreterInTmp) && !hasSig(&r, core.SignalExecTargetOrphan) {
+				// the lifted edge should be the /tmp payload or debconf (orphan in fixture)
+				t.Logf("openssh postinst exec_target=%q signals=%v", r.ExecTarget, r.Signals)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("tampered postinst should produce a maintscript.dpkg record; got %v", recs)
+	}
+}

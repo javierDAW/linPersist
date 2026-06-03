@@ -137,7 +137,17 @@ var sites = []site{
 			"/root/.xprofile", "/home/*/.xprofile",
 			"/root/.xsession", "/home/*/.xsession",
 		},
-		parse: parseXsession,
+		parse: parseShellBody,
+	},
+	{
+		class: "maintscript.dpkg",
+		mitre: []string{"T1546.016"},
+		loci: []string{
+			"/var/lib/dpkg/info/*.preinst", "/var/lib/dpkg/info/*.postinst",
+			"/var/lib/dpkg/info/*.prerm", "/var/lib/dpkg/info/*.postrm",
+			"/var/lib/dpkg/info/*.config",
+		},
+		parse: parseMaintscript,
 	},
 }
 
