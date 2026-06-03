@@ -539,6 +539,52 @@ func TestRepoYAMLMatchesQ7Goldens(t *testing.T) {
 			},
 			want: nil,
 		},
+		// confexec config-embedded exec edges (duel-3).
+		{
+			name: "mail.aliases pipe to a non-package command -> mail_alias_pipe_unmanaged",
+			rec: core.Record{
+				Module:    "confexec",
+				SiteClass: "mail.aliases",
+				Signals:   []string{core.SignalNonPackagePath},
+			},
+			want: []string{"mail_alias_pipe_unmanaged"},
+		},
+		{
+			name: "nss.nsswitch resolves to an unowned libnss -> nss_module_unmanaged",
+			rec: core.Record{
+				Module:    "confexec",
+				SiteClass: "nss.nsswitch",
+				Signals:   []string{core.SignalNonPackagePath},
+			},
+			want: []string{"nss_module_unmanaged"},
+		},
+		{
+			name: "sudo.conf plugin .so orphan -> sudo_plugin_unmanaged",
+			rec: core.Record{
+				Module:    "confexec",
+				SiteClass: "sudo.conf.plugin",
+				Signals:   []string{core.SignalExecTargetOrphan},
+			},
+			want: []string{"sudo_plugin_unmanaged"},
+		},
+		{
+			name: "pkgmgr.hook to an orphan payload -> pkgmgr_hook_unmanaged",
+			rec: core.Record{
+				Module:    "confexec",
+				SiteClass: "pkgmgr.hook",
+				Signals:   []string{core.SignalExecTargetOrphan},
+			},
+			want: []string{"pkgmgr_hook_unmanaged"},
+		},
+		{
+			name: "confexec record whose edge resolves OWNED (no co-indicator) -> suppressed",
+			rec: core.Record{
+				Module:    "confexec",
+				SiteClass: "mail.aliases",
+				Signals:   []string{core.SignalRecentMtime30d},
+			},
+			want: nil,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

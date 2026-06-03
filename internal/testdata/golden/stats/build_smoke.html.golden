@@ -276,7 +276,7 @@ footer a { color: var(--accent); }
       <div class="card"><div class="k">Q7 roll-call</div><div class="v" style="color:var(--tail)">0</div></div>
       <div class="card"><div class="k">Q8 mtime spikes</div><div class="v">0</div></div>
       <div class="card"><div class="k">Q11 orphan outside /tmp</div><div class="v" style="color:var(--tail)">2</div></div>
-      <div class="card"><div class="k">MITRE techniques</div><div class="v">1/25<span style="color:var(--muted);font-size:0.7em"> surfacing</span></div></div>
+      <div class="card"><div class="k">MITRE techniques</div><div class="v">1/27<span style="color:var(--muted);font-size:0.7em"> surfacing</span></div></div>
     </div>
 
     <h2>LFA stacking histogram</h2>
@@ -407,7 +407,7 @@ footer a { color: var(--accent); }
             <td><b>surfacing</b></td>
             <td class="num">13</td>
             <td class="num">6</td>
-            <td><code>cron.anacron</code>, <code>cron.d</code>, <code>cron.periodic</code>, <code>cron.user</code></td>
+            <td><code>cron.anacron</code>, <code>cron.d</code>, <code>cron.periodic</code>, <code>cron.user</code>, <code>incron.d</code></td>
           </tr>
         
           <tr>
@@ -447,7 +447,7 @@ footer a { color: var(--accent); }
             <td><span style="color:var(--tail)">dormant_coverage_gap</span></td>
             <td class="num">0</td>
             <td class="num">0</td>
-            <td><code>profile.system</code>, <code>profile.user</code>, <code>ssh.sshrc</code></td>
+            <td><code>mail.aliases</code>, <code>profile.system</code>, <code>profile.user</code>, <code>ssh.sshrc</code></td>
           </tr>
         
           <tr>
@@ -463,7 +463,7 @@ footer a { color: var(--accent); }
             <td><span style="color:var(--muted)">dormant_module_silent</span></td>
             <td class="num">0</td>
             <td class="num">0</td>
-            <td><code>motd</code></td>
+            <td><code>motd</code>, <code>xsession.d</code></td>
           </tr>
         
           <tr>
@@ -527,7 +527,15 @@ footer a { color: var(--accent); }
             <td><span style="color:var(--muted)">dormant_module_silent</span></td>
             <td class="num">0</td>
             <td class="num">0</td>
-            <td><code>network.dispatchers</code>, <code>systemd.linger</code>, <code>udev</code></td>
+            <td><code>logrotate.d</code>, <code>network.dispatchers</code>, <code>systemd.linger</code>, <code>udev</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1546.016</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>pkgmgr.hook</code></td>
           </tr>
         
           <tr>
@@ -583,7 +591,7 @@ footer a { color: var(--accent); }
             <td><span style="color:var(--muted)">dormant_module_silent</span></td>
             <td class="num">0</td>
             <td class="num">0</td>
-            <td><code>sshd.config</code></td>
+            <td><code>nss.nsswitch</code>, <code>sshd.config</code></td>
           </tr>
         
           <tr>
@@ -595,11 +603,19 @@ footer a { color: var(--accent); }
           </tr>
         
           <tr>
+            <td><code>T1574</code></td>
+            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>sudo.conf.plugin</code></td>
+          </tr>
+        
+          <tr>
             <td><code>T1574.006</code></td>
             <td><span style="color:var(--muted)">dormant_module_silent</span></td>
             <td class="num">0</td>
             <td class="num">0</td>
-            <td><code>ldso.conf</code>, <code>ldso.confd</code>, <code>ldso.preload</code></td>
+            <td><code>environment.d</code>, <code>ldso.conf</code>, <code>ldso.confd</code>, <code>ldso.preload</code></td>
           </tr>
         
         </tbody>

@@ -999,3 +999,151 @@ site_classes:
       initrd cpio (/boot/initrd.img*) is not unpacked, and the config
       file-baking vector (dracut.conf.d install_items+=, mkinitcpio.conf
       FILES=/BINARIES=) is a different shape left to a future extension.
+
+  # ============= duel-3: config-embedded exec edges (confexec) ===========
+  # A table-driven module covering config files whose grammar turns a
+  # string into a root-exec/dlopen edge no dedicated module parsed. Each
+  # grammar lifts the embedded command/.so to exec_target and reuses the
+  # central provenance pipeline; a record is emitted ONLY when an exec edge
+  # is found, so clean configs yield nothing (zero FP by construction).
+  # Detections are site_class-scoped + gated on non_package/orphan.
+
+  - site_class: mail.aliases
+    module: confexec
+    mitre: [T1546.004]
+    loci:
+      - /etc/aliases
+      - /etc/mail/aliases
+      - /root/.forward
+      - /home/*/.forward
+    status: implemented
+    test_coverage: unit
+    notes: |
+      A `name: |command` pipe alias (or a bare `|command` line in a
+      ~/.forward) makes the MTA run command AS root whenever mail is
+      delivered to the alias -- a 25-year-old still-used backdoor with no
+      unit/cron entry. The pipe command's absolute argv0 is lifted to
+      exec_target; bare/relative commands (procmail) and mailbox/include
+      targets are inert. Packaged pipes (mailman |/usr/lib/mailman/...,
+      vacation) resolve owned and stay silent.
+
+  - site_class: incron.d
+    module: confexec
+    mitre: [T1053.003]
+    loci:
+      - /etc/incron.d/*
+      - /var/spool/incron/*
+    status: implemented
+    test_coverage: unit
+    notes: |
+      incron (inotify-cron) runs `<path> <mask> <command>` when the watched
+      path fires a filesystem event -- an event-driven cron the cron module
+      does not parse (its grammar expects time fields). Column 3+ command's
+      absolute argv0 is lifted to exec_target.
+
+  - site_class: logrotate.d
+    module: confexec
+    mitre: [T1546]
+    loci:
+      - /etc/logrotate.conf
+      - /etc/logrotate.d/*
+    status: implemented
+    test_coverage: unit
+    notes: |
+      A prerotate/postrotate/firstaction/lastaction/preremove ... endscript
+      shell block runs AS root from cron.daily on rotation. The block body
+      is run through the shared exec_target extractor; an absolute parked
+      command (/opt|/tmp hook) is lifted. The ubiquitous owned-binary forms
+      (systemctl reload, killall -HUP, invoke-rc.d) are bare commands and
+      yield nothing.
+
+  - site_class: pkgmgr.hook
+    module: confexec
+    mitre: [T1546.016]
+    loci:
+      - /etc/apt/apt.conf
+      - /etc/apt/apt.conf.d/*
+      - /etc/dnf/plugins/post-transaction-actions.d/*.action
+      - /etc/yum/post-actions/*.action
+    status: implemented
+    test_coverage: unit
+    notes: |
+      The package manager's own config as a persistence site: APT
+      DPkg::{Pre,Post}-Invoke / APT::Update::*-Invoke quoted-command lists,
+      and dnf/yum post-transaction *.action files (`match:state:command`).
+      These run AS root on every package operation (unattended-upgrades
+      fires automatically). The hook command's absolute argv0 is lifted.
+      The large legitimate population (apt-listchanges, needrestart,
+      debsums, command-not-found) is packaged and stays silent under the
+      non_package gate.
+
+  - site_class: sudo.conf.plugin
+    module: confexec
+    mitre: [T1574]
+    loci:
+      - /etc/sudo.conf
+    status: implemented
+    test_coverage: unit
+    notes: |
+      /etc/sudo.conf `Plugin <symbol> <path.so>` lines load a .so inside
+      setuid-root sudo on every invocation. The plugin path (relative names
+      resolved against the sudo plugin dir) is lifted to exec_target. The
+      stock `Plugin sudoers_policy sudoers.so` resolves owned and stays
+      silent; an unowned plugin .so trips the detection.
+
+  - site_class: nss.nsswitch
+    module: confexec
+    mitre: [T1556]
+    loci:
+      - /etc/nsswitch.conf
+    status: implemented
+    test_coverage: unit
+    notes: |
+      A `database: ... <token>` whose service token is OUTSIDE the curated
+      glibc NSS vendor allowlist (files/dns/sss/ldap/winbind/systemd/...)
+      names a libnss_<token>.so.2 glibc dlopens into every process doing
+      that lookup -- the Symbiote-class NSS hijack (T1556). The named module
+      is resolved to its .so on the standard library path and lifted to
+      exec_target; provenance then classifies it (packaged libnss_sss et al.
+      stay silent, an unowned planted module trips the detection). An
+      allowlist (not a path denylist) survives novel basenames.
+
+  - site_class: environment.d
+    module: confexec
+    mitre: [T1574.006]
+    loci:
+      - /etc/environment.d/*.conf
+      - /run/environment.d/*.conf
+      - /usr/lib/environment.d/*.conf
+      - /root/.config/environment.d/*.conf
+      - /home/*/.config/environment.d/*.conf
+    status: implemented
+    test_coverage: unit
+    notes: |
+      systemd environment.d KEY=VALUE files, read by the environment
+      generators for every user session — a third env-delivery surface
+      beyond /etc/environment (profile) and ld.so.preload (ldso). A
+      LD_PRELOAD/LD_AUDIT (.so glibc loads into every session process) or
+      BASH_ENV/ENV (script the shell sources) assignment has its absolute
+      path lifted to exec_target. LD_LIBRARY_PATH (a search-dir list) and
+      locale/toolkit vars are ignored. Owned vendor paths stay silent.
+
+  - site_class: xsession.d
+    module: confexec
+    mitre: [T1037]
+    loci:
+      - /etc/X11/Xsession.d/*
+      - /etc/X11/xinit/xinitrc.d/*
+      - /root/.xprofile
+      - /home/*/.xprofile
+      - /root/.xsession
+      - /home/*/.xsession
+    status: implemented
+    test_coverage: unit
+    notes: |
+      The graphical-login exec surface the shell/trap-centric profile module
+      does not reach: sourced/exec'd scripts run per X session. Each body is
+      run through the shared exec_target extractor; an absolute parked
+      command is lifted. Densely populated with PACKAGED scripts on desktops
+      (im-config, fontconfig) -- all owned, silent under the gate; absent on
+      headless server fleets.
