@@ -1,0 +1,12 @@
+# APT2 implant: apt2-systemd-timer (.timer -> orphan .service activation
+# chain). The #1 cron-replacement persistence shape. The .timer schedules
+# zz-tpayload.service whose ExecStart is a non-package /opt binary. The
+# relations work records the timer->service edge (systemd_timer_trigger +
+# Unit edge); the payload service surfaces via non_package_path. Variables: (none)
+RUN mkdir -p /opt/.t && \
+    printf '%s\n' '#!/bin/sh' 'sleep 1' > /opt/.t/agent && \
+    chown root:root /opt/.t/agent && chmod 0755 /opt/.t/agent && \
+    printf '%s\n' '[Unit]' 'Description=cache refresh timer' '[Timer]' 'OnCalendar=hourly' 'Unit=zz-tpayload.service' '[Install]' 'WantedBy=timers.target' > /etc/systemd/system/zz-refresh.timer && \
+    printf '%s\n' '[Unit]' 'Description=cache refresh' '[Service]' 'Type=oneshot' 'ExecStart=/opt/.t/agent' > /etc/systemd/system/zz-tpayload.service && \
+    chown root:root /etc/systemd/system/zz-refresh.timer /etc/systemd/system/zz-tpayload.service && \
+    chmod 0644 /etc/systemd/system/zz-refresh.timer /etc/systemd/system/zz-tpayload.service

@@ -552,6 +552,54 @@ real FP the lab caught and how it was fixed at the root):
     live-FS limit, initrd cpio OOS, %config edits report tampered, inline
     interpreter code is signal+LFA).
 
+## Duel-3 (config-embedded exec edges) — branch `duel3-confexec`, IN REVIEW
+
+A third red/blue/architects Workflow (re-run via `lab-nspawn/redblue-duel.workflow.js`,
+REPO_CONTEXT updated to mark the duel-2 backlog covered) found the dominant
+remaining blind spot: a disk-walk collector only sees sites a module was
+written for, and an entire FAMILY of **config-embedded exec edges** (a config
+whose grammar turns a string into a root-exec/dlopen edge) was uncollected —
+evading per-record detection AND LFA (the payload is package-owned and benign
+alone; only the config edge naming it is malicious). The architects' unified
+fix (not 8 one-off modules) was built:
+
+- **Phase 1 — systemd `.socket`/`.timer`/`EnvironmentFile` relationship
+  edges** (commit on branch). Completes the relations feature #4 advertised:
+  `relationEdges` gained [Timer]/[Socket]/[Service]EnvironmentFile branches +
+  `systemd_timer_trigger`/`systemd_socket_trigger` markers (backend/Q12, no Q7).
+- **Phase 2 — NEW generic `confexec` module** (table-driven). Each site =
+  (site_class, MITRE, loci globs, grammar); a grammar lifts an absolute
+  command/.so to ExecTarget and reuses the central provenance pipeline. A
+  record is emitted ONLY when an exec edge is found → clean configs yield
+  NOTHING (zero FP by construction). 8 sites + 8 detections (gated
+  `site_class_in` + `signals_any:[non_package_path, exec_target_orphan,
+  interpreter_in_tmp]`): mail.aliases (`mail_alias_pipe_unmanaged`), incron.d
+  (`incron_exec_unmanaged`), logrotate.d (`logrotate_script_unmanaged`),
+  pkgmgr.hook=apt+dnf/yum (`pkgmgr_hook_unmanaged`), sudo.conf.plugin
+  (`sudo_plugin_unmanaged`, critical), nss.nsswitch (`nss_module_unmanaged`,
+  critical, Symbiote — curated vendor-token allowlist), environment.d
+  (`environment_d_hook_unmanaged`), xsession.d (`xsession_hook_unmanaged`).
+  Only absolute argv0/.so lifted; bare $PATH commands + inline shell left to
+  LFA (scope.md 8.1).
+- **Deltas:** detections 43→51, site_classes 48→56, modules 26→27, MITRE
+  panel 25→27. `make all` green on each commit. Live-host smoke (real Ubuntu):
+  systemd timer/socket edges on vendor units (by design); confexec lifted 4
+  real owned hooks (rsyslog/suricata logrotate, packagekit apt), ALL
+  package-owned → ZERO Q7 FP.
+- **Non-actions the duel confirmed:** the symlink/owned-dir "laundering"
+  implants are CAUGHT (provenance is exact-path — do NOT add directory-prefix
+  ownership); bind-mount runtime byte-view + inline HOOK_CMD shell stay OOS.
+- **Tier-3 DEFERRED** (architect-agreed, not in this branch): `getty_autologin`
+  (credential-bypass signal, FP on kiosk/appliance — ship signal-first) and
+  `mount_shadows_path` (a bounded /proc/self/mountinfo read recording the
+  bind-mount desync without reading mounted bytes). Specs in the duel-3
+  architect output.
+- **PENDING: nspawn round.** Lab implants `apt2-{mail-alias,nss-hijack,
+  apt-hook,incron,logrotate,sudo-plugin,environmentd,xsession,systemd-timer}`
+  + a data-driven `validate-evade.py` branch are committed. Run
+  `sudo lab-nspawn/fleet.sh --round N --implants apt2-mail-alias,apt2-nss-hijack,apt2-apt-hook,apt2-incron,apt2-logrotate,apt2-sudo-plugin,apt2-environmentd,apt2-xsession,apt2-systemd-timer`
+  then `python3 lab-nspawn/validate-evade.py lab-nspawn/out/round-N`.
+
 Still OPEN:
 
 - **eBPF state inspection** (deferred from v0.5.0 candidate

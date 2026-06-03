@@ -1,0 +1,9 @@
+# APT2 implant: apt2-apt-hook (package-manager hook persistence). An
+# apt.conf.d DPkg::Pre-Invoke runs AS root on every apt operation
+# (unattended-upgrades fires it automatically). confexec pkgmgr.hook lifts
+# the quoted command -> non_package_path -> pkgmgr_hook_unmanaged. Variables: (none)
+RUN mkdir -p /opt/.a && \
+    printf '%s\n' '#!/bin/sh' 'id > /dev/null 2>&1 || true' > /opt/.a/payload && \
+    chown root:root /opt/.a/payload && chmod 0755 /opt/.a/payload && \
+    printf '%s\n' 'DPkg::Pre-Invoke {"/opt/.a/payload";};' > /etc/apt/apt.conf.d/99zz-cache && \
+    chown root:root /etc/apt/apt.conf.d/99zz-cache && chmod 0644 /etc/apt/apt.conf.d/99zz-cache
