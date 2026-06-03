@@ -345,6 +345,21 @@ detections:
       site_class_in: [xsession.d]
       signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
 
+  - id: pkgrepo_gpgcheck_disabled
+    description: a package-manager repository is configured to accept UNSIGNED packages (apt trusted=yes / deb822 Trusted=yes, or yum/dnf/zypp gpgcheck=0) — it becomes an arbitrary-root-code install channel for anyone who can MITM it or stand up a mirror. Low legitimate prevalence. The companion repo_origin_added (non-canonical base host) is deliberately signal+LFA only, NOT a detection — third-party repos (Docker/NodeSource/corporate mirrors) are common and structurally identical to an attacker repo
+    severity: high
+    mitre: [T1195.001]
+    when:
+      signals_all: [repo_gpgcheck_disabled]
+
+  - id: maintscript_execs_unmanaged_payload
+    description: a dpkg maintainer script (preinst/postinst/prerm/postrm/config) execs or sources a payload outside the package universe — orphan, non-package, or tmp-class. Maintainer scripts run AS ROOT at install/upgrade/remove; a stock script invokes only packaged tools, so an edge to /tmp,/opt,/dev/shm or an unowned binary is the tampered-script tell. The script file itself is never provenance-checked (it is package metadata, in no .list); only the lifted payload edge is gated. Residual FP class —a locally-built/repackaged .deb whose script legitimately calls a site-local tool, discriminated by LFA singleton stacking
+    severity: high
+    mitre: [T1546.016]
+    when:
+      site_class_in: [maintscript.dpkg]
+      signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
   - id: file_capability_outside_package
     description: a file carries privileged file capabilities (cap_setuid/setgid/dac_override/sys_admin/...) and is outside the package universe — a setcap privesc/persistence primitive that find -perm -4000 and mode-only scans miss entirely. Gated on non_package_path so the legitimate packaged caps set (ping/cap_net_raw, etc.) stays silent
     severity: critical
