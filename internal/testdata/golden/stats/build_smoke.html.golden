@@ -527,7 +527,7 @@ footer a { color: var(--accent); }
             <td><span style="color:var(--muted)">dormant_module_silent</span></td>
             <td class="num">0</td>
             <td class="num">0</td>
-            <td><code>logrotate.d</code>, <code>network.dispatchers</code>, <code>systemd.linger</code>, <code>udev</code></td>
+            <td><code>logrotate.d</code>, <code>network.dispatchers</code>, <code>php.ini</code>, <code>runtime.python</code>, <code>systemd.linger</code>, <code>udev</code></td>
           </tr>
         
           <tr>

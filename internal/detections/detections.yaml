@@ -241,6 +241,22 @@ detections:
       signals_all: [env_hook_set]
       signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
 
+  - id: python_runtime_hook_unmanaged
+    description: a Python interpreter startup hook (sitecustomize.py / usercustomize.py, or a *.pth with an `import` code line) on a site/dist-packages dir is outside the package universe, or a package-owned one was overwritten in place — CPython auto-executes it in every interpreter invocation (every script / cron / `python3 -c`). Shipped hooks (a packaged sitecustomize.py, distutils-precedence.pth) resolve owned and stay silent; this fires only on the non-package/tamper co-indicator
+    severity: high
+    mitre: [T1546]
+    when:
+      module_in: [runtimeinit]
+      signals_any: [non_package_path, package_file_tampered]
+
+  - id: php_autoprepend_unmanaged
+    description: php.ini auto_prepend_file / auto_append_file names a PHP script outside the package universe that the engine runs before/after EVERY request (web + CLI). Owned vendor prepend scripts stay silent; this fires only on the non-package/orphan co-indicator
+    severity: high
+    mitre: [T1546]
+    when:
+      site_class_in: [php.ini]
+      signals_any: [non_package_path, exec_target_orphan, interpreter_in_tmp]
+
   - id: initramfs_hook_unmanaged
     description: an early-boot initramfs/initrd hook (initramfs-tools, dracut or mkinitcpio) is either outside the package universe (a planted hook — empty /etc hook dirs make any local file an admin/attacker addition) or a package-owned hook overwritten in place (package_file_tampered — the Bootkit-style initrd hook an orphan-path check misses). The generator copies the hook into the initrd and runs it AS ROOT before the real rootfs mounts. Packaged hooks stack fleet-identically and stay silent; this fires only with the unmanaged/tampered co-indicator
     severity: high

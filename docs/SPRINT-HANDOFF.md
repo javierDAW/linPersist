@@ -632,12 +632,25 @@ Prioritised:
    Rocky (debootstrap/rocky-bootstrap); Arch/Gentoo nspawn is a separate
    lab effort. NIX is intentionally left to the honest-degradation path
    (its content-addressed store needs its own resolver design).
-2. TODO — **interpreter/runtime auto-exec coverage.** The tool covers
-   shell-init (profile) + the dynamic linker (ldso) but not interpreter
-   auto-exec: python `*.pth` / `sitecustomize` / `PYTHONSTARTUP`, node
-   `NODE_OPTIONS`/`--require`, perl `PERL5LIB`, ruby `RUBYOPT`, php
-   `auto_prepend_file`. Same Regime-1 shape (known loci, orphan/non-package
-   tell). Fits a `confexec` grammar family or a small `runtimeinit` module.
+2. DONE — branch `runtimeinit-python` **interpreter/runtime auto-exec.**
+   New `runtimeinit` module (site_class `runtime.python`): walks the
+   CPython site/dist-packages dirs (globbed across distro layouts +
+   per-user ~/.local) for `sitecustomize.py` / `usercustomize.py` and
+   *.pth files carrying an `import` code line; ExecTarget=self so
+   provenance gates it (a shipped sitecustomize / distutils-precedence.pth
+   resolves OWNED and stays silent — the gate is load-bearing, both are
+   common+packaged; a planted/tampered one fires). Detection
+   `python_runtime_hook_unmanaged`. Follows symlinks (Debian ships
+   sitecustomize as a symlink to /etc/pythonX/ — live-host smoke caught
+   this, fixed with os.Stat). PHP added to confexec (site_class `php.ini`:
+   auto_prepend_file/auto_append_file → `php_autoprepend_unmanaged`); the
+   environment.d env-hook grammar extended with PYTHONSTARTUP (path) and
+   NODE_OPTIONS `--require/--import <path>`. PERL5OPT=-M / RUBYOPT=-r carry
+   module NAMES not paths → LFA (documented). Detections 51→53,
+   site_classes 56→58, modules 27→28. make all green; live-host (Ubuntu):
+   2 code-.pth + the symlinked sitecustomize collected, ALL package-owned,
+   ZERO Q7 FP. Not nspawn-validated yet — covered by the multi-distro lab
+   (next).
 3. TODO — finish the loops already opened: duel-3 Tier-3 (`getty_autologin`
    signal; `mount_shadows_path` via a bounded /proc/self/mountinfo read) +
    dpkg/rpm maintainer scripts (postinst/preinst/%post) as a pkgmgr.hook
