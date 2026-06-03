@@ -1092,6 +1092,23 @@ implants:
     template: apt2-systemd-timer.tmpl
     vars: {}
 
+  - id: apt2-python-hook
+    tier: L5
+    variant: armed
+    module: runtimeinit
+    site_class: runtime.python
+    description: |
+      Python interpreter startup persistence: a code .pth (import line) in
+      the python site/dist-packages dir runs in every python invocation.
+      runtimeinit collects it (ExecTarget=self) -> non_package_path ->
+      python_runtime_hook_unmanaged. Site dir globbed so it works on any
+      distro; doubles as a pacman/portage provenance check on Arch/Gentoo.
+    expected_signals: [non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: python_runtime_hook_unmanaged
+    template: apt2-python-hook.tmpl
+    vars: {}
+
   - id: apt2-sshd-setenv
     tier: L4
     variant: armed

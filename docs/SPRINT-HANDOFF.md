@@ -656,6 +656,35 @@ Prioritised:
    dpkg/rpm maintainer scripts (postinst/preinst/%post) as a pkgmgr.hook
    sibling.
 
+### Multi-distro nspawn lab (Arch + Gentoo) — validates coherence #1 + #2
+
+The nspawn lab now boots Arch and Gentoo, the same way it does Debian
+(debootstrap) and Rocky (cloud-image extract), so pacman/portage
+provenance (#1) and the runtimeinit module (#2) can be validated on real
+distro package DBs. Built `lab-nspawn/arch-bootstrap.sh` (official Arch
+bootstrap tarball → real /var/lib/pacman/local) and
+`lab-nspawn/gentoo-bootstrap.sh` (official **systemd** stage3 → real
+/var/db/pkg with per-file md5). Each writes `$CACHE/<suite>.base.tar`, the
+same contract `fleet.sh --suite` already uses for rocky9. NOTE: like the
+rest of `lab-nspawn/`, these scripts are LOCAL-ONLY (the dir is
+gitignored); the TRACKED pieces are the implant `apt2-python-hook` +
+catalog entry. New lab implant `apt2-python-hook` (a code .pth in the
+python site dir) validates runtimeinit AND, being a non-package file,
+doubles as a pacman/portage non_package_path check.
+
+Run (each suite needs its base built once, as root):
+```
+! sudo apt install -y curl zstd tar xz-utils libguestfs-tools
+! sudo lab-nspawn/arch-bootstrap.sh
+! sudo lab-nspawn/fleet.sh --suite arch --round 40 \
+    --implants apt2-python-hook,apt2-mail-alias,apt2-systemd-pathunit,apt2-initramfs-hook
+python3 lab-nspawn/validate-evade.py lab-nspawn/out/round-40
+# then the same with: ! sudo lab-nspawn/gentoo-bootstrap.sh ; --suite gentoo
+```
+Expect: each implant's detection fires with `non_package_path` resolved by
+the real pacman/portage DB (proving #1), and `python_runtime_hook_unmanaged`
+fires on Arch's site-packages (proving #2), zero clean-host FP.
+
 Still OPEN:
 
 - **eBPF state inspection** (deferred from v0.5.0 candidate
