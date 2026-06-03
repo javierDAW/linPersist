@@ -634,10 +634,97 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, siteClass string,
 		}
 	}
 
+	// Relationship edges (OnFailure=/Requires=/Wants= and [Path] watches
+	// → activated unit) for backend/Q12 chain reconstruction. NOT a Q7
+	// verdict — the payload arm is flagged independently by the
+	// exec/orphan rules; this records the trigger→payload edge.
+	if edges, relSigs := m.relationEdges(sections, logical); len(edges) > 0 {
+		rec.Relations = edges
+		for _, s := range relSigs {
+			rec.Signals = appendUnique(rec.Signals, s)
+		}
+	}
+
 	rec.Signals = core.DedupSignals(rec.Signals)
 	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
 	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	return rec
+}
+
+// unitRefKeys are the [Unit] activation/trigger directives whose targets
+// are captured as Relations edges. After=/Before= (pure ordering, no
+// activation) are deliberately excluded. OnFailure= additionally raises a
+// marker signal; Requires=/Wants= are edge-only (ubiquitous dependency
+// links, no signal, so the human report and Q7 stay clean).
+var unitRefKeys = []string{"OnFailure", "Requires", "Wants"}
+
+// pathWatchKeys are the [Path] directives that arm a .path unit. When the
+// watched filesystem event fires, systemd starts the activated unit.
+var pathWatchKeys = []string{
+	"PathModified", "PathChanged", "PathExists", "PathExistsGlob", "DirectoryNotEmpty",
+}
+
+// relationEdges extracts the trigger/dependency edges this unit declares
+// and returns them as "Key=Value" strings plus any marker signals. The
+// edges feed backend/Q12 chain reconstruction; they are never a Q7 input.
+func (m *Module) relationEdges(sections []Section, logical string) (edges []string, sigs []string) {
+	var hasOnFailure, hasPathWatch, pathUnitExplicit bool
+	var pathUnit string
+	for _, s := range sections {
+		switch {
+		case strings.EqualFold(s.Name, "Unit"):
+			for _, e := range s.Entries {
+				for _, k := range unitRefKeys {
+					if !strings.EqualFold(e.Key, k) {
+						continue
+					}
+					for _, tok := range strings.Fields(e.Value) {
+						edges = append(edges, k+"="+tok)
+					}
+					if strings.EqualFold(k, "OnFailure") && strings.TrimSpace(e.Value) != "" {
+						hasOnFailure = true
+					}
+				}
+			}
+		case strings.EqualFold(s.Name, "Path"):
+			for _, e := range s.Entries {
+				for _, k := range pathWatchKeys {
+					if strings.EqualFold(e.Key, k) && strings.TrimSpace(e.Value) != "" {
+						edges = append(edges, k+"="+strings.TrimSpace(e.Value))
+						hasPathWatch = true
+					}
+				}
+				if strings.EqualFold(e.Key, "Unit") && strings.TrimSpace(e.Value) != "" {
+					pathUnit = strings.TrimSpace(e.Value)
+					pathUnitExplicit = true
+				}
+			}
+		}
+	}
+	if hasPathWatch {
+		if !pathUnitExplicit {
+			pathUnit = implicitPathUnit(logical)
+		}
+		if pathUnit != "" {
+			edges = append(edges, "Unit="+pathUnit)
+		}
+		sigs = append(sigs, core.SignalSystemdPathTrigger)
+	}
+	if hasOnFailure {
+		sigs = append(sigs, core.SignalSystemdHasOnFailure)
+	}
+	return edges, sigs
+}
+
+// implicitPathUnit returns the unit a .path file activates when it
+// carries no explicit [Path] Unit=: systemd defaults to the same
+// basename with a .service suffix (monitor.path → monitor.service).
+func implicitPathUnit(logical string) string {
+	base := filepath.Base(logical)
+	if strings.HasSuffix(base, ".path") {
+		return strings.TrimSuffix(base, ".path") + ".service"
+	}
+	return ""
 }
 
 // envelope returns a partially populated Record carrying file metadata

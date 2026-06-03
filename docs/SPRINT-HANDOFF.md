@@ -18,10 +18,15 @@
 > 1. State: everything below "What is OPEN after v0.5.0" is current.
 >    `make all` is green on main (includes `duckdb-equiv`, the new Go↔SQL
 >    gate — run it before touching Q6/Q12/stats.go or stack_demo.sql).
-> 2. Next work = the **4 remaining duel-2 backlog items** (BASH_ENV in
->    /etc/environment; initramfs/dracut hook MODULE; ld.so.conf.d library
->    shadowing; systemd OnFailure=/.path Q12 relationship edges) — full
->    specs in the "Deferred backlog" block. All other backlog items shipped.
+> 2. Next work = the duel-2 backlog is now **fully shipped** on branch
+>    `duel2-backlog-remaining` (4 commits): #1 BASH_ENV/ENV env-hook
+>    (profile, lab round 28), #2 generator-agnostic initramfs hook module
+>    (initramfs-tools/dracut/mkinitcpio, lab round 29), #3 ld.so.conf.d
+>    library shadowing (ldso, lab round 30), #4 systemd OnFailure=/.path
+>    relationship edges (backend/Q12, live-host validated). Detections
+>    40→43; site_classes 47→48 (boot.initramfs.hook); new Record field
+>    `relations`. Next: merge the branch (PR), then pick from "Still OPEN"
+>    (eBPF state inspection — needs ADR; webshell/supply-chain walk).
 > 3. Detection-add recipe + the recurring discipline (gate every new Q7
 >    rule on a tamper/orphan/non-package co-indicator; recent_ctime floods
 >    on image-built hosts; lab the change before trusting it) are in the
@@ -509,13 +514,38 @@ real FP the lab caught and how it was fixed at the root):
          non_package_path (real dpkg provenance) + ld_library_shadow_implant
          (critical) on the implant host only; fires exactly once fleet-wide,
          ZERO ld_library_shadows_packaged on the 5 clean hosts.
-      4. **systemd OnFailure= / .path Unit= relationship EDGES** (systemd
-         module). Parse OnFailure=/Requires=/Wants= and the [Path]
-         PathModified=/PathChanged=/Unit= into a relationship-edge signal
-         (e.g. `systemd_has_onfailure` + the named target) for BACKEND/Q12
-         correlation — NOT a new Q7 rule (the payload arm already fires
-         via interpreter/orphan rules; this just emits the trigger→payload
-         edge so the backend reconstructs the chain).
+      4. DONE (code + unit/golden + live-host, lab round OPTIONAL)
+         **systemd OnFailure= / .path Unit= relationship EDGES** (duel-2
+         backlog #4). BACKEND/Q12 correlation, NOT a Q7 rule. New additive
+         Record field `Relations []string` (json `relations,omitempty`,
+         schema stays 1 per convention) carrying `Key=Value` edges —
+         populated ONLY by systemd, empty for every other module. The
+         systemd module's `relationEdges` extracts [Unit]
+         OnFailure=/Requires=/Wants= targets (After=/Before= excluded —
+         ordering only) and [Path] PathModified=/PathChanged=/PathExists=/
+         PathExistsGlob=/DirectoryNotEmpty= watches + the activated Unit=
+         (explicit, or implicit <basename>.service). Two marker signals:
+         `systemd_has_onfailure` (OnFailure= present) and
+         `systemd_path_trigger` (.path arms a watch) — Requires=/Wants= are
+         edge-only (ubiquitous, no signal, so Q7/the human report stay
+         clean). No detection: the payload arm is already flagged by the
+         exec/orphan rules; this records the trigger→payload edge so the
+         backend joins them. Detections unchanged (43); no new site_class
+         (matrix 48). Tests: 4 unit (path explicit/implicit Unit, OnFailure
+         + deps with After= excluded, plain unit yields nothing) + golden
+         `path_trigger_and_onfailure`; one existing golden gained an
+         additive `relations` field (no other churn). `make all` green.
+         Live-host smoke (real Ubuntu, 698 systemd units): 217 records with
+         relations, 26 systemd_has_onfailure, 6 systemd_path_trigger — all
+         on legit vendor units (apport-autoreport.path, e2scrub@.service,
+         systemd-ask-password-*.path) with their Unit=/OnFailure= edges
+         correctly captured; real-systemd parse validated end-to-end. These
+         markers on vendor units are BY DESIGN (backend graph edges, not
+         verdicts). Lab implant `apt2-systemd-pathunit` (a .path→payload
+         chain) + validator branch are committed for an OPTIONAL nspawn
+         confirmation of the attack shape:
+         `sudo lab-nspawn/fleet.sh --round N --implants apt2-systemd-pathunit`
+         then `python3 lab-nspawn/validate-evade.py lab-nspawn/out/round-N`.
   - **scope boundaries now documented in scope.md §8.1** (recent_ctime
     live-FS limit, initrd cpio OOS, %config edits report tampered, inline
     interpreter code is signal+LFA).
