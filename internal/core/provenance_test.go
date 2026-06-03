@@ -732,14 +732,18 @@ func TestResolver_UsrMergeAlternates(t *testing.T) {
 // merge namespace (e.g. /opt, /etc, the empty string) return nil.
 // Defends against future refactors silently dropping a prefix.
 func TestUsrMergeAlternates_DirectCases(t *testing.T) {
+	// Bin/sbin dirs now collapse into one equivalence class (Arch/Fedora/
+	// Gentoo merge /bin,/sbin,/usr/sbin -> /usr/bin), so each returns the
+	// basename under the three OTHER bin dirs, in binMergeDirs order.
+	// Lib dirs stay one-to-one.
 	cases := map[string][]string{
-		"/usr/bin/foo":       {"/bin/foo"},
-		"/usr/sbin/init":     {"/sbin/init"},
+		"/usr/bin/foo":       {"/bin/foo", "/usr/sbin/foo", "/sbin/foo"},
+		"/usr/sbin/init":     {"/usr/bin/init", "/bin/init", "/sbin/init"},
+		"/bin/foo":           {"/usr/bin/foo", "/usr/sbin/foo", "/sbin/foo"},
+		"/sbin/init":         {"/usr/bin/init", "/bin/init", "/usr/sbin/init"},
 		"/usr/lib/systemd/x": {"/lib/systemd/x"},
 		"/usr/lib64/libc.so": {"/lib64/libc.so"},
 		"/usr/lib32/libc.so": {"/lib32/libc.so"},
-		"/bin/foo":           {"/usr/bin/foo"},
-		"/sbin/init":         {"/usr/sbin/init"},
 		"/lib/systemd/x":     {"/usr/lib/systemd/x"},
 		"/lib64/libc.so":     {"/usr/lib64/libc.so"},
 		"/opt/x/bar":         nil,
