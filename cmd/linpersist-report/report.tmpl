@@ -23,7 +23,7 @@
   <div class="banner-warn">
     ⚠ coverage degraded on <b>{{len .Report.Overview.DegradedHosts}}</b> host(s): no package manager detected —
     the provenance gate (<code>non_package_path</code> / <code>package_file_tampered</code>) did NOT run on them, so
-    absence of findings is <b>not</b> proof of clean.
+    absence of findings is <b>not</b> proof of clean. Treat these as <b>higher</b> priority for manual review + EDR pairing, not lower (ADR-0017).
     <details><summary>affected hosts</summary>
       <ul>{{range .Report.Overview.DegradedHosts}}<li>{{.Host}} <span class="muted">(os_id={{if .OSID}}{{.OSID}}{{else}}&lt;unknown&gt;{{end}})</span></li>{{end}}</ul>
     </details>
@@ -175,19 +175,22 @@
   <section class="pane" data-pane="q1">
     <h2>Q1 · Pure LFA singletons</h2>
     <p class="lede">Records whose <code>content_norm_sha256</code> appears on exactly one host in the fleet. This is the load-bearing query: an attacker who appends a malicious line to <code>/etc/crontab</code> on one host produces a digest no other host has, and it surfaces here.</p>
-    <p class="hint">Ranked by <b>co</b> — the count of structural co-indicators on the row (recent_mtime, world_writable, non_package_path, package_file_tampered, orphan, immutable, mount_shadows_path). A row with <code>co=0</code> is a <em>bare</em> singleton: unique content with no other tell, which at small fleet sizes is informational rather than actionable (at N=1 every record is a singleton). Triage the high-<code>co</code> rows first.</p>
-    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q1">
+    <p class="hint"><b>ADR-0017 discriminator ladder.</b> Content-rarity only discriminates where a valid comparand population exists, and homogeneity is a property of a <code>(host, site_class)</code> pair, not of a host. So Q1 is split: <b>Actionable</b> rows carry a structural co-indicator (orphan/non-package/tmp/tamper/recent/…) and are real <em>regardless</em> of fleet size; <b>Informational</b> rows are bare content-singletons (<code>co=0</code>) — at N=1 every record is a singleton, so rarity alone is weak. The informational rows are <b>never suppressed</b>: triage them, and restore verdict-power with a sized peer cohort (Q3), a prior snapshot (diff mode), or EDR pairing.</p>
+
+    {{$act := q1Actionable .Report.Q1Singletons}}
+    <h3 class="grp-ok">Actionable — rung 1: structural co-indicator present ({{len $act}})</h3>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q1a">
     <div class="tbl-wrap">
-      <table class="sortable" id="t-q1">
+      <table class="sortable" id="t-q1a">
         <thead><tr>
           <th>co</th><th>module</th><th>site_class</th>
           <th>content_norm</th><th>sample_host</th>
           <th>sample_locus</th><th>sample_snippet</th>
         </tr></thead>
         <tbody>
-        {{range .Report.Q1Singletons}}
+        {{range $act}}
           <tr>
-            <td>{{if .CoIndicators}}<b>{{.CoIndicators}}</b>{{else}}<span class="muted">0</span>{{end}}</td>
+            <td><b>{{.CoIndicators}}</b></td>
             <td>{{.Module}}</td><td>{{.SiteClass}}</td>
             <td class="hash">{{.ContentNorm}}</td>
             <td>{{.SampleHost}}</td>
@@ -195,7 +198,36 @@
             <td class="snippet">{{.SampleSnippet}}</td>
           </tr>
         {{else}}
-          <tr><td colspan="7" style="text-align:center;color:var(--fg-mute)">no singletons — the entire fleet shares its baseline (rare; expected on a 1-host fleet)</td></tr>
+          <tr><td colspan="7" style="text-align:center;color:var(--fg-mute)">no rung-1 rows — no singleton carries a structural co-indicator</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+
+    {{$inf := q1Info .Report.Q1Singletons}}
+    <h3 class="grp-info">Informational — rung 4: bare content-novelty, no structural tell ({{len $inf}})</h3>
+    <p class="hint">Not a verdict and not suppressed. Sorted by <code>rec</code> (recent_{mtime,ctime} count) — a freshly-changed unique file is the likelier implant; recency never promotes to Actionable because on a freshly-imaged host it fires on almost everything. <code>disc=novelty-only</code> = provenance was structurally inapplicable (a webroot-class walk; no tell was ever possible). <code>disc=no-tell</code> = a structural tell could have fired and did not (genuinely unremarkable, or a backdated/owned-path implant on a peerless host — the irreducible boundary, ADR-0017).</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q1i">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q1i">
+        <thead><tr>
+          <th>rec</th><th>disc</th><th>module</th><th>site_class</th>
+          <th>content_norm</th><th>sample_host</th>
+          <th>sample_locus</th><th>sample_snippet</th>
+        </tr></thead>
+        <tbody>
+        {{range $inf}}
+          <tr>
+            <td>{{if .Recency}}{{.Recency}}{{else}}<span class="muted">0</span>{{end}}</td>
+            <td><span class="muted">{{.Disc}}</span></td>
+            <td>{{.Module}}</td><td>{{.SiteClass}}</td>
+            <td class="hash">{{.ContentNorm}}</td>
+            <td>{{.SampleHost}}</td>
+            <td class="path">{{.SampleLocus}}</td>
+            <td class="snippet">{{.SampleSnippet}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="8" style="text-align:center;color:var(--fg-mute)">no bare singletons</td></tr>
         {{end}}
         </tbody>
       </table>

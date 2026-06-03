@@ -245,6 +245,16 @@ footer a { color: var(--accent); }
 .banner-warn summary { cursor: pointer; color: var(--fg-mute); }
 .banner-warn ul { margin: 6px 0 0; padding-left: 20px; }
 .banner-warn .muted { color: var(--fg-mute); }
+
+/* ADR-0017 Q1 ladder partition group headers */
+h3.grp-ok, h3.grp-info {
+  font-size: 14px;
+  margin: 22px 0 4px;
+  padding-left: 8px;
+  border-left: 3px solid var(--fg-mute);
+}
+h3.grp-ok { border-left-color: var(--warn); }
+h3.grp-info { border-left-color: var(--fg-mute); color: var(--fg-mute); }
 </style>
 </head>
 <body>
@@ -254,9 +264,9 @@ footer a { color: var(--accent); }
   <div class="meta">
     generated <b>2026-05-22 12:00 UTC</b>
     · <b>6</b> hosts
-    · <b>13</b> records
-    · <b>4</b> modules
-    · <b>5</b> site_classes
+    · <b>14</b> records
+    · <b>5</b> modules
+    · <b>6</b> site_classes
     
     · agent <b>linpersist-test</b>
   </div>
@@ -288,10 +298,10 @@ footer a { color: var(--accent); }
 
     <div class="cards">
       <div class="card"><div class="k">Hosts</div><div class="v">6</div></div>
-      <div class="card"><div class="k">Records</div><div class="v">13</div></div>
-      <div class="card"><div class="k">Modules</div><div class="v">4</div></div>
-      <div class="card"><div class="k">Site_classes</div><div class="v">5</div></div>
-      <div class="card"><div class="k">Q1 singletons</div><div class="v">5</div></div>
+      <div class="card"><div class="k">Records</div><div class="v">14</div></div>
+      <div class="card"><div class="k">Modules</div><div class="v">5</div></div>
+      <div class="card"><div class="k">Site_classes</div><div class="v">6</div></div>
+      <div class="card"><div class="k">Q1 singletons</div><div class="v">6</div></div>
       <div class="card"><div class="k">Q4 implant hits</div><div class="v" style="color:var(--tail)">0</div></div>
       <div class="card"><div class="k">Q7 roll-call</div><div class="v" style="color:var(--tail)">0</div></div>
       <div class="card"><div class="k">Q8 mtime spikes</div><div class="v">0</div></div>
@@ -306,18 +316,18 @@ footer a { color: var(--accent); }
       
         <div class="bar tail">
           <div class="bar-fill" style="height:160px"></div>
-          <div class="val">5</div>
+          <div class="val">6</div>
           <div class="lbl">1 (singletons)</div>
         </div>
       
         <div class="bar">
-          <div class="bar-fill" style="height:32px"></div>
+          <div class="bar-fill" style="height:26px"></div>
           <div class="val">1</div>
           <div class="lbl">2–4</div>
         </div>
       
         <div class="bar">
-          <div class="bar-fill" style="height:32px"></div>
+          <div class="bar-fill" style="height:26px"></div>
           <div class="val">1</div>
           <div class="lbl">5–9</div>
         </div>
@@ -360,6 +370,8 @@ footer a { color: var(--accent); }
         
           <tr><td>systemd</td><td class="num">2</td><td class="num">2</td></tr>
         
+          <tr><td>webroot</td><td class="num">1</td><td class="num">1</td></tr>
+        
         </tbody>
       </table>
     </div>
@@ -384,6 +396,8 @@ footer a { color: var(--accent); }
         
           <tr><td>profile.d</td><td class="num">1</td><td class="num">1</td></tr>
         
+          <tr><td>webroot.script</td><td class="num">1</td><td class="num">1</td></tr>
+        
         </tbody>
       </table>
     </div>
@@ -400,7 +414,7 @@ footer a { color: var(--accent); }
         
           <tr><td>rhel</td><td class="num">3</td><td class="num">4</td></tr>
         
-          <tr><td>ubuntu</td><td class="num">3</td><td class="num">6</td></tr>
+          <tr><td>ubuntu</td><td class="num">3</td><td class="num">7</td></tr>
         
           <tr><td>debian</td><td class="num">1</td><td class="num">3</td></tr>
         
@@ -425,7 +439,7 @@ footer a { color: var(--accent); }
           <tr>
             <td><code>T1053.003</code></td>
             <td><b>surfacing</b></td>
-            <td class="num">13</td>
+            <td class="num">14</td>
             <td class="num">6</td>
             <td><code>cron.anacron</code>, <code>cron.d</code>, <code>cron.periodic</code>, <code>cron.user</code>, <code>incron.d</code></td>
           </tr>
@@ -452,6 +466,14 @@ footer a { color: var(--accent); }
             <td class="num">0</td>
             <td class="num">0</td>
             <td><code>passwd.group</code>, <code>passwd.group.privileged</code>, <code>passwd.gshadow</code>, <code>passwd.shadow</code>, <code>passwd.user</code>, <code>systemd.sysusers</code></td>
+          </tr>
+        
+          <tr>
+            <td><code>T1505.003</code></td>
+            <td><span style="color:var(--tail)">dormant_coverage_gap</span></td>
+            <td class="num">0</td>
+            <td class="num">0</td>
+            <td><code>webroot.script</code></td>
           </tr>
         
           <tr>
@@ -516,14 +538,6 @@ footer a { color: var(--accent); }
             <td class="num">0</td>
             <td class="num">0</td>
             <td><code>pkgrepo.apt</code>, <code>pkgrepo.yum</code></td>
-          </tr>
-        
-          <tr>
-            <td><code>T1505.003</code></td>
-            <td><span style="color:var(--muted)">dormant_module_silent</span></td>
-            <td class="num">0</td>
-            <td class="num">0</td>
-            <td><code>webroot.script</code></td>
           </tr>
         
           <tr>
@@ -689,10 +703,13 @@ footer a { color: var(--accent); }
   <section class="pane" data-pane="q1">
     <h2>Q1 · Pure LFA singletons</h2>
     <p class="lede">Records whose <code>content_norm_sha256</code> appears on exactly one host in the fleet. This is the load-bearing query: an attacker who appends a malicious line to <code>/etc/crontab</code> on one host produces a digest no other host has, and it surfaces here.</p>
-    <p class="hint">Ranked by <b>co</b> — the count of structural co-indicators on the row (recent_mtime, world_writable, non_package_path, package_file_tampered, orphan, immutable, mount_shadows_path). A row with <code>co=0</code> is a <em>bare</em> singleton: unique content with no other tell, which at small fleet sizes is informational rather than actionable (at N=1 every record is a singleton). Triage the high-<code>co</code> rows first.</p>
-    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q1">
+    <p class="hint"><b>ADR-0017 discriminator ladder.</b> Content-rarity only discriminates where a valid comparand population exists, and homogeneity is a property of a <code>(host, site_class)</code> pair, not of a host. So Q1 is split: <b>Actionable</b> rows carry a structural co-indicator (orphan/non-package/tmp/tamper/recent/…) and are real <em>regardless</em> of fleet size; <b>Informational</b> rows are bare content-singletons (<code>co=0</code>) — at N=1 every record is a singleton, so rarity alone is weak. The informational rows are <b>never suppressed</b>: triage them, and restore verdict-power with a sized peer cohort (Q3), a prior snapshot (diff mode), or EDR pairing.</p>
+
+    
+    <h3 class="grp-ok">Actionable — rung 1: structural co-indicator present (5)</h3>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q1a">
     <div class="tbl-wrap">
-      <table class="sortable" id="t-q1">
+      <table class="sortable" id="t-q1a">
         <thead><tr>
           <th>co</th><th>module</th><th>site_class</th>
           <th>content_norm</th><th>sample_host</th>
@@ -743,6 +760,33 @@ footer a { color: var(--accent); }
             <td>h5</td>
             <td class="path">/etc/systemd/system/sync.service</td>
             <td class="snippet">sync-svc-norm</td>
+          </tr>
+        
+        </tbody>
+      </table>
+    </div>
+
+    
+    <h3 class="grp-info">Informational — rung 4: bare content-novelty, no structural tell (1)</h3>
+    <p class="hint">Not a verdict and not suppressed. Sorted by <code>rec</code> (recent_{mtime,ctime} count) — a freshly-changed unique file is the likelier implant; recency never promotes to Actionable because on a freshly-imaged host it fires on almost everything. <code>disc=novelty-only</code> = provenance was structurally inapplicable (a webroot-class walk; no tell was ever possible). <code>disc=no-tell</code> = a structural tell could have fired and did not (genuinely unremarkable, or a backdated/owned-path implant on a peerless host — the irreducible boundary, ADR-0017).</p>
+    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q1i">
+    <div class="tbl-wrap">
+      <table class="sortable" id="t-q1i">
+        <thead><tr>
+          <th>rec</th><th>disc</th><th>module</th><th>site_class</th>
+          <th>content_norm</th><th>sample_host</th>
+          <th>sample_locus</th><th>sample_snippet</th>
+        </tr></thead>
+        <tbody>
+        
+          <tr>
+            <td><span class="muted">0</span></td>
+            <td><span class="muted">novelty-only</span></td>
+            <td>webroot</td><td>webroot.script</td>
+            <td class="hash">bespoke-app-</td>
+            <td>h1</td>
+            <td class="path">/var/www/html/app/config.php</td>
+            <td class="snippet">bespoke-app-config-norm</td>
           </tr>
         
         </tbody>
@@ -803,6 +847,14 @@ footer a { color: var(--accent); }
             <td class="snippet">sync-svc-norm</td>
           </tr>
         
+          <tr>
+            <td>webroot</td><td>webroot.script</td>
+            <td class="path">/var/www/html/app/config.php</td>
+            <td class="hash">bespoke-app-</td>
+            <td>h1</td>
+            <td class="snippet">bespoke-app-config-norm</td>
+          </tr>
+        
         </tbody>
       </table>
     </div>
@@ -841,6 +893,15 @@ footer a { color: var(--accent); }
             <td>h1</td>
             <td class="path">/etc/cron.d/singleton-impl</td>
             <td class="snippet">cron-singleton-norm</td>
+          </tr>
+        
+          <tr>
+            <td>ubuntu</td><td>webroot</td><td>webroot.script</td>
+            <td class="hash">bespoke-app-</td>
+            <td class="num">3</td>
+            <td>h1</td>
+            <td class="path">/var/www/html/app/config.php</td>
+            <td class="snippet">bespoke-app-config-norm</td>
           </tr>
         
         </tbody>
@@ -1071,9 +1132,9 @@ footer a { color: var(--accent); }
         
           <tr>
             <td>h1</td><td>ubuntu</td>
-            <td class="num">2</td>
-            <td class="num">2</td>
-            <td class="num">2</td>
+            <td class="num">3</td>
+            <td class="num">3</td>
+            <td class="num">3</td>
             <td class="num">0</td>
           </tr>
         

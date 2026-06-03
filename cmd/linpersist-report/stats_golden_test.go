@@ -148,6 +148,14 @@ func goldenFixture() []core.Record {
 			"/tmp/payload.sh"))
 	}
 
+	// ADR-0017 rung-4 informational: a bare content-singleton with NO
+	// structural co-indicator. webroot.script is the novelty-only class
+	// (provenance structurally inapplicable) — exercises the Informational
+	// partition and the disc=novelty-only label.
+	recs = append(recs, mkRec("h1", "ubuntu", "webroot", "webroot.script",
+		"/var/www/html/app/config.php", "bespoke-app-config-norm",
+		nil, ""))
+
 	// Q11 orphan outside /tmp: exec_target missing, not under /tmp.
 	recs = append(recs, mkRec("h4", "rhel", "systemd", "systemd.unit",
 		"/etc/systemd/system/beacon.service", "beacon-svc-norm",

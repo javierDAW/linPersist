@@ -134,6 +134,26 @@ func render(out io.Writer, report *Report, title string) error {
 		"signalMax":    signalMax,
 		"signalPct":    signalPct,
 		"signalIsWarn": signalIsWarn,
+		// ADR-0017 Q1 ladder partition: actionable (rung-1, co>0) vs
+		// informational (rung-4, bare content-novelty, co==0).
+		"q1Actionable": func(rows []SingletonRow) []SingletonRow {
+			var o []SingletonRow
+			for _, r := range rows {
+				if r.CoIndicators > 0 {
+					o = append(o, r)
+				}
+			}
+			return o
+		},
+		"q1Info": func(rows []SingletonRow) []SingletonRow {
+			var o []SingletonRow
+			for _, r := range rows {
+				if r.CoIndicators == 0 {
+					o = append(o, r)
+				}
+			}
+			return o
+		},
 	}
 	t, err := template.New("report").Funcs(funcs).Parse(tmplBlob)
 	if err != nil {
