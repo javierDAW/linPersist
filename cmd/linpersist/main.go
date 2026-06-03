@@ -141,6 +141,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 		resolver.Warmup(warmCtx)
 		warmCancel()
 		prov = resolver
+		// Record the detected package manager on host_meta so the backend /
+		// analyst can tell an empty non-package result apart from a host
+		// where the ownership oracle was simply unavailable. On an
+		// unsupported distro (no dpkg/rpm/apk/pacman/portage) the
+		// non_package_path / package_file_tampered discriminators are INERT
+		// — warn loudly rather than fail silently.
+		hm.PkgMgr = resolver.PackageManager().String()
+		if resolver.PackageManager() == core.PkgMgrNone {
+			logger.Warn("no supported package manager detected (dpkg/rpm/apk/pacman/portage); " +
+				"non_package_path and package_file_tampered are inert on this host — " +
+				"an empty Q7 result does NOT mean clean")
+		}
 	}
 
 	// Build the /proc snapshot scanner and warm it up. Same lifecycle

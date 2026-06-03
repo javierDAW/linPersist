@@ -88,4 +88,12 @@ type HostMeta struct {
 	Arch         string   `json:"arch,omitempty"`
 	BootID       string   `json:"boot_id,omitempty"`
 	Tags         []string `json:"tags,omitempty"`
+	// PkgMgr is the package manager the provenance resolver detected
+	// (dpkg/rpm/apk/pacman/portage), or "none" when no supported manager
+	// was found. When "none", the non_package_path / package_file_tampered
+	// discriminators are INERT on this host — every exec_target resolves
+	// Unknown — so a clean Q7 run does not mean "nothing unmanaged found",
+	// it means the ownership oracle was unavailable. The backend/analyst
+	// MUST read this field before trusting an empty non-package result.
+	PkgMgr string `json:"pkg_mgr,omitempty"`
 }
