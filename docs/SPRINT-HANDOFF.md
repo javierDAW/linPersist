@@ -514,7 +514,7 @@ real FP the lab caught and how it was fixed at the root):
          non_package_path (real dpkg provenance) + ld_library_shadow_implant
          (critical) on the implant host only; fires exactly once fleet-wide,
          ZERO ld_library_shadows_packaged on the 5 clean hosts.
-      4. DONE (code + unit/golden + live-host, lab round OPTIONAL)
+      4. DONE + LAB-VALIDATED (round 31, Debian)
          **systemd OnFailure= / .path Unit= relationship EDGES** (duel-2
          backlog #4). BACKEND/Q12 correlation, NOT a Q7 rule. New additive
          Record field `Relations []string` (json `relations,omitempty`,
@@ -541,11 +541,13 @@ real FP the lab caught and how it was fixed at the root):
          systemd-ask-password-*.path) with their Unit=/OnFailure= edges
          correctly captured; real-systemd parse validated end-to-end. These
          markers on vendor units are BY DESIGN (backend graph edges, not
-         verdicts). Lab implant `apt2-systemd-pathunit` (a .path→payload
-         chain) + validator branch are committed for an OPTIONAL nspawn
-         confirmation of the attack shape:
-         `sudo lab-nspawn/fleet.sh --round N --implants apt2-systemd-pathunit`
-         then `python3 lab-nspawn/validate-evade.py lab-nspawn/out/round-N`.
+         verdicts). Lab round 31 (Debian, 6 hosts) via `apt2-systemd-pathunit`:
+         validate-evade.py all PASS — the planted zz-watch.path carries
+         systemd_path_trigger + Relations [PathModified=/tmp/.cachetrigger,
+         Unit=zz-payload.service], and the activated zz-payload.service
+         resolves non_package_path (the chain's payload arm). Both implant
+         units exist on the implant host only; the 5 clean hosts carry
+         neither.
   - **scope boundaries now documented in scope.md §8.1** (recent_ctime
     live-FS limit, initrd cpio OOS, %config edits report tampered, inline
     interpreter code is signal+LFA).
