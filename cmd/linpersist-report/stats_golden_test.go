@@ -116,6 +116,7 @@ func goldenFixture() []core.Record {
 			HostMeta: core.HostMeta{
 				HostnameHash: host,
 				OSID:         osID,
+				PkgMgr:       "dpkg", // realistic fleet: provenance ran (no degraded banner)
 			},
 			Module:            module,
 			SiteClass:         siteClass,

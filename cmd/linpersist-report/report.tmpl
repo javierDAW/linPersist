@@ -19,6 +19,16 @@
     {{if .Report.SkippedLines}}· <b style="color:var(--warn)">{{.Report.SkippedLines}}</b> malformed lines skipped{{end}}
     {{if .Report.AgentVersion}}· agent <b>{{.Report.AgentVersion}}</b>{{end}}
   </div>
+  {{if .Report.Overview.DegradedHosts}}
+  <div class="banner-warn">
+    ⚠ coverage degraded on <b>{{len .Report.Overview.DegradedHosts}}</b> host(s): no package manager detected —
+    the provenance gate (<code>non_package_path</code> / <code>package_file_tampered</code>) did NOT run on them, so
+    absence of findings is <b>not</b> proof of clean.
+    <details><summary>affected hosts</summary>
+      <ul>{{range .Report.Overview.DegradedHosts}}<li>{{.Host}} <span class="muted">(os_id={{if .OSID}}{{.OSID}}{{else}}&lt;unknown&gt;{{end}})</span></li>{{end}}</ul>
+    </details>
+  </div>
+  {{end}}
 </header>
 
 <nav class="tabs">
@@ -165,17 +175,19 @@
   <section class="pane" data-pane="q1">
     <h2>Q1 · Pure LFA singletons</h2>
     <p class="lede">Records whose <code>content_norm_sha256</code> appears on exactly one host in the fleet. This is the load-bearing query: an attacker who appends a malicious line to <code>/etc/crontab</code> on one host produces a digest no other host has, and it surfaces here.</p>
+    <p class="hint">Ranked by <b>co</b> — the count of structural co-indicators on the row (recent_mtime, world_writable, non_package_path, package_file_tampered, orphan, immutable, mount_shadows_path). A row with <code>co=0</code> is a <em>bare</em> singleton: unique content with no other tell, which at small fleet sizes is informational rather than actionable (at N=1 every record is a singleton). Triage the high-<code>co</code> rows first.</p>
     <input class="search" type="search" placeholder="filter rows…" data-target="#t-q1">
     <div class="tbl-wrap">
       <table class="sortable" id="t-q1">
         <thead><tr>
-          <th>module</th><th>site_class</th>
+          <th>co</th><th>module</th><th>site_class</th>
           <th>content_norm</th><th>sample_host</th>
           <th>sample_locus</th><th>sample_snippet</th>
         </tr></thead>
         <tbody>
         {{range .Report.Q1Singletons}}
           <tr>
+            <td>{{if .CoIndicators}}<b>{{.CoIndicators}}</b>{{else}}<span class="muted">0</span>{{end}}</td>
             <td>{{.Module}}</td><td>{{.SiteClass}}</td>
             <td class="hash">{{.ContentNorm}}</td>
             <td>{{.SampleHost}}</td>
@@ -183,7 +195,7 @@
             <td class="snippet">{{.SampleSnippet}}</td>
           </tr>
         {{else}}
-          <tr><td colspan="6" style="text-align:center;color:var(--fg-mute)">no singletons — the entire fleet shares its baseline (rare; expected on a 1-host fleet)</td></tr>
+          <tr><td colspan="7" style="text-align:center;color:var(--fg-mute)">no singletons — the entire fleet shares its baseline (rare; expected on a 1-host fleet)</td></tr>
         {{end}}
         </tbody>
       </table>
