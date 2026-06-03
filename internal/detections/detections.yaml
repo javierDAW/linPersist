@@ -163,6 +163,13 @@ detections:
     when:
       signals_all: [ld_preload_set, package_file_tampered]
 
+  - id: ld_library_shadow_implant
+    description: an /etc/ld.so.conf.d (or ld.so.conf) search-path directive adds a non-standard directory containing a shared object whose basename collides with a package-owned system library — the dynamic linker resolves the SONAME to the planted copy first, hijacking every process that loads it (T1574.006 library shadowing via ld.so.conf.d). Fires only on the package-shadowing collision; bare path-injection with no collision is LFA-only. Residual FP class —a locally source-built library legitimately shadowing the distro one, rare and itself worth review
+    severity: critical
+    mitre: [T1574.006]
+    when:
+      signals_all: [ld_library_shadows_packaged]
+
   - id: polkit_admin_rule_implant
     description: polkit rule contains addAdminRule( and was recently modified (recent_mtime_7d) or is non-root-owned. NOTE recent_ctime_7d was trialled here to close the touch -d timestomp bypass but the nspawn lab showed it fires on the image-extracted stock vendor rules under /usr/share/polkit-1 on every freshly-provisioned host — so the touch -d bypass is left to LFA singleton stacking (the attacker drop-in is a content singleton; vendor rules are fleet-common)
     severity: high

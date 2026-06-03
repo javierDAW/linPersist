@@ -368,3 +368,117 @@ func TestHasGlobMeta(t *testing.T) {
 		}
 	}
 }
+
+// stubProvenance reports the paths in owned as PkgStatusOwned and every
+// other path as PkgStatusOrphan. Used to drive the library-shadow check
+// without a real dpkg/rpm database.
+type stubProvenance struct{ owned map[string]bool }
+
+func (stubProvenance) Warmup(context.Context) {}
+
+func (s stubProvenance) LookupPath(p string) (string, core.PkgStatus) {
+	if s.owned[p] {
+		return "libssl3", core.PkgStatusOwned
+	}
+	return "", core.PkgStatusOrphan
+}
+
+// mustWrite creates parent dirs and writes a file under root.
+func mustWrite(t *testing.T, root, rel, content string) {
+	t.Helper()
+	p := filepath.Join(root, rel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func collectLdso(t *testing.T, mod *Module) map[string]core.Record {
+	t.Helper()
+	out := map[string]core.Record{}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := mod.Collect(ctx, func(r core.Record) {
+		// Key by locus+exec_target so the shadow line is addressable.
+		out[r.Locus+"|"+r.ExecTarget] = r
+	}); err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	return out
+}
+
+func TestLibraryShadowCollision(t *testing.T) {
+	root := t.TempDir()
+	// The system library a shadow would hijack, under a multiarch dir.
+	mustWrite(t, root, "usr/lib/x86_64-linux-gnu/libcrypto.so.3", "REAL-SYSTEM-LIB\n")
+	// Attacker .conf adding a non-standard dir...
+	mustWrite(t, root, "etc/ld.so.conf.d/zz-evil.conf", "/opt/.l\n")
+	// ...holding a planted .so with the SAME basename (the shadow).
+	mustWrite(t, root, "opt/.l/libcrypto.so.3", "PLANTED\n")
+	// A control: another non-standard dir whose lib collides with nothing.
+	mustWrite(t, root, "etc/ld.so.conf.d/app.conf", "/opt/app/lib\n")
+	mustWrite(t, root, "opt/app/lib/libapponly.so.1", "BENIGN\n")
+
+	prov := stubProvenance{owned: map[string]bool{
+		"/usr/lib/x86_64-linux-gnu/libcrypto.so.3": true,
+	}}
+	mod := New(Options{Root: root, Now: func() time.Time { return fixedNow }, Provenance: prov})
+	recs := collectLdso(t, mod)
+
+	shadow, ok := recs["/etc/ld.so.conf.d/zz-evil.conf|/opt/.l/libcrypto.so.3"]
+	if !ok {
+		var got []string
+		for k := range recs {
+			got = append(got, k)
+		}
+		t.Fatalf("no shadow record; got keys %v", got)
+	}
+	if !hasSignal(shadow.Signals, core.SignalLDLibraryShadowsPackaged) {
+		t.Errorf("shadow record missing ld_library_shadows_packaged; signals=%v", shadow.Signals)
+	}
+	if !hasSignal(shadow.Signals, core.SignalNonPackagePath) {
+		t.Errorf("shadow record missing non_package_path on the planted .so; signals=%v", shadow.Signals)
+	}
+	if shadow.ExecTarget != "/opt/.l/libcrypto.so.3" {
+		t.Errorf("exec_target = %q, want the planted .so", shadow.ExecTarget)
+	}
+
+	// The control .conf must NOT carry the shadow signal (bare injection).
+	control, ok := recs["/etc/ld.so.conf.d/app.conf|"]
+	if !ok {
+		t.Fatalf("no control record for app.conf")
+	}
+	if hasSignal(control.Signals, core.SignalLDLibraryShadowsPackaged) {
+		t.Errorf("control record wrongly flagged as shadow; signals=%v", control.Signals)
+	}
+}
+
+func TestLibraryShadowStandardDirNotFlagged(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, root, "usr/lib/x86_64-linux-gnu/libcrypto.so.3", "REAL\n")
+	// A .conf re-listing a STANDARD dir (e.g. /usr/local/lib) must never
+	// trigger the shadow check even if a same-named lib lives there.
+	mustWrite(t, root, "etc/ld.so.conf.d/libc.conf", "/usr/local/lib\n")
+	mustWrite(t, root, "usr/local/lib/libcrypto.so.3", "LOCAL-BUILD\n")
+	prov := stubProvenance{owned: map[string]bool{
+		"/usr/lib/x86_64-linux-gnu/libcrypto.so.3": true,
+	}}
+	mod := New(Options{Root: root, Now: func() time.Time { return fixedNow }, Provenance: prov})
+	recs := collectLdso(t, mod)
+	for k, r := range recs {
+		if hasSignal(r.Signals, core.SignalLDLibraryShadowsPackaged) {
+			t.Errorf("standard dir %q wrongly flagged as shadow", k)
+		}
+	}
+}
+
+func hasSignal(sigs []string, want string) bool {
+	for _, s := range sigs {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}

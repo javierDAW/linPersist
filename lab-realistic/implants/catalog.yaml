@@ -915,6 +915,25 @@ implants:
     template: apt2-initramfs-hook.tmpl
     vars: {}
 
+  - id: apt2-ldso-shadow
+    tier: L5
+    variant: armed
+    module: ldso
+    site_class: ldso.confd
+    description: |
+      Dynamic-linker library hijack: an /etc/ld.so.conf.d drop-in adds a
+      non-standard search dir (/opt/.perflib) holding a .so whose basename
+      (libc.so.6) collides with a package-owned system library. ld.so
+      resolves the SONAME to the planted copy, hijacking every process.
+      The shadow record's exec_target is the planted .so ->
+      ld_library_shadows_packaged + non_package_path -> ld_library_shadow_implant.
+      Bare path-injection (no collision) stays LFA-only.
+    expected_signals: [ld_library_shadows_packaged, non_package_path]
+    expected_caught_by: [Q1, Q7]
+    expected_q7_rule: ld_library_shadow_implant
+    template: apt2-ldso-shadow.tmpl
+    vars: {}
+
   - id: apt2-sshd-setenv
     tier: L4
     variant: armed

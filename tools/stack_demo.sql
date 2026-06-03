@@ -357,6 +357,7 @@ WHERE
   OR /* sysv_init_tmp_reference */ (module = 'sysv' AND (content_snippet LIKE '%. /tmp/%' OR content_snippet LIKE '%exec /tmp/%' OR content_snippet LIKE '%bash /tmp/%' OR content_snippet LIKE '%sh /tmp/%' OR content_snippet LIKE '%/tmp/.%'))
   OR /* ld_preload_set_with_non_package */ (list_contains(signals, 'ld_preload_set') AND list_contains(signals, 'non_package_path'))
   OR /* ld_preload_target_tampered */ (list_contains(signals, 'ld_preload_set') AND list_contains(signals, 'package_file_tampered'))
+  OR /* ld_library_shadow_implant */ list_contains(signals, 'ld_library_shadows_packaged')
   OR /* polkit_admin_rule_implant */ (list_contains(signals, 'polkit_admin_rule') AND (list_contains(signals, 'recent_mtime_7d') OR list_contains(signals, 'non_root_owner')))
   OR /* polkit_yes_constant_implant */ (list_contains(signals, 'polkit_yes_constant') AND (list_contains(signals, 'recent_mtime_7d') OR list_contains(signals, 'non_root_owner')))
   OR /* sshd_root_login_enabled */ list_contains(signals, 'sshd_permit_root_login_yes')

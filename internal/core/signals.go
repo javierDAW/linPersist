@@ -131,6 +131,22 @@ const (
 	// /etc/ld.so.preload when the file is non-empty.
 	SignalLDPreloadSet = "ld_preload_set"
 
+	// SignalLDLibraryShadowsPackaged fires on an ld.so.conf / ld.so.conf.d
+	// search-path directive that adds a NON-standard directory (not under
+	// /lib, /usr/lib, /lib64, /usr/lib64 or /usr/local/lib) which contains
+	// a *.so* whose basename collides with a package-owned library on a
+	// standard library path. The dynamic linker resolves a SONAME to the
+	// first matching file across its search dirs, so a planted libfoo.so.N
+	// in an attacker-controlled dir placed ahead of the system one hijacks
+	// every process that loads that library (T1574.006, library shadowing
+	// via ld.so.conf.d). Bare path-injection — a non-standard dir whose
+	// libraries collide with nothing — is NOT flagged (it floods on legit
+	// /opt/app/lib installs); only the package-shadowing collision is the
+	// implant tell. Residual FP class: a locally source-built library
+	// (e.g. a custom OpenSSL under /opt) that legitimately shadows the
+	// distro one — rare, and itself worth surfacing.
+	SignalLDLibraryShadowsPackaged = "ld_library_shadows_packaged"
+
 	// SignalExecTargetOrphan set when exec_target points to a file that
 	// does not exist on disk.
 	SignalExecTargetOrphan = "exec_target_orphan"
