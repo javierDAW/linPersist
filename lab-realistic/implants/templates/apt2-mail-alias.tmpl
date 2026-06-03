@@ -1,0 +1,9 @@
+# APT2 implant: apt2-mail-alias (mail pipe-alias root backdoor). A |command
+# alias in /etc/aliases runs AS root on every mail delivery to the alias.
+# confexec mail.aliases lifts the pipe argv0 -> non_package_path ->
+# mail_alias_pipe_unmanaged. Variables: (none)
+RUN mkdir -p /opt/.m && \
+    printf '%s\n' '#!/bin/sh' 'id > /dev/null 2>&1 || true' > /opt/.m/agent && \
+    chown root:root /opt/.m/agent && chmod 0755 /opt/.m/agent && \
+    printf '%s\n' 'systemd-helper: "|/opt/.m/agent"' >> /etc/aliases && \
+    ( command -v newaliases >/dev/null 2>&1 && newaliases >/dev/null 2>&1 || true )

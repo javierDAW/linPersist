@@ -1,0 +1,9 @@
+# APT2 implant: apt2-nss-hijack (Symbiote-class NSS module hijack). A custom
+# token on the nsswitch passwd line names libnss_<token>.so.2 that glibc
+# dlopens into every process doing passwd lookups. confexec nss.nsswitch
+# resolves the non-vendor token to its planted unowned .so ->
+# nss_module_unmanaged (critical). Variables: (none)
+RUN ARCH_DIR=$(ls -d /usr/lib/*-linux-gnu 2>/dev/null | head -1); ARCH_DIR=${ARCH_DIR:-/usr/lib}; \
+    printf 'PLANTED-NSS\n' > "$ARCH_DIR/libnss_zzevil.so.2" && \
+    chown root:root "$ARCH_DIR/libnss_zzevil.so.2" && chmod 0644 "$ARCH_DIR/libnss_zzevil.so.2" && \
+    sed -i 's/^\(passwd:.*\)$/\1 zzevil/' /etc/nsswitch.conf
