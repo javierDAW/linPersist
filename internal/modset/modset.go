@@ -30,6 +30,7 @@ import (
 	"github.com/jarmidaw/linpersist/internal/modules/netdispatch"
 	"github.com/jarmidaw/linpersist/internal/modules/pam"
 	"github.com/jarmidaw/linpersist/internal/modules/passwd"
+	"github.com/jarmidaw/linpersist/internal/modules/pkgrepo"
 	"github.com/jarmidaw/linpersist/internal/modules/polkit"
 	"github.com/jarmidaw/linpersist/internal/modules/profile"
 	"github.com/jarmidaw/linpersist/internal/modules/runtimeinit"
@@ -42,6 +43,7 @@ import (
 	"github.com/jarmidaw/linpersist/internal/modules/sysv"
 	"github.com/jarmidaw/linpersist/internal/modules/tmpfiles"
 	"github.com/jarmidaw/linpersist/internal/modules/udev"
+	"github.com/jarmidaw/linpersist/internal/modules/webroot"
 	"github.com/jarmidaw/linpersist/internal/modules/xdg"
 )
 
@@ -73,6 +75,7 @@ func All(prov core.Provenance, liveProcs core.LiveProcessSet) []core.Module {
 		netdispatch.New(netdispatch.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		pam.New(pam.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		passwd.New(passwd.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		pkgrepo.New(pkgrepo.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		polkit.New(polkit.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		profile.New(profile.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		runtimeinit.New(runtimeinit.Options{Provenance: prov, LiveProcessSet: liveProcs}),
@@ -85,6 +88,7 @@ func All(prov core.Provenance, liveProcs core.LiveProcessSet) []core.Module {
 		sysv.New(sysv.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		tmpfiles.New(tmpfiles.Options{}),
 		udev.New(udev.Options{Provenance: prov, LiveProcessSet: liveProcs}),
+		webroot.New(webroot.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 		xdg.New(xdg.Options{Provenance: prov, LiveProcessSet: liveProcs}),
 	}
 }
