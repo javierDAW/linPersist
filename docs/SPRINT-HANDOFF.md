@@ -636,9 +636,20 @@ Prioritised:
    targets absent from the minimal bootstrap, e.g. /usr/bin/quotaon without
    the quota pkg, a known base-fidelity artifact like Debian minbase/udev;
    1 a genuinely-unowned admin config /etc/locale.conf — none fire Q7, all
-   fleet-common so not LFA singletons.) Gentoo/portage nspawn pending (the
-   gentoo-bootstrap is built; run `--suite gentoo`). NIX stays on the
-   honest-degradation path (content-addressed store needs its own resolver).
+   fleet-common so not LFA singletons.) **Gentoo/portage ALSO lab-validated**
+   (round 41, via gentoo-bootstrap fixed to parse the PGP-clearsigned
+   latest-stage3 pointer): host_meta.pkg_mgr=portage fleet-wide, all 4
+   implants PASS via the real portage CONTENTS DB. That round surfaced one
+   real critical FP — `suid_binary_outside_package_path` on
+   /usr/bin/unix_chkpwd on every clean Gentoo host — caused by Gentoo's FULL
+   usr-merge (/bin,/sbin,/usr/sbin all collapse into /usr/bin) while portage
+   records /sbin/unix_chkpwd: a /usr/bin lookup never tried the /sbin key.
+   FIXED on branch `provenance-usrmerge-collapse`: `usrMergeAlternates` now
+   returns the basename under all four bin/sbin merge dirs (was 1:1 pairs),
+   so the /sbin record resolves owned. Generic (helps any distro), unit-
+   tested; re-run `--suite gentoo` to confirm the unix_chkpwd FP is gone.
+   NIX stays on the honest-degradation path (content-addressed store needs
+   its own resolver).
 2. DONE — branch `runtimeinit-python` **interpreter/runtime auto-exec.**
    New `runtimeinit` module (site_class `runtime.python`): walks the
    CPython site/dist-packages dirs (globbed across distro layouts +
