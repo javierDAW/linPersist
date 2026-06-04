@@ -104,6 +104,7 @@ h2 { font-size: 16px; margin: 14px 0 6px; }
 p { margin: 0 0 12px; }
 p.lede { color: var(--fg-mute); margin-top: 0; }
 .hint { color: var(--fg-mute); font-size: 12px; margin: 6px 0 18px; }
+.muted { color: var(--fg-mute); }
 
 /* Card grid (overview) */
 .cards {
@@ -226,6 +227,24 @@ footer a { color: var(--accent); }
   thead th { position: static; }
   .bars .row .name { width: 140px; }
 }
+
+/* coverage-degraded banner (provenance-blind hosts) */
+.banner-warn {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn);
+  border-left: 4px solid var(--warn);
+  border-radius: 4px;
+  background: var(--bg-alt);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.banner-warn code { color: var(--warn); }
+.banner-warn details { margin-top: 6px; }
+.banner-warn summary { cursor: pointer; color: var(--fg-mute); }
+.banner-warn ul { margin: 6px 0 0; padding-left: 20px; }
+.banner-warn .muted { color: var(--fg-mute); }
 </style>
 </head>
 <body>
@@ -241,6 +260,7 @@ footer a { color: var(--accent); }
     
     · agent <b>linpersist-test</b>
   </div>
+  
 </header>
 
 <nav class="tabs">
@@ -669,17 +689,19 @@ footer a { color: var(--accent); }
   <section class="pane" data-pane="q1">
     <h2>Q1 · Pure LFA singletons</h2>
     <p class="lede">Records whose <code>content_norm_sha256</code> appears on exactly one host in the fleet. This is the load-bearing query: an attacker who appends a malicious line to <code>/etc/crontab</code> on one host produces a digest no other host has, and it surfaces here.</p>
+    <p class="hint">Ranked by <b>co</b> — the count of structural co-indicators on the row (recent_mtime, world_writable, non_package_path, package_file_tampered, orphan, immutable, mount_shadows_path). A row with <code>co=0</code> is a <em>bare</em> singleton: unique content with no other tell, which at small fleet sizes is informational rather than actionable (at N=1 every record is a singleton). Triage the high-<code>co</code> rows first.</p>
     <input class="search" type="search" placeholder="filter rows…" data-target="#t-q1">
     <div class="tbl-wrap">
       <table class="sortable" id="t-q1">
         <thead><tr>
-          <th>module</th><th>site_class</th>
+          <th>co</th><th>module</th><th>site_class</th>
           <th>content_norm</th><th>sample_host</th>
           <th>sample_locus</th><th>sample_snippet</th>
         </tr></thead>
         <tbody>
         
           <tr>
+            <td><b>2</b></td>
             <td>cron</td><td>cron.d</td>
             <td class="hash">cron-singlet</td>
             <td>h1</td>
@@ -688,22 +710,7 @@ footer a { color: var(--accent); }
           </tr>
         
           <tr>
-            <td>cron</td><td>cron.daily</td>
-            <td class="hash">sync-cron-no</td>
-            <td>h5</td>
-            <td class="path">/etc/cron.daily/sync</td>
-            <td class="snippet">sync-cron-norm</td>
-          </tr>
-        
-          <tr>
-            <td>profile</td><td>profile.d</td>
-            <td class="hash">sync-profile</td>
-            <td>h5</td>
-            <td class="path">/etc/profile.d/sync.sh</td>
-            <td class="snippet">sync-profile-norm</td>
-          </tr>
-        
-          <tr>
+            <td><b>2</b></td>
             <td>systemd</td><td>systemd.unit</td>
             <td class="hash">beacon-svc-n</td>
             <td>h4</td>
@@ -712,6 +719,25 @@ footer a { color: var(--accent); }
           </tr>
         
           <tr>
+            <td><b>1</b></td>
+            <td>cron</td><td>cron.daily</td>
+            <td class="hash">sync-cron-no</td>
+            <td>h5</td>
+            <td class="path">/etc/cron.daily/sync</td>
+            <td class="snippet">sync-cron-norm</td>
+          </tr>
+        
+          <tr>
+            <td><b>1</b></td>
+            <td>profile</td><td>profile.d</td>
+            <td class="hash">sync-profile</td>
+            <td>h5</td>
+            <td class="path">/etc/profile.d/sync.sh</td>
+            <td class="snippet">sync-profile-norm</td>
+          </tr>
+        
+          <tr>
+            <td><b>1</b></td>
             <td>systemd</td><td>systemd.unit</td>
             <td class="hash">sync-svc-nor</td>
             <td>h5</td>

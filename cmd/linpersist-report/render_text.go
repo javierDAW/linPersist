@@ -35,6 +35,27 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	fmt.Fprintln(out)
 	fmt.Fprintln(out)
 
+	// --- Coverage-degraded banner ------------------------------------
+	// Provenance-blind hosts (no package manager) get their ownership
+	// gate skipped entirely, so "0 findings" on them means "could not
+	// verify", not "clean". Make that loud.
+	if n := len(report.Overview.DegradedHosts); n > 0 {
+		warn := a.orange(fmt.Sprintf("⚠ coverage degraded on %d host(s): no package manager detected — provenance (non_package_path / package_file_tampered) gate did NOT run; absence of findings is NOT proof of clean.", n))
+		fmt.Fprintln(out, warn)
+		for i, dh := range report.Overview.DegradedHosts {
+			if i >= 10 {
+				fmt.Fprintf(out, "    … and %d more\n", n-10)
+				break
+			}
+			os := dh.OSID
+			if os == "" {
+				os = "<unknown>"
+			}
+			fprintfSafe(out, "    %s (os_id=%s)\n", dh.Host, os)
+		}
+		fmt.Fprintln(out)
+	}
+
 	// --- Overview cards ----------------------------------------------
 	textSection(out, a, "Overview")
 	sev := report.Overview.SeverityCounts
@@ -152,18 +173,28 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	// --- Q1: pure LFA -----------------------------------------------
 	textSection(out, a, fmt.Sprintf("Q1 · LFA singletons (%d)", len(report.Q1Singletons)))
 	fmt.Fprintln(out, "Records whose content_norm_sha256 appears on exactly one host.")
+	fmt.Fprintln(out, "Ranked by co-indicators (co=structural tells: recent/writable/orphan/tamper). co=0 is a bare singleton — informational, weak at small N.")
 	fmt.Fprintln(out)
 	if len(report.Q1Singletons) == 0 {
 		fmt.Fprintln(out, "  no rows")
 	} else {
 		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "  module\tsite_class\tcontent_norm\tsample_host\tsample_locus\tsnippet")
+		fmt.Fprintln(tw, "  co\tmodule\tsite_class\tcontent_norm\tsample_host\tsample_locus\tsnippet")
+		const q1Cap = 200
+		shown := 0
 		for _, r := range report.Q1Singletons {
-			fprintfSafe(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n",
-				r.Module, r.SiteClass, r.ContentNorm, r.SampleHost,
+			if shown >= q1Cap {
+				break
+			}
+			fprintfSafe(tw, "  %d\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.CoIndicators, r.Module, r.SiteClass, r.ContentNorm, r.SampleHost,
 				r.SampleLocus, r.SampleSnippet)
+			shown++
 		}
 		tw.Flush()
+		if rest := len(report.Q1Singletons) - shown; rest > 0 {
+			fmt.Fprintf(out, "  … %d more bare singletons not shown (all co=0; see HTML/JSON for the full list)\n", rest)
+		}
 	}
 	fmt.Fprintln(out)
 
