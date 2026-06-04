@@ -92,14 +92,28 @@ type SingletonRow struct {
 	SampleHost    string
 	SampleLocus   string
 	SampleSnippet string
-	// CoIndicators is the count of ranking signals on the singleton's
-	// sample record (recent_mtime, world_writable, non_package_path,
-	// package_file_tampered, orphan, immutable, mount_shadows_path,
-	// exec_in_tmp). Pure content-singleton-ness is weak on its own —
-	// at N=1 EVERY record is a singleton — so rows that ALSO carry a
-	// structural tell are ranked first. A 0 here is a bare singleton:
-	// informational, not actionable without fleet context.
+	// CoIndicators counts the STRONG structural tells on the sample record
+	// (non_package_path, package_file_tampered, exec_target_orphan,
+	// interpreter_in_tmp, world_writable, immutable/append-only,
+	// mount_shadows_path). These are population- AND provisioning-
+	// independent, so >0 puts the row in the rung-1 Actionable partition
+	// (ADR-0017). recent_mtime/recent_ctime are DELIBERATELY excluded:
+	// on a freshly-imaged/provisioned host (WSL, containers, golden
+	// images) they fire on nearly every file — the live smoke saw
+	// recent_ctime on 64% of records — so promoting on recency would
+	// re-create the very flood the ladder exists to prevent.
 	CoIndicators int
+	// Recency is a SECONDARY rank: the count of recent_{mtime,ctime}_*
+	// tells. It never promotes a row to Actionable (see above), but within
+	// the Informational partition a freshly-changed unique file is the
+	// likelier implant, so recency floats it up — a per-record temporal
+	// hint that needs no history store.
+	Recency int
+	// Disc is the ADR-0017 discriminator label for the row's site_class,
+	// rendered in the rung-4 informational partition: "novelty-only"
+	// (provenance structurally inapplicable — no tell was ever possible)
+	// or "no-tell" (a structural tell could have fired and did not).
+	Disc string
 }
 
 type LocusSingletonRow struct {
@@ -508,17 +522,17 @@ type q1Agg struct {
 	sampleLocus   string
 	sampleSnippet string
 	coIndicators  int
+	recency       int
 }
 
-// q1RankingSignals are the structural tells that lift a content-singleton
-// from "merely unique" to "worth an analyst's attention." Pure singleton-
-// ness is weak at small N (at N=1 every record is a singleton), so Q1 is
-// ranked by how many of these the sample record carries.
-var q1RankingSignals = map[string]struct{}{
-	core.SignalRecentMtime7d:       {},
-	core.SignalRecentMtime30d:      {},
-	core.SignalRecentCtime7d:       {},
-	core.SignalRecentCtime30d:      {},
+// q1StrongTells are the STRONG structural co-indicators that lift a
+// content-singleton to rung-1 Actionable (ADR-0017). They are population-
+// AND provisioning-independent: a non-package path, a tampered package
+// file, an orphan/tmp exec target, a world-writable persistence file, an
+// immutable/append-only inode, or a shadowing mount is meaningful on a
+// single host and on a freshly-imaged one alike. recent_{mtime,ctime} are
+// NOT here — see q1Recency.
+var q1StrongTells = map[string]struct{}{
 	core.SignalWorldWritable:       {},
 	core.SignalNonPackagePath:      {},
 	core.SignalPackageFileTampered: {},
@@ -527,12 +541,29 @@ var q1RankingSignals = map[string]struct{}{
 	core.SignalImmutableFlag:       {},
 	core.SignalAppendOnlyFlag:      {},
 	core.SignalMountShadowsPath:    {},
+	// Tier-B behavioral grammars (ADR-0017): a persistence command that
+	// pipes a fetch/decode into a shell, or wires a socket to a shell, is
+	// rung-1 Actionable even on owned paths with no Tier-A tell.
+	core.SignalFetchPipedToInterpreter: {},
+	core.SignalReverseShellSocketIdiom: {},
 }
 
-func q1CoIndicatorCount(sigs []string) int {
+// q1Recency are the temporal tells. They are a SECONDARY rank only (never
+// promote to Actionable): on a freshly-provisioned/imaged host they fire
+// on nearly every file, so a record carrying ONLY these is still a bare
+// rung-4 singleton — but among bare singletons, the recently-changed one
+// is the likelier implant, so recency floats it up within Informational.
+var q1Recency = map[string]struct{}{
+	core.SignalRecentMtime7d:  {},
+	core.SignalRecentMtime30d: {},
+	core.SignalRecentCtime7d:  {},
+	core.SignalRecentCtime30d: {},
+}
+
+func countSignals(sigs []string, set map[string]struct{}) int {
 	n := 0
 	for _, s := range sigs {
-		if _, ok := q1RankingSignals[s]; ok {
+		if _, ok := set[s]; ok {
 			n++
 		}
 	}
@@ -555,7 +586,8 @@ func computeQ1(records []core.Record) []SingletonRow {
 		a.hosts[hk] = struct{}{}
 		if a.sampleHost == "" {
 			a.sampleHost = hk
-			a.coIndicators = q1CoIndicatorCount(r.Signals)
+			a.coIndicators = countSignals(r.Signals, q1StrongTells)
+			a.recency = countSignals(r.Signals, q1Recency)
 		}
 	}
 	var out []SingletonRow
@@ -563,6 +595,7 @@ func computeQ1(records []core.Record) []SingletonRow {
 		if len(a.hosts) != 1 {
 			continue
 		}
+		disc, _ := classifySiteClass(k.siteClass)
 		out = append(out, SingletonRow{
 			Module:        k.module,
 			SiteClass:     k.siteClass,
@@ -571,13 +604,19 @@ func computeQ1(records []core.Record) []SingletonRow {
 			SampleLocus:   a.sampleLocus,
 			SampleSnippet: snippetTrim(a.sampleSnippet, 100),
 			CoIndicators:  a.coIndicators,
+			Recency:       a.recency,
+			Disc:          discLabel(disc),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
-		// Rank co-indicator-bearing singletons first — a bare singleton
-		// (CoIndicators==0) is informational, not actionable at small N.
+		// Rung-1 strong tells first (Actionable), then recency as the
+		// secondary rank so a freshly-changed bare singleton floats above
+		// a settled one within the Informational partition.
 		if out[i].CoIndicators != out[j].CoIndicators {
 			return out[i].CoIndicators > out[j].CoIndicators
+		}
+		if out[i].Recency != out[j].Recency {
+			return out[i].Recency > out[j].Recency
 		}
 		if out[i].Module != out[j].Module {
 			return out[i].Module < out[j].Module

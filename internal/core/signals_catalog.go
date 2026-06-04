@@ -520,6 +520,16 @@ var Signals = []SignalDef{
 		Description: "profile-class file assigns BASH_ENV=/ENV= to an absolute path (per-shell source hook; T1546.004)",
 		EmittedBy:   []string{"profile"},
 	},
+	{
+		Name:        SignalFetchPipedToInterpreter,
+		Description: "Tier-B (ADR-0017): persistence command pipes a downloader/decoder into a raw shell (curl|sh, base64 -d|bash); file-output and non-shell sinks excluded",
+		EmittedBy:   []string{"core/behavioral"},
+	},
+	{
+		Name:        SignalReverseShellSocketIdiom,
+		Description: "Tier-B (ADR-0017): persistence command wires a socket to a shell (/dev/tcp into a shell, nc/socat exec naming a shell); liveness probes and non-shell relays excluded",
+		EmittedBy:   []string{"core/behavioral"},
+	},
 }
 
 // signalsByName is a presence-and-lookup index built once from Signals.

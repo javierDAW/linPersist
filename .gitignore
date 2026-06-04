@@ -104,3 +104,6 @@ report.txt
 
 # golden test inspection artifacts
 internal/testdata/golden/**/*.actual
+
+# blind lab-test (contains the hidden answer)
+blindtest/

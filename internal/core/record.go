@@ -61,6 +61,15 @@ type Record struct {
 
 	Signals []string      `json:"signals,omitempty"`
 	Errors  []RecordError `json:"errors,omitempty"`
+
+	// FullExecLine is the UNTRUNCATED logical command line a module lifted
+	// (a cron line, a systemd ExecStart=, a profile.d body line). It is
+	// TRANSIENT — never serialized (json:"-") — and exists only so the emit
+	// sink can run the Tier-B behavioral grammars (core/behavioral.go) over
+	// the full line, since ContentSnippet is capped at 256 bytes and a long
+	// dropper's "| sh" tail can sit past the cap. Modules that lift exec
+	// content set it where they set ContentSnippet; others leave it empty.
+	FullExecLine string `json:"-"`
 }
 
 // RecordError describes a non-fatal collection error scoped to a single

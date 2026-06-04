@@ -261,6 +261,7 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 		ContentSHA256:     core.HashHex(raw),
 		ContentNormSHA256: core.HashHex(canon),
 		ContentSnippet:    snippet(string(canon)),
+		FullExecLine:      string(canon), // Tier-B behavioral scan over the full body
 	}
 	core.FillFileMeta(&rec, info)
 	// Pull the first explicit exec target out of the script body so

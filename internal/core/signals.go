@@ -621,4 +621,41 @@ const (
 	// RHS values stay signal-free (arbitrary inline code, not a
 	// resolvable target) — left to LFA. MITRE T1546.004.
 	SignalEnvHookSet = "env_hook_set"
+
+	// --- Tier-B behavioral grammars (ADR-0017) -----------------------
+	// Computed CENTRALLY (core/behavioral.go, from the emit sink) over the
+	// UNTRUNCATED logical command line a module lifted (Record.FullExecLine),
+	// never over the 256-byte ContentSnippet. A FROZEN, finite set of
+	// high-signal EXECUTION-CONTROL idioms that turn a tell-free owned-path
+	// persistence record (the packaged-LOLBin downloader-on-a-cron the
+	// structural tells miss) into a rung-1 Actionable record. The
+	// discriminator is never a bare network verb (the bare-curl flood
+	// lesson) — it is the SYNTACTIC GLUE wiring a fetch/decode into an
+	// interpreter, or a socket into a shell.
+
+	// SignalFetchPipedToInterpreter fires when a persistence locus's lifted
+	// command pipes a downloader-to-stdout (curl without -o/-O; wget -O-/
+	// -qO-; busybox forms) OR a decoder (base64 -d, xxd -r, gunzip, zcat,
+	// openssl enc -d, ...) into a RAW SHELL {sh,bash,dash,ksh,zsh} — incl.
+	// the process-substitution form `bash <(curl …)`. The downloader-to-
+	// FILE form (-o/-O) is excluded (it re-enters the Tier-A tmp/orphan
+	// path); a downstream non-shell (jq/tar/gzip) is excluded by
+	// construction; command substitution `$(…)`/`eval "$(…)"` is deferred
+	// to LFA (the scope §8.1 inline-code boundary). Scripting interpreters
+	// (python/perl/ruby/php/node) are NOT emitted in v1 — that subset is
+	// left to a co-indicator + LFA to avoid the benign `curl|python3
+	// parse.py` data-pipeline FP. MITRE T1059.004 / T1105 / T1546.004.
+	SignalFetchPipedToInterpreter = "fetch_piped_to_interpreter"
+
+	// SignalReverseShellSocketIdiom fires when a persistence locus's lifted
+	// command wires a socket to a shell: a /dev/tcp//dev/udp pseudo-device
+	// redirected into an interactive/fd-shuffled shell (ARM A); nc/ncat/
+	// netcat with -e/-c/--exec naming a shell, or socat EXEC:/SYSTEM: naming
+	// a shell (ARM B); or a mkfifo back-pipe paired with nc and a shell
+	// (ARM C). Every arm REQUIRES a shell execution sink — bare /dev/tcp
+	// liveness probes (`</dev/tcp/host/port`, `echo >/dev/tcp`), `nc -z`
+	// port checks, and socat relays / EXEC to a non-shell appliance handler
+	// are excluded by construction (they were the FP that killed naive
+	// rules). MITRE T1059.004 / T1071.
+	SignalReverseShellSocketIdiom = "reverse_shell_socket_idiom"
 )

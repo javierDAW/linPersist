@@ -199,6 +199,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// for every module instead of being wired into 20+ baseSignals.
 		rec.Signals = append(rec.Signals,
 			core.RecentCtimeSignals(rec.CTime, rec.CollectedAt)...)
+		// Tier-B behavioral grammars (ADR-0017), computed once centrally
+		// over the UNTRUNCATED lifted command line — fetch/decode piped into
+		// a shell, or a socket wired to a shell. Empty for non-exec records;
+		// never reads the 256-byte ContentSnippet.
+		rec.Signals = append(rec.Signals,
+			core.ScanBehavioral(rec.FullExecLine)...)
 		// Package-file integrity (dpkg). Type-asserted so the
 		// NoopProvenance installed under --no-provenance simply skips
 		// the check rather than forcing a method onto the small
