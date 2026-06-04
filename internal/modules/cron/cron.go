@@ -296,6 +296,7 @@ func (m *Module) recordFromParsedLine(logical string, info os.FileInfo, siteClas
 		ContentSHA256:     core.HashHexString(pl.raw),
 		ContentNormSHA256: core.HashHexString(canon),
 		ContentSnippet:    snippet(canon),
+		FullExecLine:      canon, // Tier-B behavioral scan over the full line
 	}
 	core.FillFileMeta(&rec, info)
 	signals := m.baseSignals(info, logical)

@@ -33,7 +33,7 @@ linpersist does one job and one job only: makes that question
 cheap to ask, against any size of Linux fleet, with persistence
 coverage broad enough to catch the modern repertoire.
 
-- **Coverage**: 21 module families across 32 persistence
+- **Coverage**: 30 module families across 62 persistence
   site_classes — cron, systemd units/timers/sysusers/tmpfiles/
   linger, ssh authorized_keys, sshd_config, sudoers, PAM,
   `/etc/passwd`, `/etc/shadow`, `ld.so.preload`, modprobe.d,
@@ -46,7 +46,7 @@ coverage broad enough to catch the modern repertoire.
   record. Two semantically-equivalent inputs across hosts produce
   the same hash. The whole hunt model collapses to "show me the
   hashes nobody else has".
-- **Detections as data**: 23 detection rules in a single YAML file
+- **Detections as data**: 56 detection rules in a single YAML file
   that both the report binary and the SQL companion consume. A
   release gate fails the build if the two drift.
 - **Per-host dossier on demand**: when a fleet query flags a
@@ -93,17 +93,27 @@ mtime in the last 7 days, `exec_target` doesn't exist on disk,
 binary is not owned by any installed dpkg/rpm package, etc.). No
 verdicts. No scoring.
 
-**Analysis.** The report binary loads the NDJSON and runs eleven
+**Analysis.** The report binary loads the NDJSON and runs twelve
 canonical queries. The load-bearing one is Q1: every
 `(module, site_class, content_norm_sha256)` group seen on exactly
 one host in the fleet. Implants live in that long tail by
-construction. The next nine queries (Q2..Q10) refine the picture
-— peer-group LFA by `os_id`, cross-cutting implant fingerprints,
-worm patterns, recent-mtime spikes, host-coverage gaps. Q7 is
-special: it matches every record against the rules declared in
-`internal/detections/detections.yaml` and outputs the rule id that
-fired plus a severity tier. Q11 catches the implant subclass
-"unmanaged binary outside `/tmp`" via package-manager provenance.
+construction — **but content-rarity only discriminates where a
+valid comparand population exists.** A unique-role host (the one
+DB, the one bastion, the one CI box) has files that are unique
+*by design*, so the report descends a **discriminator ladder**
+(ADR-0017): a record with a structural tell (orphan exec_target,
+non-package path, tmp-class, tamper, recent change) is **actionable
+regardless of fleet size**; a bare content-singleton with no tell
+is shown as **informational** — ranked and never suppressed, but
+triage material, not a verdict. See "Strengths and limitations"
+below. The other queries refine the picture — peer-group LFA by
+`os_id`+tags, cross-cutting implant fingerprints, worm patterns,
+recent-mtime spikes, host-coverage gaps, campaign basename
+clusters. Q7 is special: it matches every record against the rules
+declared in `internal/detections/detections.yaml` and outputs the
+rule id that fired plus a severity tier. Q11 catches the implant
+subclass "unmanaged binary outside `/tmp`" via package-manager
+provenance.
 
 ![Detection flow](docs/img/detection-flow.svg)
 
@@ -129,7 +139,7 @@ on how many persistence artifacts that host carries.
 
 Two modes, same binary.
 
-**Fleet mode** — the default. One HTML page with all eleven
+**Fleet mode** — the default. One HTML page with all twelve
 queries plus an overview. Scales to tens of thousands of hosts
 because the queries aggregate, not enumerate.
 
@@ -168,7 +178,7 @@ emitted zero records for when the fleet median is non-zero
 ### Power-user path: DuckDB
 
 For fleets past ~10k hosts the Go report binary stays usable but
-columnar processing scales better. The eleven queries are mirrored
+columnar processing scales better. The twelve queries are mirrored
 into executable DuckDB SQL in `tools/stack_demo.sql`. The Q7 block
 is auto-generated from `internal/detections/detections.yaml`;
 everything else is hand-written.
@@ -232,6 +242,82 @@ opens with the host's signal panel sorted by rarity. If
 it's mid-table. If `ld_preload_set` fires on this host and only
 1/75 of the fleet, it bubbles to the top regardless of severity.
 That's where the implant lives.
+
+**Reading Q1 — the two groups.** Q1 is split into **Actionable**
+(rung 1: the singleton carries a structural co-indicator, so it is
+real regardless of fleet population — triage these first, ranked by
+the `co` count) and **Informational** (rung 4: a bare content-novelty
+singleton with no tell). The informational group is *never
+suppressed* — at N=1 every record is a singleton, so rarity alone is
+weak, but the genuinely-rare single-host implant can hide here too.
+Each informational row is tagged `disc=novelty-only` (provenance was
+structurally inapplicable, e.g. a web docroot — no tell was ever
+possible) or `disc=no-tell` (a tell could have fired and did not).
+You restore verdict-power on these by getting a sized peer cohort
+(deploy across role replicas), a prior snapshot (re-scan over time,
+diff mode), or by pairing with EDR.
+
+**The coverage-degraded banner.** If a host has no detectable package
+manager (distroless / from-scratch / appliance image), the
+provenance gate could not run and the report shows an orange banner
+naming those hosts. "0 findings" there means *could not verify*, not
+*clean* — treat those hosts as **higher** priority for manual review,
+not lower.
+
+## Strengths and limitations — read before you trust a clean report
+
+**What it does well (bondades).**
+
+- **Fleet-scale rarity hunting.** Turn every persistence site into a
+  canonical hash, stack across the fleet, read the singletons. One
+  malicious cron line among thousands of identical hosts is the rare
+  hash and surfaces in seconds. The queries aggregate, so it scales to
+  tens of thousands of hosts.
+- **Zero-FP-by-construction collection.** A module emits a record only
+  when a real structural tell is present; detections gate on a
+  co-indicator (orphan / non-package / tamper / tmp-class) plus rarity.
+  A settled, package-owned baseline is silent.
+- **Package-provenance truth.** dpkg / rpm / apk / pacman / portage
+  ownership and integrity (`non_package_path`, `package_file_tampered`)
+  separate planted/edited files from the distro baseline across distros.
+- **Honest, point-in-time, agentless.** One static binary, no CGO, no
+  daemon, no network egress. Drop it, run it once, collect the NDJSON,
+  remove it. Nothing resident, nothing to attack later.
+- **Disciplined detections.** Rules live in declarative YAML, validated
+  and Go↔SQL-equivalence-checked at build time; the same logic runs in
+  the Go report and in DuckDB.
+
+**What it cannot do (limitaciones — be honest with the client).**
+
+- **The peerless single-role host (ADR-0017).** Rarity needs a
+  comparand. A host with no homogeneous peer for a given site_class
+  produces unique-by-design files that land in Q1 *Informational*. A
+  settled, tell-free implant on such a host, seen on first contact (no
+  prior snapshot), is a `co=0` singleton **indistinguishable** from the
+  benign unique files at the same locus. There linpersist does triage,
+  not adjudication. Mitigate by deploying across replicas, re-scanning
+  over time, or pairing with EDR.
+- **Provenance is a trust oracle, not attestation.** A
+  malicious-but-package-*owned* binary (poisoned repo, trojaned package,
+  compromised package DB) resolves `owned` and stays silent. Pair with
+  SBOM / signature verification for supply-chain integrity.
+- **Point-in-time, on-disk only.** No memory, no kernel, no eBPF, no
+  firmware, no runtime view. Process injection, `memfd` payloads, an
+  `LD_PRELOAD` already resident in a running process whose on-disk
+  config is gone, bind-mount/overlay shadowing, rootkit-hidden dirents —
+  all out of scope by design (Regime 3, ADR-0016). Pair with a runtime
+  sensor for the kernel/memory surface.
+- **Homogeneous golden-image fleets weaken LFA.** If an implant is baked
+  into the image, it is fleet-common, not rare. Heterogeneity (or a
+  diff against a known-clean image) is the discriminator.
+- **It reports patterns, not verdicts.** The analyst's judgement is
+  required. A non-package binary may be a vendor install; a NOPASSWD
+  sudoers entry may be a CI service account.
+
+The full coverage philosophy and boundaries are in
+[`docs/scope.md`](docs/scope.md) §8 and
+[`docs/adr/0016-coverage-philosophy.md`](docs/adr/0016-coverage-philosophy.md)
+/ [`0017-discriminator-ladder.md`](docs/adr/0017-discriminator-ladder.md).
 
 ## A sample record
 
@@ -309,7 +395,7 @@ drifts from the modules the code registers (`make audit`).
 | Footprint | one static 10 MB binary, no daemon | 50+ MB, daemon | server + client agents | thousands of shell helpers |
 | Decisions on host | none (zero classification) | thresholds + scheduled packs | rule-based | none |
 | Detection rules | declarative YAML, generator-synced with SQL companion | SQL packs | VQL | n/a |
-| Persistence coverage | 32 site_classes, ~80% of MITRE Linux Persistence | broad but shallow on persistence | broad on persistence via VQL artifact library | persistence is one collection among many |
+| Persistence coverage | 62 site_classes, ~80% of MITRE Linux Persistence | broad but shallow on persistence | broad on persistence via VQL artifact library | persistence is one collection among many |
 
 linpersist is intentionally a small, sharp tool. It does the
 persistence stage of the hunt and stops there. Pair it with what
@@ -340,13 +426,13 @@ silent drift that bite multi-source projects.
 | [`docs/SPRINT-HANDOFF.md`](docs/SPRINT-HANDOFF.md) | Read first if you're picking up the project across sessions. Architectural canon, gotchas, the next sprint plan, iterate-fast cookbook. |
 | [`docs/schema-v1.md`](docs/schema-v1.md) | NDJSON record shape: every field, every guarantee. |
 | [`docs/normalization-rules.md`](docs/normalization-rules.md) | Invariants every module's `Normalize` honors. |
-| [`docs/stacking-cookbook.md`](docs/stacking-cookbook.md) | The eleven queries as prose, with false-positive notes per query. |
+| [`docs/stacking-cookbook.md`](docs/stacking-cookbook.md) | The twelve queries as prose, with false-positive notes per query. |
 | [`docs/report.md`](docs/report.md) | Anatomy of the HTML and text report, fleet + dossier. |
-| [`docs/adr/`](docs/adr) | Fourteen Architecture Decision Records. Start at ADR-0001 if you want the whole story; or jump to the latest if you're picking up. |
+| [`docs/adr/`](docs/adr) | Seventeen Architecture Decision Records. Start at ADR-0001 if you want the whole story; or jump to the latest if you're picking up. |
 | [`matrix.yaml`](matrix.yaml) | Source of truth for MITRE × site_class coverage. |
-| [`internal/detections/detections.yaml`](internal/detections/detections.yaml) | The 23 Q7 detection rules in declarative YAML. |
+| [`internal/detections/detections.yaml`](internal/detections/detections.yaml) | The 56 Q7 detection rules in declarative YAML. |
 | [`internal/core/signals_catalog.go`](internal/core/signals_catalog.go) | Canonical signals catalog with per-signal `EmittedBy`. |
-| [`tools/stack_demo.sql`](tools/stack_demo.sql) | The eleven queries in executable DuckDB form. |
+| [`tools/stack_demo.sql`](tools/stack_demo.sql) | The twelve queries in executable DuckDB form. |
 
 ## Build, lint, test
 

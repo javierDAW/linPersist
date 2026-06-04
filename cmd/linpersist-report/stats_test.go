@@ -341,17 +341,67 @@ func TestQ1RanksCoIndicatorsFirst(t *testing.T) {
 	}
 	recs := []core.Record{
 		mk("bare1", "n1", nil),
-		mk("bare2", "n2", nil),
-		mk("hot", "n3", []string{core.SignalNonPackagePath, core.SignalRecentMtime7d}),
+		mk("recent", "n2", []string{core.SignalRecentMtime7d}), // recency only, NOT actionable
+		mk("hot", "n3", []string{core.SignalNonPackagePath, core.SignalWorldWritable}),
 	}
 	rows := computeQ1(recs)
 	if len(rows) != 3 {
 		t.Fatalf("want 3 singletons, got %d", len(rows))
 	}
+	// The strong-tell row ranks first; recency alone does NOT promote past it.
 	if rows[0].CoIndicators != 2 || rows[0].SampleHost != "hot" {
-		t.Errorf("co-indicator-bearing singleton must rank first, got %+v", rows[0])
+		t.Errorf("strong-tell singleton must rank first, got %+v", rows[0])
 	}
-	if rows[len(rows)-1].CoIndicators != 0 {
-		t.Errorf("bare singletons must rank last, got %+v", rows[len(rows)-1])
+	// A recency-only row is rung-4 (CoIndicators==0) but outranks a fully-bare
+	// one within the informational partition.
+	if rows[1].SampleHost != "recent" || rows[1].CoIndicators != 0 || rows[1].Recency == 0 {
+		t.Errorf("recency-only row must be rung-4 but rank above fully-bare, got %+v", rows[1])
+	}
+	if rows[2].SampleHost != "bare1" || rows[2].CoIndicators != 0 || rows[2].Recency != 0 {
+		t.Errorf("fully-bare singleton must rank last, got %+v", rows[2])
+	}
+}
+
+// TestQ1DiscLabel verifies computeQ1 annotates each singleton with its
+// ADR-0017 discriminator label so the informational partition can explain
+// the floor on each row.
+func TestQ1DiscLabel(t *testing.T) {
+	mk := func(host, mod, sc, norm string, sigs []string) core.Record {
+		return core.Record{
+			HostID: host, HostMeta: core.HostMeta{OSID: "debian"},
+			Module: mod, SiteClass: sc, Locus: "/x/" + host,
+			ContentNormSHA256: norm, Signals: sigs,
+		}
+	}
+	recs := []core.Record{
+		mk("h1", "webroot", "webroot.script", "n1", nil),                      // novelty-only, co=0
+		mk("h2", "cron", "cron.d", "n2", nil),                                 // no-tell, co=0
+		mk("h3", "cron", "cron.d", "n3", []string{core.SignalNonPackagePath}), // actionable
+	}
+	byNorm := map[string]SingletonRow{}
+	for _, r := range computeQ1(recs) {
+		byNorm[r.ContentNorm[:2]] = r // shortHash; first chars enough to disambiguate
+	}
+	var web, cron, act SingletonRow
+	for _, r := range computeQ1(recs) {
+		switch r.SiteClass {
+		case "webroot.script":
+			web = r
+		case "cron.d":
+			if r.CoIndicators > 0 {
+				act = r
+			} else {
+				cron = r
+			}
+		}
+	}
+	if web.Disc != "novelty-only" {
+		t.Errorf("webroot.script singleton must be disc=novelty-only, got %q", web.Disc)
+	}
+	if cron.Disc != "no-tell" {
+		t.Errorf("bare cron.d singleton must be disc=no-tell, got %q", cron.Disc)
+	}
+	if act.CoIndicators == 0 {
+		t.Errorf("cron.d with non_package_path must be actionable (co>0)")
 	}
 }
