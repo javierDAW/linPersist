@@ -249,3 +249,16 @@ h3.grp-ok, h3.grp-info {
 }
 h3.grp-ok { border-left-color: var(--warn); }
 h3.grp-info { border-left-color: var(--fg-mute); color: var(--fg-mute); }
+
+/* Overview triage checklist + signal-distribution drill-down (Q5 fold-in) */
+.checklist {
+  border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 4px; background: var(--bg-alt);
+  padding: 10px 14px; margin: 6px 0 18px; font-size: 13px;
+}
+.checklist ol { margin: 6px 0 0; padding-left: 22px; }
+.checklist li { margin: 2px 0; }
+details.drilldown { margin: 6px 0 18px; }
+details.drilldown summary { cursor: pointer; color: var(--fg-mute); font-size: 13px; }
+details.drilldown .tbl-wrap { margin-top: 8px; }
+td.mono { font-family: ui-monospace, monospace; font-size: 12px; }

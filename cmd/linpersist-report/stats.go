@@ -28,8 +28,13 @@ type Report struct {
 	Q1Singletons          []SingletonRow
 	Q2LocusSingletons     []LocusSingletonRow
 	Q3PeerGroupSingletons []PeerGroupRow
+	// Q4 (orphan+tmp implant fingerprint) is folded out of the HTML tabs
+	// (it is a strict subset of the Q7 payload_under_tmp_via_persistence
+	// detection — count survives as Overview.OrphanTmpCount, orphan view as
+	// the Q9 IsOrphan column). It is RETAINED in the text report and the
+	// dossier, and as the Go side of the SQL Q4 equivalence mirror.
 	Q4ImplantFingerprint  []ImplantRow
-	Q5SignalDistribution  []SignalRow
+	Q5SignalDistribution  []SignalRow // HTML: an Overview drill-down, not a tab; text: the Q5 section
 	Q6ExecTargetStacking  []ExecTargetRow
 	Q7ImplantRollCall     []RollCallRow
 	Q8MtimeConcentration  []MtimeConcRow
@@ -37,6 +42,14 @@ type Report struct {
 	Q10HostCoverage       []HostCoverageRow
 	Q11OrphanOutsideTmp   []OrphanOutsideTmpRow
 	Q12BasenameClustering []BasenameClusterRow
+
+	// Peer-group (Q3) context surfaced in the report so an empty Q3 reads
+	// as "suppressed below floor", not "clean", and so an analyst sees the
+	// effective floor.
+	PeerFloor            int  // effective --peer-floor
+	SuppressedPeerGroups int  // (os_id, tag_set) cohorts below the floor
+	QualifyingPeerGroups int  // cohorts at/above the floor (Q3 has material)
+	LFATriageOnly        bool // N=1 OR no cohort reaches the floor -> cross-host LFA is triage-only
 
 	MITRECoverage MITRECoverageSection
 
@@ -62,6 +75,10 @@ type Overview struct {
 	// string for records whose matched detections declared no
 	// severity. Populated after Q7 is computed (see build()).
 	SeverityCounts map[string]int
+	// OrphanTmpCount is the Q4 fingerprint count (records with both
+	// exec_target_orphan and interpreter_in_tmp) — folded out of its own tab
+	// into Q7, kept here as an Overview badge.
+	OrphanTmpCount int
 	// DegradedHosts lists hosts whose provenance pipeline could not run
 	// because no package manager was detected (host_meta.pkg_mgr=="none"
 	// or empty) — distroless/from-scratch/appliance images. On these
@@ -267,6 +284,10 @@ type HostCoverageRow struct {
 	Modules       int
 	SiteClasses   int
 	RecentRecords int
+	// GapModules lists modules that the rest of the fleet emits (fleet
+	// median > 0) but this host emitted ZERO records for — a silent
+	// collection-failure / image-gap tell. Empty for a healthy host.
+	GapModules []string
 }
 
 // BasenameClusterRow is one row of Q12: same basename of
@@ -382,8 +403,42 @@ func build(records []core.Record, sources []string, skipped int, agentVersion st
 		sevCounts[row.MaxSeverity]++
 	}
 	r.Overview.SeverityCounts = sevCounts
+	// Q4 (orphan+tmp fingerprint) badge for the consolidated HTML overview.
+	r.Overview.OrphanTmpCount = len(r.Q4ImplantFingerprint)
+	// Peer-group cohort sizing for the Q3 empty-state and the LFA-triage-only
+	// banner: a fleet with no (os_id, tag_set) cohort at/above the floor has
+	// no cross-host comparand, so Q1/Q3 are triage-only (rung-1 Actionable +
+	// Q7 still hold — they are population-independent).
+	r.PeerFloor = peerFloor
+	r.SuppressedPeerGroups, r.QualifyingPeerGroups = peerCohortCounts(records, peerFloor)
+	r.LFATriageOnly = r.Overview.TotalHosts <= 1 || r.QualifyingPeerGroups == 0
 	r.MITRECoverage = computeMITRECoverage(records)
 	return r
+}
+
+// peerCohortCounts returns how many (os_id, tag_set) cohorts fall below the
+// peer-floor and how many reach it. A cohort with no os_id is ignored
+// (computeQ3 skips those records too).
+func peerCohortCounts(records []core.Record, peerFloor int) (below, atOrAbove int) {
+	cohorts := map[string]map[string]struct{}{}
+	for _, r := range records {
+		if r.HostMeta.OSID == "" {
+			continue
+		}
+		key := r.HostMeta.OSID + "\x00" + core.CanonicalTagKey(r.HostMeta.Tags)
+		if cohorts[key] == nil {
+			cohorts[key] = map[string]struct{}{}
+		}
+		cohorts[key][hostKey(r)] = struct{}{}
+	}
+	for _, hosts := range cohorts {
+		if len(hosts) >= peerFloor {
+			atOrAbove++
+		} else {
+			below++
+		}
+	}
+	return below, atOrAbove
 }
 
 // --- Overview ----------------------------------------------------------
@@ -1084,7 +1139,12 @@ func computeQ7(records []core.Record) []RollCallRow {
 			Snippet:           snippetTrim(r.ContentSnippet, 120),
 		})
 	}
+	// Severity-DESC first so criticals land at the top of the tab analysts
+	// click first; then a stable host/module/locus tiebreak.
 	sort.Slice(out, func(i, j int) bool {
+		if ri, rj := severityRank[out[i].MaxSeverity], severityRank[out[j].MaxSeverity]; ri != rj {
+			return ri > rj
+		}
 		if out[i].Host != out[j].Host {
 			return out[i].Host < out[j].Host
 		}
@@ -1264,8 +1324,38 @@ func computeQ10(records []core.Record) []HostCoverageRow {
 			a.recentRecords++
 		}
 	}
+	// Silent-collection-failure detector (ported from the dossier's
+	// module-gap detector): a module whose fleet median (across hosts that
+	// emit it) is > 0 but which THIS host emitted zero records for is a gap
+	// — a crashed/timed-out module or an image that lacks it. Median is
+	// taken only over hosts that emit the module so the many structural
+	// zeros (hosts that legitimately lack it) do not drag it to 0.
+	type modHost struct{ mod, host string }
+	fleetCount := map[modHost]int{}
+	for _, r := range records {
+		fleetCount[modHost{r.Module, hostKey(r)}]++
+	}
+	perModule := map[string][]int{}
+	for k := range fleetCount {
+		perModule[k.mod] = append(perModule[k.mod], fleetCount[k])
+	}
+	moduleMedian := map[string]int{}
+	for mod, v := range perModule {
+		sort.Ints(v)
+		moduleMedian[mod] = v[len(v)/2]
+	}
+
 	var out []HostCoverageRow
 	for h, a := range m {
+		var gaps []string
+		for mod, med := range moduleMedian {
+			if med > 0 {
+				if _, ok := a.modules[mod]; !ok {
+					gaps = append(gaps, mod)
+				}
+			}
+		}
+		sort.Strings(gaps)
 		out = append(out, HostCoverageRow{
 			Host:          h,
 			OSID:          a.osID,
@@ -1273,9 +1363,19 @@ func computeQ10(records []core.Record) []HostCoverageRow {
 			Modules:       len(a.modules),
 			SiteClasses:   len(a.siteClasses),
 			RecentRecords: a.recentRecords,
+			GapModules:    gaps,
 		})
 	}
+	// Hosts WITH gaps bubble to the top (the silent-failure signal), then
+	// fewest records, then host name — so a starved host is never buried
+	// under healthy ones sorted purely by volume.
 	sort.Slice(out, func(i, j int) bool {
+		if (len(out[i].GapModules) > 0) != (len(out[j].GapModules) > 0) {
+			return len(out[i].GapModules) > 0
+		}
+		if len(out[i].GapModules) != len(out[j].GapModules) {
+			return len(out[i].GapModules) > len(out[j].GapModules)
+		}
 		if out[i].Records != out[j].Records {
 			return out[i].Records > out[j].Records
 		}

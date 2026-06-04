@@ -92,10 +92,6 @@ func fleetReportWithEvilFields() *Report {
 			OSID: evilPayload, Module: evilPayload, SiteClass: evilPayload,
 			ContentNorm: evilPayload, PeerSize: 3, SampleHost: evilPayload, SampleLocus: evilPayload,
 		}},
-		Q4ImplantFingerprint: []ImplantRow{{
-			Host: evilPayload, Module: evilPayload, SiteClass: evilPayload,
-			Locus: evilPayload, ExecTarget: evilPayload, Signals: []string{evilPayload},
-		}},
 		Q5SignalDistribution: []SignalRow{{Module: evilPayload, Signal: evilPayload, Hosts: 1, Records: 1}},
 		Q6ExecTargetStacking: []ExecTargetRow{{
 			ExecTargetSHA256: evilPayload, Hosts: 1, Records: 1, Modules: 1,
