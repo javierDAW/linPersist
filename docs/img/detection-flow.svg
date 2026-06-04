@@ -31,7 +31,7 @@
     <text x="14" y="136" font-size="11" fill="#0f172a"><tspan fill="#94a3b8">"exec_target_pkg_status":</tspan> "orphan",</text>
     <text x="14" y="152" font-size="11" fill="#0f172a"><tspan fill="#94a3b8">"signals":</tspan> [</text>
     <text x="30" y="168" font-size="11" fill="#16a34a">"non_package_path",</text>
-    <text x="30" y="184" font-size="11" fill="#16a34a">"recent_mtime_7d",</text>
+    <text x="30" y="184" font-size="11" fill="#16a34a">"recent_ctime_7d",</text>
     <text x="30" y="200" font-size="11" fill="#16a34a">"interpreter_in_tmp"</text>
     <text x="14" y="216" font-size="11" fill="#0f172a">]</text>
   </g>
@@ -58,7 +58,7 @@
     <g transform="translate(14,124)">
       <rect width="292" height="34" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
       <text x="10" y="14" font-size="11" font-weight="700" fill="#4338ca">signals_all</text>
-      <text x="10" y="28" font-size="10" fill="#475569">all of [recent_mtime_7d, non_package_path]</text>
+      <text x="10" y="28" font-size="10" fill="#475569">all of [non_package_path, interpreter_in_tmp]</text>
     </g>
 
     <g transform="translate(14,166)">
@@ -70,7 +70,7 @@
     <g transform="translate(14,208)">
       <rect width="292" height="34" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
       <text x="10" y="14" font-size="11" font-weight="700" fill="#4338ca">signals_none</text>
-      <text x="10" y="28" font-size="10" fill="#475569">none of [pkg_signed_managed] (FP guard)</text>
+      <text x="10" y="28" font-size="10" fill="#475569">none of [recent_mtime_7d, recent_mtime_30d]</text>
     </g>
 
     <g transform="translate(14,250)">
@@ -98,11 +98,11 @@
     <rect width="240" height="28" rx="8" fill="#c2410c"/>
     <text x="14" y="19" fill="#fff" font-weight="700">Q7 hit row</text>
 
-    <text x="14" y="54" font-size="11" fill="#0f172a">cron_implant_in_tmp</text>
+    <text x="14" y="54" font-size="10" fill="#0f172a">payload_under_tmp_via_persistence</text>
     <text x="14" y="72" font-size="10" fill="#475569">T1053.003 — Cron</text>
 
-    <rect x="14" y="84" width="60" height="20" rx="10" fill="#dc2626"/>
-    <text x="44" y="98" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">critical</text>
+    <rect x="14" y="84" width="44" height="20" rx="10" fill="#ea580c"/>
+    <text x="36" y="98" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">high</text>
 
     <text x="14" y="124" font-size="10" fill="#0f172a">host: host-001</text>
     <text x="14" y="140" font-size="10" fill="#0f172a">locus: /etc/cron.d/backup</text>
@@ -111,7 +111,7 @@
 
     <line x1="14" y1="184" x2="226" y2="184" stroke="#c2410c" stroke-width="0.6"/>
     <text x="14" y="202" font-size="10" font-weight="700" fill="#7c2d12">analyst triages</text>
-    <text x="14" y="214" font-size="10" fill="#475569">link → Q9 orphan, Q6 mtime</text>
+    <text x="14" y="214" font-size="10" fill="#475569">link → Q9 exec-in-tmp, Q8 mtime burst</text>
   </g>
 
   <!-- No match box -->
@@ -119,8 +119,8 @@
     <rect width="240" height="100" rx="8" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.2"/>
     <text x="120" y="22" text-anchor="middle" font-weight="700" fill="#475569">no match — record stays in corpus</text>
     <text x="14" y="44" font-size="10" fill="#475569">Still visible in:</text>
-    <text x="14" y="58" font-size="10" fill="#0f172a">• Q1 frequency stacks</text>
-    <text x="14" y="72" font-size="10" fill="#0f172a">• Q4 LFA tail</text>
+    <text x="14" y="58" font-size="10" fill="#0f172a">• Q1 LFA singletons (Informational)</text>
+    <text x="14" y="72" font-size="10" fill="#0f172a">• Q2 per-locus singletons</text>
     <text x="14" y="86" font-size="10" fill="#0f172a">• --host dossier full dump</text>
   </g>
 

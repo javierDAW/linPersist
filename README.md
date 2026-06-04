@@ -46,13 +46,19 @@ coverage broad enough to catch the modern repertoire.
   record. Two semantically-equivalent inputs across hosts produce
   the same hash. The whole hunt model collapses to "show me the
   hashes nobody else has".
-- **Detections as data**: 56 detection rules in a single YAML file
+- **Detections as data**: 58 detection rules in a single YAML file
   that both the report binary and the SQL companion consume. A
   release gate fails the build if the two drift.
+- **Behavioral grammars (Tier-B)**: a small, frozen set of
+  execution-control idioms lifted from the lifted command line —
+  a downloader/decoder piped into a shell (`curl … | sh`), a socket
+  wired to a shell (`/dev/tcp`, `nc -e`) — promote a tell-free
+  owned-path implant to an actionable finding without entering the
+  inline-code arms race (ADR-0017).
 - **Per-host dossier on demand**: when a fleet query flags a
   candidate, one command produces a ~20 KB HTML page with the
   host's signal-rarity panel, per-Q breakdown, and a module-
-  coverage gap detector.
+  coverage gap detector (also surfaced fleet-wide in Q10).
 
 What linpersist explicitly does NOT do: classify anything as
 malicious on the host, score, run YARA, load eBPF programs, make
@@ -139,9 +145,14 @@ on how many persistence artifacts that host carries.
 
 Two modes, same binary.
 
-**Fleet mode** — the default. One HTML page with all twelve
-queries plus an overview. Scales to tens of thousands of hosts
-because the queries aggregate, not enumerate.
+**Fleet mode** — the default. One self-contained HTML page that
+opens on **Q7** (the rule roll-call, severity-sorted) and has ten
+query tabs plus an Overview. The HTML consolidates the twelve
+canonical queries into ten tabs — Q4 (orphan+tmp fingerprint) folds
+into Q7, Q5 (signal distribution) folds into the Overview — while
+the text and SQL views keep all twelve for the power/jump-host path.
+Scales to tens of thousands of hosts because the queries aggregate,
+not enumerate.
 
 ```sh
 # HTML (self-contained, openable in any browser, ~200 KB)
@@ -184,7 +195,7 @@ is auto-generated from `internal/detections/detections.yaml`;
 everything else is hand-written.
 
 ```sh
-./tools/ingest.sh fleet/                           # runs the 11 queries
+./tools/ingest.sh fleet/                           # runs the twelve queries
 ./tools/ingest.sh -q my-hunt-pack.sql fleet/       # bring your own queries
 ./tools/ingest.sh -d fleet.duckdb fleet/           # persist the database
 duckdb fleet.duckdb -c "SELECT module, count(*) FROM r GROUP BY 1"
@@ -195,29 +206,32 @@ at [`docs/stacking-cookbook.md`](docs/stacking-cookbook.md).
 
 ## What you'll see in the report
 
-The Overview gives you the headline counts. Real numbers from a
-75-host lab fleet:
+The Overview gives you the headline counts. Representative numbers
+from a 75-host lab fleet:
 
 ```
 Overview
 --------
   hosts:                     75
   records:                   35,349
-  modules:                   21
-  site_classes:              32
+  modules:                   28
+  site_classes:              41
   Q1 singletons:             26
-  Q4 implant hits:           6
   Q7 roll-call:              22
     critical:                13
     high:                    9
+  orphan+tmp (in Q7):        6
   Q8 mtime spikes:           40
-  Q11 orphan outside tmp:    6
+  Q11 orphan outside /tmp:   6
+  MITRE coverage:            18/24 surfacing
 ```
 
-The query everyone clicks first is Q7. It cross-cuts every module:
-one row per record that matches a detection rule. Each row tells
-you what host, what site, the exec_target if the record has one,
-the rule that fired, and the signals behind it.
+The report opens on **Q7**, the rule roll-call — the default landing
+tab and the one analysts work first. It cross-cuts every module:
+one row per record that matches a detection rule, **sorted by
+severity** (critical first). Each row tells you what host, what
+site, the exec_target if the record has one, the rule that fired,
+and the signals behind it.
 
 ```
 severity  host          module   site_class    locus                                    exec_target     matched_detections                 triage_signals
@@ -257,12 +271,21 @@ You restore verdict-power on these by getting a sized peer cohort
 (deploy across role replicas), a prior snapshot (re-scan over time,
 diff mode), or by pairing with EDR.
 
-**The coverage-degraded banner.** If a host has no detectable package
-manager (distroless / from-scratch / appliance image), the
-provenance gate could not run and the report shows an orange banner
-naming those hosts. "0 findings" there means *could not verify*, not
-*clean* — treat those hosts as **higher** priority for manual review,
+**The two banners.** The report header carries two honesty banners.
+The **coverage-degraded** banner fires when a host has no detectable
+package manager (distroless / from-scratch / appliance image) — the
+provenance gate could not run, so "0 findings" there means *could
+not verify*, not *clean*. The **LFA triage-only** banner fires when
+the fleet is N=1 or no `(os_id, tag_set)` cohort reaches the
+peer-floor — cross-host rarity (Q1/Q3 counts) has no comparand, so
+trust the population-independent path (Q7, Q1-Actionable, Tier-B).
+Both say the same thing: treat those hosts as **higher** priority,
 not lower.
+
+**Run Q10 first.** Before any hunt query, glance at Q10 — it flags
+hosts missing modules the rest of the fleet emits (`gap_modules`), a
+silent agent failure or image gap that would otherwise read as
+"clean" across every other tab. Gap hosts sort to the top.
 
 ## Strengths and limitations — read before you trust a clean report
 
@@ -334,7 +357,7 @@ The wire format the agent emits, NDJSON, one record per line:
     "boot_id": "f0a8...", "tags": []
   },
   "collected_at": "2026-05-20T10:00:00Z",
-  "agent_version": "linpersist-0.3.0",
+  "agent_version": "linpersist-v0.5.0",
   "module": "cron",
   "site_class": "cron.d",
   "mitre": ["T1053.003"],
@@ -379,7 +402,16 @@ Full field reference at
 | Event triggered | `netdispatch` | NetworkManager dispatcher, dhclient hooks, dhcpcd hooks, ifupdown if-*.d/ | T1546 |
 | Login banner | `motd` | `/etc/motd`, `/etc/motd.d/`, `/etc/update-motd.d/` | T1037 |
 | Boot | `grub` | `/etc/default/grub`, `/etc/grub.d/` | T1542.003 |
+| Boot | `initramfs` | `initramfs-tools/` + `dracut` hook scripts | T1542 |
 | Login | `xdg` | `/etc/xdg/autostart/`, `/root/.config/autostart/`, `/home/*/.config/autostart/` | T1547.013 |
+| Privilege | `suidbits` | suid/sgid binaries + file capabilities outside the package set | T1548.001 |
+| IPC | `dbus` | `/usr/share/dbus-1/{system-,}services/`, `/etc/dbus-1/` | T1543 |
+| Runtime | `runtimeinit` | Python `sitecustomize`/`usercustomize`/`*.pth` startup hooks | T1546 |
+| Cloud / provisioning | `cloudinit` | `/etc/cloud/`, `/var/lib/cloud/scripts/per-{boot,instance,once}/` | T1543, T1547 |
+| Containers | `k8sstatic` | kubelet static-pod manifests (`/etc/kubernetes/manifests/`) | T1543.005 |
+| Webshell | `webroot` | server-executable files under `/var/www`, `/srv/www`, docroots | T1505.003 |
+| Supply chain | `pkgrepo` | apt/yum repo trust + origin (`sources.list*`, `*.repo`) | T1195.001 |
+| Config-exec (generalized) | `confexec` | mail aliases, incron, logrotate, nsswitch, `environment.d`, `Xsession.d`, dpkg maintainer-scripts, `php.ini`, apt/pkg hooks, sudo plugins | T1546, T1574, T1556 |
 
 For the authoritative per-site_class status, loci list, and notes,
 see [`matrix.yaml`](matrix.yaml). The build fails if that file
@@ -430,7 +462,7 @@ silent drift that bite multi-source projects.
 | [`docs/report.md`](docs/report.md) | Anatomy of the HTML and text report, fleet + dossier. |
 | [`docs/adr/`](docs/adr) | Seventeen Architecture Decision Records. Start at ADR-0001 if you want the whole story; or jump to the latest if you're picking up. |
 | [`matrix.yaml`](matrix.yaml) | Source of truth for MITRE × site_class coverage. |
-| [`internal/detections/detections.yaml`](internal/detections/detections.yaml) | The 56 Q7 detection rules in declarative YAML. |
+| [`internal/detections/detections.yaml`](internal/detections/detections.yaml) | The 58 Q7 detection rules in declarative YAML. |
 | [`internal/core/signals_catalog.go`](internal/core/signals_catalog.go) | Canonical signals catalog with per-signal `EmittedBy`. |
 | [`tools/stack_demo.sql`](tools/stack_demo.sql) | The twelve queries in executable DuckDB form. |
 
@@ -491,24 +523,30 @@ record-granularity rules.
 
 ## Roadmap
 
-Things on the immediate horizon:
+The early backlog has shipped: host tags + peer-group LFA (Q3),
+the diff/time-series mode, the MITRE coverage panel, the
+dbus / cloud-init / k8s-static-pod / initramfs / nsswitch / incron
+coverage, the discriminator ladder (ADR-0017), and the Tier-B
+behavioral grammars. The tool is **production-pilot ready**
+(expert review verdict: go-with-conditions); what remains is
+operational and incremental:
 
-- **Host tags + peer-group LFA by `(os_id, tag)`** — operator
-  marks hosts with `--tag role=build` etc.; Q3 groups by tag,
-  collapsing CI / Jenkins / Ansible service-account
-  false-positives.
-- **`linpersist-report --diff prev.ndjson curr.ndjson`** — time-
-  series mode. Records that appeared / disappeared / changed
-  since the last snapshot.
-- **MITRE coverage panel** in the fleet report.
-- **More coverage**: dbus.services, cloud-init, container
-  persistence (docker daemon, k8s static pods), initramfs hooks,
-  nsswitch.conf, incron/fcron.
-- **Optional YARA plugin** in a separate binary (does not
-  contaminate the read-only no-CGO core).
+- **First real-fleet calibration** — no production fleet has been
+  ingested yet; the pilot must measure the per-detection false-
+  positive rate and feed dispositions back into the allow-lists.
+- **Tier-B follow-up loci** — extend the behavioral grammars
+  (`fetch_piped_to_interpreter`, `reverse_shell_socket_idiom`)
+  from cron/systemd/confexec/profile to the `sysv` / `motd` / `at`
+  loci.
+- **Native `--expected-hosts` roster** for Q10, so a totally-failed
+  agent (zero records, structurally invisible today) is reconciled
+  against the deployment roster inside the report.
+- **Optional YARA plugin** in a separate binary (kept out of the
+  read-only no-CGO core).
 
-The full backlog with ROI ordering is in
-[`docs/SPRINT-HANDOFF.md`](docs/SPRINT-HANDOFF.md).
+The full backlog with ROI ordering, and the coverage philosophy
+that bounds it, are in [`docs/SPRINT-HANDOFF.md`](docs/SPRINT-HANDOFF.md)
+and [`docs/scope.md`](docs/scope.md) §8.
 
 ## License & author
 

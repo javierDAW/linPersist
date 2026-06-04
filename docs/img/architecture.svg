@@ -75,7 +75,7 @@
     <g transform="translate(248,46)">
       <rect width="220" height="60" rx="4" fill="#fff" stroke="#0e7490" stroke-width="0.8"/>
       <text x="10" y="18" font-size="11" font-weight="700" fill="#164e63">Signals catalog</text>
-      <text x="10" y="34" font-size="10" fill="#0f172a">43 canonical signals</text>
+      <text x="10" y="34" font-size="10" fill="#0f172a">81 canonical signals</text>
       <text x="10" y="48" font-size="10" fill="#0f172a">per-signal EmittedBy</text>
     </g>
 
@@ -90,7 +90,7 @@
       <rect width="232" height="60" rx="4" fill="#fff" stroke="#0e7490" stroke-width="0.8"/>
       <text x="10" y="18" font-size="11" font-weight="700" fill="#164e63">host meta + provenance</text>
       <text x="10" y="34" font-size="10" fill="#0f172a">/etc/os-release, machine-id</text>
-      <text x="10" y="48" font-size="10" fill="#0f172a">dpkg / rpm orphan check</text>
+      <text x="10" y="48" font-size="10" fill="#0f172a">dpkg/rpm/apk/pacman/portage</text>
     </g>
   </g>
 
@@ -103,7 +103,7 @@
   <g transform="translate(40,370)">
     <rect width="320" height="220" rx="8" fill="#ecfccb" stroke="#4d7c0f" stroke-width="1.5"/>
     <rect width="320" height="28" rx="8" fill="#4d7c0f"/>
-    <text x="14" y="19" fill="#fff" font-weight="700">internal/modules/  (21 families)</text>
+    <text x="14" y="19" fill="#fff" font-weight="700">internal/modules/  (30 families)</text>
 
     <g transform="translate(14,40)">
       <text x="0" y="14" font-size="10" fill="#1a2e05">cron</text>
