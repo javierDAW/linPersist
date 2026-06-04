@@ -282,3 +282,26 @@ func TestMaintscriptDpkg(t *testing.T) {
 		t.Errorf("tampered postinst should produce a maintscript.dpkg record; got %v", recs)
 	}
 }
+
+func TestMaintscriptOptArmRequiresHidden(t *testing.T) {
+	root := t.TempDir()
+	// Benign: a present vendor SDK helper under /opt (normal name) -> NOT a record.
+	write(t, root, "var/lib/dpkg/info/vendorsdk.postinst",
+		"#!/bin/sh\nset -e\n. /opt/vendorsdk/postinst-helper.sh\n")
+	// Malicious: a hidden /opt payload -> a record (orphan/non_package).
+	write(t, root, "var/lib/dpkg/info/evil.postinst",
+		"#!/bin/sh\n. /opt/.hidden/payload\n")
+	// Malicious: a /tmp payload -> a record (tmp-class unconditional).
+	write(t, root, "var/lib/dpkg/info/evil2.postinst",
+		"#!/bin/sh\n/tmp/.x/agent &\n")
+	recs := collect(t, root)
+	if find(recs, "maintscript.dpkg", "/opt/vendorsdk/postinst-helper.sh") != nil {
+		t.Error("a present vendor /opt SDK source must NOT be lifted (would flood on commercial agents)")
+	}
+	if find(recs, "maintscript.dpkg", "/opt/.hidden/payload") == nil {
+		t.Error("a hidden /opt payload must be lifted")
+	}
+	if find(recs, "maintscript.dpkg", "/tmp/.x/agent") == nil {
+		t.Error("a /tmp payload must be lifted (tmp-class unconditional)")
+	}
+}

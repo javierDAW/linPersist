@@ -109,13 +109,14 @@ Signal distribution (fleet-wide)
 Q1 · LFA singletons (5)
 -----------------------
 Records whose content_norm_sha256 appears on exactly one host.
+Ranked by co-indicators (co=structural tells: recent/writable/orphan/tamper). co=0 is a bare singleton — informational, weak at small N.
 
-  module   site_class    content_norm  sample_host  sample_locus                        snippet
-  cron     cron.d        cron-singlet  h1           /etc/cron.d/singleton-impl          cron-singleton-norm
-  cron     cron.daily    sync-cron-no  h5           /etc/cron.daily/sync                sync-cron-norm
-  profile  profile.d     sync-profile  h5           /etc/profile.d/sync.sh              sync-profile-norm
-  systemd  systemd.unit  beacon-svc-n  h4           /etc/systemd/system/beacon.service  beacon-svc-norm
-  systemd  systemd.unit  sync-svc-nor  h5           /etc/systemd/system/sync.service    sync-svc-norm
+  co  module   site_class    content_norm  sample_host  sample_locus                        snippet
+  2   cron     cron.d        cron-singlet  h1           /etc/cron.d/singleton-impl          cron-singleton-norm
+  2   systemd  systemd.unit  beacon-svc-n  h4           /etc/systemd/system/beacon.service  beacon-svc-norm
+  1   cron     cron.daily    sync-cron-no  h5           /etc/cron.daily/sync                sync-cron-norm
+  1   profile  profile.d     sync-profile  h5           /etc/profile.d/sync.sh              sync-profile-norm
+  1   systemd  systemd.unit  sync-svc-nor  h5           /etc/systemd/system/sync.service    sync-svc-norm
 
 Q2 · Per-locus LFA singletons (5)
 ---------------------------------

@@ -62,6 +62,21 @@ type Overview struct {
 	// string for records whose matched detections declared no
 	// severity. Populated after Q7 is computed (see build()).
 	SeverityCounts map[string]int
+	// DegradedHosts lists hosts whose provenance pipeline could not run
+	// because no package manager was detected (host_meta.pkg_mgr=="none"
+	// or empty) — distroless/from-scratch/appliance images. On these
+	// hosts the non_package_path / package_file_tampered gate is BLIND,
+	// so every provenance-gated detection is silently weaker. The report
+	// surfaces this as a banner so an analyst does not read "0 findings"
+	// as "clean" when it actually means "could not verify ownership"
+	// (duel-final coherence fix: honest degradation, no silent blind spot).
+	DegradedHosts []DegradedHost
+}
+
+// DegradedHost names a host with no package-manager provenance.
+type DegradedHost struct {
+	Host string
+	OSID string
 }
 
 type NamedCount struct {
@@ -77,6 +92,14 @@ type SingletonRow struct {
 	SampleHost    string
 	SampleLocus   string
 	SampleSnippet string
+	// CoIndicators is the count of ranking signals on the singleton's
+	// sample record (recent_mtime, world_writable, non_package_path,
+	// package_file_tampered, orphan, immutable, mount_shadows_path,
+	// exec_in_tmp). Pure content-singleton-ness is weak on its own —
+	// at N=1 EVERY record is a singleton — so rows that ALSO carry a
+	// structural tell are ranked first. A 0 here is a bare singleton:
+	// informational, not actionable without fleet context.
+	CoIndicators int
 }
 
 type LocusSingletonRow struct {
@@ -369,10 +392,17 @@ func computeOverview(records []core.Record) Overview {
 		records int
 		hosts   map[string]struct{}
 	}{}
+	// Per-host package-manager observation, to flag provenance-blind hosts.
+	hostPkgMgr := map[string]string{}
+	hostOSID := map[string]string{}
 
 	for _, rec := range records {
 		hk := hostKey(rec)
 		hosts[hk] = struct{}{}
+		if _, ok := hostPkgMgr[hk]; !ok {
+			hostPkgMgr[hk] = rec.HostMeta.PkgMgr
+			hostOSID[hk] = rec.HostMeta.OSID
+		}
 
 		m := modulesCount[rec.Module]
 		if m.hosts == nil {
@@ -454,6 +484,18 @@ func computeOverview(records []core.Record) Overview {
 		}
 		return ov.BySignal[i].Name < ov.BySignal[j].Name
 	})
+	for hk, pm := range hostPkgMgr {
+		// "none"/"" == provenance resolver found no package DB. (A real
+		// manager string like "dpkg"/"rpm"/"apk"/"pacman"/"portage" means
+		// the gate ran.) Surface the host so the analyst knows coverage on
+		// it is degraded, not clean.
+		if pm == "" || pm == "none" {
+			ov.DegradedHosts = append(ov.DegradedHosts, DegradedHost{Host: hk, OSID: hostOSID[hk]})
+		}
+	}
+	sort.Slice(ov.DegradedHosts, func(i, j int) bool {
+		return ov.DegradedHosts[i].Host < ov.DegradedHosts[j].Host
+	})
 	return ov
 }
 
@@ -465,6 +507,36 @@ type q1Agg struct {
 	sampleHost    string
 	sampleLocus   string
 	sampleSnippet string
+	coIndicators  int
+}
+
+// q1RankingSignals are the structural tells that lift a content-singleton
+// from "merely unique" to "worth an analyst's attention." Pure singleton-
+// ness is weak at small N (at N=1 every record is a singleton), so Q1 is
+// ranked by how many of these the sample record carries.
+var q1RankingSignals = map[string]struct{}{
+	core.SignalRecentMtime7d:       {},
+	core.SignalRecentMtime30d:      {},
+	core.SignalRecentCtime7d:       {},
+	core.SignalRecentCtime30d:      {},
+	core.SignalWorldWritable:       {},
+	core.SignalNonPackagePath:      {},
+	core.SignalPackageFileTampered: {},
+	core.SignalExecTargetOrphan:    {},
+	core.SignalInterpreterInTmp:    {},
+	core.SignalImmutableFlag:       {},
+	core.SignalAppendOnlyFlag:      {},
+	core.SignalMountShadowsPath:    {},
+}
+
+func q1CoIndicatorCount(sigs []string) int {
+	n := 0
+	for _, s := range sigs {
+		if _, ok := q1RankingSignals[s]; ok {
+			n++
+		}
+	}
+	return n
 }
 
 func computeQ1(records []core.Record) []SingletonRow {
@@ -483,6 +555,7 @@ func computeQ1(records []core.Record) []SingletonRow {
 		a.hosts[hk] = struct{}{}
 		if a.sampleHost == "" {
 			a.sampleHost = hk
+			a.coIndicators = q1CoIndicatorCount(r.Signals)
 		}
 	}
 	var out []SingletonRow
@@ -497,9 +570,15 @@ func computeQ1(records []core.Record) []SingletonRow {
 			SampleHost:    a.sampleHost,
 			SampleLocus:   a.sampleLocus,
 			SampleSnippet: snippetTrim(a.sampleSnippet, 100),
+			CoIndicators:  a.coIndicators,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
+		// Rank co-indicator-bearing singletons first — a bare singleton
+		// (CoIndicators==0) is informational, not actionable at small N.
+		if out[i].CoIndicators != out[j].CoIndicators {
+			return out[i].CoIndicators > out[j].CoIndicators
+		}
 		if out[i].Module != out[j].Module {
 			return out[i].Module < out[j].Module
 		}

@@ -21,6 +21,12 @@ func write(t *testing.T, root, rel, content string) {
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// Stamp mtime == the test's Now so a freshly-written fixture carries
+	// the recent_mtime co-indicator the emission gate now requires (real
+	// wall-clock would be AFTER fixedNow -> negative delta -> no signal).
+	if err := os.Chtimes(p, fixedNow, fixedNow); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func collect(t *testing.T, root string) map[string]core.Record {
@@ -87,5 +93,37 @@ func TestWebrootMaxRecordsCap(t *testing.T) {
 	_ = m.Collect(ctx, func(core.Record) { n++ })
 	if n > 10 {
 		t.Errorf("MaxRecords cap not honored: emitted %d, want <= 10", n)
+	}
+}
+
+// TestWebrootStableInstallSilent is the duel-final blocker fix: a settled
+// web install (old mtime, 0644) must emit NOTHING, so a single web server
+// with thousands of legit files does not flood Q1.
+func TestWebrootStableInstallSilent(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "var/www/html/index.php", "<?php echo 1;")
+	write(t, root, "var/www/html/wp-load.php", "<?php require 'x';")
+	// Age both files well past the 30d window and ensure 0644.
+	old := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, f := range []string{"var/www/html/index.php", "var/www/html/wp-load.php"} {
+		p := filepath.Join(root, f)
+		if err := os.Chmod(p, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if recs := collect(t, root); len(recs) != 0 {
+		t.Errorf("stable install must yield NO records (zero-FP-by-construction); got %d: %v", len(recs), recs)
+	}
+	// A fresh drop in the same tree still surfaces.
+	write(t, root, "var/www/html/shell.php", "<?php system($_GET['c']);")
+	recs := collect(t, root)
+	if _, ok := recs["/var/www/html/shell.php"]; !ok {
+		t.Errorf("freshly-dropped webshell must still be collected (recent_mtime)")
+	}
+	if _, ok := recs["/var/www/html/index.php"]; ok {
+		t.Error("stable index.php must remain silent even when a fresh sibling exists")
 	}
 }

@@ -119,6 +119,19 @@ func (m *Module) Collect(ctx context.Context, emit func(core.Record)) error {
 			if ierr != nil || info.Size() > m.opts.MaxFileSize {
 				return nil
 			}
+			// ZERO-FP-BY-CONSTRUCTION GATE: emit ONLY when a co-indicator
+			// is present (recently-modified OR world-writable). A settled
+			// web install (old mtimes, 0644) is SILENT, so a single web
+			// server with thousands of legitimate /var/www files yields
+			// nothing -- the duel-final architects' blocker fix. Without
+			// this, webroot floods Q1 with one un-rankable singleton per
+			// file on the modal N=1 web deployment. A freshly-dropped or
+			// world-writable webshell still surfaces. (Hashing is also
+			// skipped for the silent majority -- a real perf win.)
+			co := m.coIndicators(info)
+			if len(co) == 0 {
+				return nil
+			}
 			raw, rerr := core.ReadFileCapped(real, m.opts.MaxFileSize)
 			if rerr != nil || len(raw) == 0 {
 				return nil
