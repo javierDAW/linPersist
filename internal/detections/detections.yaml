@@ -40,6 +40,20 @@ detections:
     when:
       signals_all: [exec_target_orphan, interpreter_in_tmp]
 
+  - id: persistence_fetch_piped_to_shell
+    description: Persistence locus pipes a downloader/decoder straight into a shell (curl|sh, base64 -d|bash, bash <(curl)) — Tier-B behavioral grammar (ADR-0017) over the full lifted line; the -o/-O file form and non-shell sinks are excluded by construction. Catches the tell-free owned-path downloader the structural signals miss
+    severity: high
+    mitre: [T1059.004, T1105, T1546.004]
+    when:
+      signals_all: [fetch_piped_to_interpreter]
+
+  - id: reverse_shell_in_persistence
+    description: Persistence locus wires a socket to a shell — /dev/tcp redirected into an interactive shell, nc/socat with an exec flag naming a shell, or a mkfifo back-pipe (Tier-B, ADR-0017). Bare liveness probes, nc -z port checks and non-shell socat relays are excluded
+    severity: critical
+    mitre: [T1059.004, T1071]
+    when:
+      signals_all: [reverse_shell_socket_idiom]
+
   - id: trap_handler_payload_in_tmp
     description: Shell trap handler executes a tmp-class payload — a trap (EXIT/DEBUG/signal) whose command resolves under /tmp, /var/tmp, /dev/shm or /run/shm runs the dropped binary on every shell exit; legitimate traps never target tmp
     severity: high

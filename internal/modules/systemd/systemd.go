@@ -525,6 +525,7 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, siteClass string,
 		ContentSHA256:     core.HashHex(raw),
 		ContentNormSHA256: core.HashHex(canon),
 		ContentSnippet:    snippet(string(canon)),
+		FullExecLine:      string(canon), // Tier-B behavioral scan (ExecStart= lines)
 	}
 	core.FillFileMeta(&rec, info)
 

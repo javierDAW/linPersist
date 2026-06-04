@@ -541,6 +541,11 @@ var q1StrongTells = map[string]struct{}{
 	core.SignalImmutableFlag:       {},
 	core.SignalAppendOnlyFlag:      {},
 	core.SignalMountShadowsPath:    {},
+	// Tier-B behavioral grammars (ADR-0017): a persistence command that
+	// pipes a fetch/decode into a shell, or wires a socket to a shell, is
+	// rung-1 Actionable even on owned paths with no Tier-A tell.
+	core.SignalFetchPipedToInterpreter: {},
+	core.SignalReverseShellSocketIdiom: {},
 }
 
 // q1Recency are the temporal tells. They are a SECONDARY rank only (never

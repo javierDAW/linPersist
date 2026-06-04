@@ -315,6 +315,38 @@ they are honest engagement limits, not silent gaps:
   (diff), or pairing with host-baselining / EDR. This is a sibling of the
   packaged-LOLBin and golden-image boundaries, not a defect.
 
+- **Tier-B behavioral grammars — a FROZEN, finite set (ADR-0017).** Tell-free
+  persistence that abuses OWNED binaries/paths (a cron that
+  `wget -qO- … | sh`, an `ExecStart=` that opens `/dev/tcp` into a shell)
+  carries no Tier-A structural tell and otherwise lands in Q1 Informational.
+  linpersist lifts a **small, fixed** set of execution-control idioms from
+  the *untruncated* command line (never the 256-byte snippet) into named
+  signals that promote the record to rung-1 Actionable + a Q7 detection:
+  `fetch_piped_to_interpreter` (a downloader/decoder piped into a raw shell;
+  the `-o`/`-O` file form and non-shell sinks like `| jq`/`| tar` are
+  excluded) and `reverse_shell_socket_idiom` (a socket wired to a shell —
+  `/dev/tcp`-into-a-shell, `nc`/`socat -e/EXEC` naming a shell, a `mkfifo`
+  back-pipe; bare `</dev/tcp` liveness probes, `nc -z`, and non-shell socat
+  relays are excluded). The discriminator is the **syntactic glue**, never a
+  bare network verb — the calibration lesson that bare `curl`/`wget`
+  detections flooded fleets and were removed. **This set does NOT grow by
+  reactive clause-addition**: it is a deliberately frozen carve-out. The
+  scripting-interpreter subset (`curl | python3 …`) is left to a co-indicator
+  + LFA in v1; `sysv`/`motd`/`at` loci are a documented follow-up.
+- **Tier-C — semantic malice with no behavioral tell (irreducible).** Beyond
+  Tier-B, an owned binary invoked with benign-looking arguments and **no**
+  wiring (no pipe-to-interpreter, no socket-as-file, no fetch/decode
+  adjacency) — e.g. `systemd-run /opt/app/update.sh` where `update.sh`
+  itself does the fetch; an inline `python3 -c`/`perl -e` body whose
+  *semantics* are malicious (recorded as `shell_indirect`, an LFA singleton,
+  never decoded — the §8.1 inline-code boundary); a fetch laundered through
+  command substitution `sh -c "$(curl …)"`; or an interpreter-native socket
+  reverse shell — has no structural tell a point-in-time disk walk can see.
+  This is **triage by the analyst + behavioral EDR**, not adjudication.
+  The two Tier-B signals are cost-raisers that convert the commodity
+  majority from invisible to Actionable; the determined attacker is routed
+  into Tier-A (a tmp/orphan drop) or Tier-C — both better defender outcomes.
+
 ### 8.2 Coverage model — what stays uncovered, and why
 
 `linpersist`'s coverage is **enumerative**: a persistence site is
