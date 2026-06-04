@@ -144,7 +144,7 @@ Like Q1 but groups by locus. Catches identical content at unusual paths.
 
 Q3 · Peer-group LFA by (os_id, tags) (3)
 ----------------------------------------
-Singletons within their own OS bucket. Only OS groups with >2 hosts.
+Singletons within a sized (os_id, tag_set) cohort. peer-floor=3 · 2 cohort(s) qualify · 1 suppressed below floor.
 
   os_id   module   site_class      content_norm  peer_size  sample_host  sample_locus
   rhel    systemd  systemd.unit    beacon-svc-n  3          h4           /etc/systemd/system/beacon.service
@@ -153,13 +153,13 @@ Singletons within their own OS bucket. Only OS groups with >2 hosts.
 
 Q4 · Implant fingerprint (0)
 ----------------------------
-Records carrying both exec_target_orphan and interpreter_in_tmp.
+Records carrying both exec_target_orphan and interpreter_in_tmp (HTML: folded into Q7).
 
   no rows
 
 Q5 · Signal distribution by module (6)
 --------------------------------------
-Per (module, signal): hosts that fire it and records carrying it.
+Per (module, signal): hosts that fire it and records carrying it (HTML: Overview drill-down).
 
   module   signal              hosts  records
   cron     exec_target_orphan  1      1
@@ -198,15 +198,15 @@ Q4's open half: exec_target in tmp-class dirs, orphan or not.
 
 Q10 · Per-host collection health (6 hosts)
 ------------------------------------------
-Sort DESC for anomaly outliers, ASC for collection failures.
+RUN FIRST. 6 host(s) have module gaps = modules the fleet emits but this host did not (silent agent failure / image gap). Gap hosts listed first.
 
-  host  os_id   records  modules  site_classes  recent
-  h5    debian  4        4        4             0
-  h1    ubuntu  3        3        3             0
-  h2    ubuntu  2        2        2             0
-  h3    ubuntu  2        2        2             0
-  h4    rhel    2        2        2             0
-  h6    rhel    1        1        1             0
+  host  os_id   records  modules  site_classes  recent  gap_modules
+  h6    rhel    1        1        1             0       cron,profile,systemd,webroot
+  h2    ubuntu  2        2        2             0       profile,systemd,webroot
+  h3    ubuntu  2        2        2             0       profile,systemd,webroot
+  h4    rhel    2        2        2             0       cron,profile,webroot
+  h1    ubuntu  3        3        3             0       profile,systemd
+  h5    debian  4        4        4             0       webroot
 
 Q11 · Orphan exec_target OUTSIDE tmp-class dirs (2)
 ---------------------------------------------------

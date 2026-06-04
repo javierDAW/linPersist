@@ -255,6 +255,19 @@ h3.grp-ok, h3.grp-info {
 }
 h3.grp-ok { border-left-color: var(--warn); }
 h3.grp-info { border-left-color: var(--fg-mute); color: var(--fg-mute); }
+
+/* Overview triage checklist + signal-distribution drill-down (Q5 fold-in) */
+.checklist {
+  border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 4px; background: var(--bg-alt);
+  padding: 10px 14px; margin: 6px 0 18px; font-size: 13px;
+}
+.checklist ol { margin: 6px 0 0; padding-left: 22px; }
+.checklist li { margin: 2px 0; }
+details.drilldown { margin: 6px 0 18px; }
+details.drilldown summary { cursor: pointer; color: var(--fg-mute); font-size: 13px; }
+details.drilldown .tbl-wrap { margin-top: 8px; }
+td.mono { font-family: ui-monospace, monospace; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -271,20 +284,19 @@ h3.grp-info { border-left-color: var(--fg-mute); color: var(--fg-mute); }
     · agent <b>linpersist-test</b>
   </div>
   
+  
 </header>
 
 <nav class="tabs">
+  <button data-tab="q7">Q7 · implant roll-call</button>
   <button data-tab="overview">Overview</button>
   <button data-tab="q1">Q1 · LFA singletons</button>
+  <button data-tab="q10">Q10 · host coverage</button>
   <button data-tab="q2">Q2 · per-locus singletons</button>
   <button data-tab="q3">Q3 · peer-group LFA</button>
-  <button data-tab="q4">Q4 · implant fingerprint</button>
-  <button data-tab="q5">Q5 · signal distribution</button>
   <button data-tab="q6">Q6 · worm pattern</button>
-  <button data-tab="q7">Q7 · implant roll-call</button>
   <button data-tab="q8">Q8 · mtime concentration</button>
   <button data-tab="q9">Q9 · exec in /tmp</button>
-  <button data-tab="q10">Q10 · host coverage</button>
   <button data-tab="q11">Q11 · orphan outside /tmp</button>
   <button data-tab="q12">Q12 · campaign clusters</button>
 </nav>
@@ -296,14 +308,26 @@ h3.grp-info { border-left-color: var(--fg-mute); color: var(--fg-mute); }
     <h2>Fleet overview</h2>
     <p class="lede">High-level shape of the dataset. Use this to spot fleet-level anomalies (sudden mtime spike, signal explosion, OS imbalance) before drilling into the per-query tabs.</p>
 
+    <div class="checklist">
+      <b>Triage order</b> (population-independent first):
+      <ol>
+        <li><b>Q10</b> — confirm no host has module gaps (silent agent failure reads as "clean").</li>
+        <li><b>Q7</b> — work the rule roll-call top-down (severity-sorted; critical first).</li>
+        <li><b>Q1 → Actionable</b> — singletons with a structural tell, when no Q7 rule matched.</li>
+        <li><b>Q8 / Q9 / Q11</b> — temporal bursts, armed-in-tmp, orphan payloads outside tmp.</li>
+        <li><b>Q6 / Q12</b> — cross-host worm / campaign clustering.</li>
+        <li><b>Q1 → Informational, Q2, Q3</b> — fleet-rarity context (degrades on small/peerless fleets — see banner).</li>
+      </ol>
+    </div>
+
     <div class="cards">
       <div class="card"><div class="k">Hosts</div><div class="v">6</div></div>
       <div class="card"><div class="k">Records</div><div class="v">14</div></div>
       <div class="card"><div class="k">Modules</div><div class="v">5</div></div>
       <div class="card"><div class="k">Site_classes</div><div class="v">6</div></div>
       <div class="card"><div class="k">Q1 singletons</div><div class="v">6</div></div>
-      <div class="card"><div class="k">Q4 implant hits</div><div class="v" style="color:var(--tail)">0</div></div>
       <div class="card"><div class="k">Q7 roll-call</div><div class="v" style="color:var(--tail)">0</div></div>
+      <div class="card"><div class="k">orphan+tmp (in Q7)</div><div class="v" style="color:var(--tail)">0</div></div>
       <div class="card"><div class="k">Q8 mtime spikes</div><div class="v">0</div></div>
       <div class="card"><div class="k">Q11 orphan outside /tmp</div><div class="v" style="color:var(--tail)">2</div></div>
       <div class="card"><div class="k">MITRE techniques</div><div class="v">1/29<span style="color:var(--muted);font-size:0.7em"> surfacing</span></div></div>
@@ -697,6 +721,29 @@ h3.grp-info { border-left-color: var(--fg-mute); color: var(--fg-mute); }
         </div>
       
     </div>
+    <details class="drilldown">
+      <summary>Break down by (module, signal) — which collector fired each signal (6 rows)</summary>
+      <div class="tbl-wrap">
+        <table class="sortable" id="t-q5">
+          <thead><tr><th>module</th><th>signal</th><th>hosts</th><th>records</th></tr></thead>
+          <tbody>
+          
+            <tr><td>cron</td><td class="mono">exec_target_orphan</td><td>1</td><td>1</td></tr>
+          
+            <tr><td>cron</td><td class="mono">interpreter_in_tmp</td><td>2</td><td>2</td></tr>
+          
+            <tr><td>cron</td><td class="mono">non_package_path</td><td>4</td><td>4</td></tr>
+          
+            <tr><td>profile</td><td class="mono">non_package_path</td><td>1</td><td>1</td></tr>
+          
+            <tr><td>systemd</td><td class="mono">exec_target_orphan</td><td>1</td><td>1</td></tr>
+          
+            <tr><td>systemd</td><td class="mono">non_package_path</td><td>2</td><td>2</td></tr>
+          
+          </tbody>
+        </table>
+      </div>
+    </details>
   </section>
 
   
@@ -863,7 +910,8 @@ h3.grp-info { border-left-color: var(--fg-mute); color: var(--fg-mute); }
   
   <section class="pane" data-pane="q3">
     <h2>Q3 · Peer-group LFA by (os_id, tags)</h2>
-    <p class="lede">Singletons inside their own OS bucket. Fixes Q1's fragmentation: a Debian-only baseline does not look like a singleton in a mixed Debian/RHEL fleet. Only peer groups with &gt;2 hosts are included (smaller groups have no baseline to compare against).</p>
+    <p class="lede">Singletons inside their own <code>(os_id, tag_set)</code> cohort. Fixes Q1's fragmentation: a Debian-only baseline does not look like a singleton in a mixed Debian/RHEL fleet.</p>
+    <p class="hint">peer-floor = <b>3</b> · <b>2</b> cohort(s) qualify · <b>1</b> suppressed below the floor.</p>
     <input class="search" type="search" placeholder="filter rows…" data-target="#t-q3">
     <div class="tbl-wrap">
       <table class="sortable" id="t-q3">
@@ -910,85 +958,6 @@ h3.grp-info { border-left-color: var(--fg-mute); color: var(--fg-mute); }
   </section>
 
   
-  <section class="pane" data-pane="q4">
-    <h2>Q4 · Implant fingerprint (orphan + tmp)</h2>
-    <p class="lede">Records carrying <em>both</em> <code class="sig warn">exec_target_orphan</code> and <code class="sig warn">interpreter_in_tmp</code>. The conjunction is very rare in legitimate configuration; singletons here deserve immediate triage even before correlating with the LFA queries.</p>
-    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q4">
-    <div class="tbl-wrap">
-      <table class="sortable" id="t-q4">
-        <thead><tr>
-          <th>host</th><th>module</th><th>site_class</th>
-          <th>locus</th><th>exec_target</th><th>signals</th><th>snippet</th>
-        </tr></thead>
-        <tbody>
-        
-          <tr><td colspan="7" style="text-align:center;color:var(--fg-mute)">no records match the implant fingerprint — clean fleet</td></tr>
-        
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  
-  <section class="pane" data-pane="q5">
-    <h2>Q5 · Signal distribution by module</h2>
-    <p class="lede">For each <code>(module, signal)</code> pair: how many hosts fire it, how many records carry it. Signals that fire on few hosts are inherently interesting; signals that fire on most hosts are baselines used to <em>calibrate</em> other queries.</p>
-    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q5">
-    <div class="tbl-wrap">
-      <table class="sortable" id="t-q5">
-        <thead><tr>
-          <th>module</th><th>signal</th>
-          <th data-sort-type="num">hosts</th>
-          <th data-sort-type="num">records</th>
-        </tr></thead>
-        <tbody>
-        
-          <tr>
-            <td>cron</td>
-            <td><span class="sig warn">exec_target_orphan</span></td>
-            <td class="num">1</td>
-            <td class="num">1</td>
-          </tr>
-        
-          <tr>
-            <td>cron</td>
-            <td><span class="sig warn">interpreter_in_tmp</span></td>
-            <td class="num">2</td>
-            <td class="num">2</td>
-          </tr>
-        
-          <tr>
-            <td>cron</td>
-            <td><span class="sig warn">non_package_path</span></td>
-            <td class="num">4</td>
-            <td class="num">4</td>
-          </tr>
-        
-          <tr>
-            <td>profile</td>
-            <td><span class="sig warn">non_package_path</span></td>
-            <td class="num">1</td>
-            <td class="num">1</td>
-          </tr>
-        
-          <tr>
-            <td>systemd</td>
-            <td><span class="sig warn">exec_target_orphan</span></td>
-            <td class="num">1</td>
-            <td class="num">1</td>
-          </tr>
-        
-          <tr>
-            <td>systemd</td>
-            <td><span class="sig warn">non_package_path</span></td>
-            <td class="num">2</td>
-            <td class="num">2</td>
-          </tr>
-        
-        </tbody>
-      </table>
-    </div>
-  </section>
 
   
   <section class="pane" data-pane="q6">
@@ -1109,7 +1078,7 @@ h3.grp-info { border-left-color: var(--fg-mute); color: var(--fg-mute); }
   
   <section class="pane" data-pane="q10">
     <h2>Q10 · Per-host collection health and coverage outliers</h2>
-    <p class="lede">For each host: records emitted, distinct modules, distinct site_classes. Sort descending by records to find anomaly hosts (3× their peers); ascending to find collection failures (zero or near-zero). Run this query first when investigating a new dataset — it catches silent collection breakage before any threat-hunting query can.</p>
+    <p class="lede"><b>Run this first.</b> For each host: records, distinct modules, distinct site_classes, and <b>gap_modules</b> — modules the rest of the fleet emits (fleet median &gt; 0) but this host emitted ZERO records for. A non-empty gap_modules is a silent agent failure / image gap that would otherwise read as "clean" across every other tab. Hosts with gaps are sorted to the top.</p>
     <input class="search" type="search" placeholder="filter rows…" data-target="#t-q10">
     <div class="tbl-wrap">
       <table class="sortable" id="t-q10">
@@ -1119,23 +1088,17 @@ h3.grp-info { border-left-color: var(--fg-mute); color: var(--fg-mute); }
           <th data-sort-type="num">modules</th>
           <th data-sort-type="num">site_classes</th>
           <th data-sort-type="num">recent_records</th>
+          <th>gap_modules</th>
         </tr></thead>
         <tbody>
         
           <tr>
-            <td>h5</td><td>debian</td>
-            <td class="num">4</td>
-            <td class="num">4</td>
-            <td class="num">4</td>
+            <td>h6</td><td>rhel</td>
+            <td class="num">1</td>
+            <td class="num">1</td>
+            <td class="num">1</td>
             <td class="num">0</td>
-          </tr>
-        
-          <tr>
-            <td>h1</td><td>ubuntu</td>
-            <td class="num">3</td>
-            <td class="num">3</td>
-            <td class="num">3</td>
-            <td class="num">0</td>
+            <td class="sig-list"><span class="sig warn">cron</span><span class="sig warn">profile</span><span class="sig warn">systemd</span><span class="sig warn">webroot</span></td>
           </tr>
         
           <tr>
@@ -1144,6 +1107,7 @@ h3.grp-info { border-left-color: var(--fg-mute); color: var(--fg-mute); }
             <td class="num">2</td>
             <td class="num">2</td>
             <td class="num">0</td>
+            <td class="sig-list"><span class="sig warn">profile</span><span class="sig warn">systemd</span><span class="sig warn">webroot</span></td>
           </tr>
         
           <tr>
@@ -1152,6 +1116,7 @@ h3.grp-info { border-left-color: var(--fg-mute); color: var(--fg-mute); }
             <td class="num">2</td>
             <td class="num">2</td>
             <td class="num">0</td>
+            <td class="sig-list"><span class="sig warn">profile</span><span class="sig warn">systemd</span><span class="sig warn">webroot</span></td>
           </tr>
         
           <tr>
@@ -1160,14 +1125,25 @@ h3.grp-info { border-left-color: var(--fg-mute); color: var(--fg-mute); }
             <td class="num">2</td>
             <td class="num">2</td>
             <td class="num">0</td>
+            <td class="sig-list"><span class="sig warn">cron</span><span class="sig warn">profile</span><span class="sig warn">webroot</span></td>
           </tr>
         
           <tr>
-            <td>h6</td><td>rhel</td>
-            <td class="num">1</td>
-            <td class="num">1</td>
-            <td class="num">1</td>
+            <td>h1</td><td>ubuntu</td>
+            <td class="num">3</td>
+            <td class="num">3</td>
+            <td class="num">3</td>
             <td class="num">0</td>
+            <td class="sig-list"><span class="sig warn">profile</span><span class="sig warn">systemd</span></td>
+          </tr>
+        
+          <tr>
+            <td>h5</td><td>debian</td>
+            <td class="num">4</td>
+            <td class="num">4</td>
+            <td class="num">4</td>
+            <td class="num">0</td>
+            <td class="sig-list"><span class="sig warn">webroot</span></td>
           </tr>
         
         </tbody>
@@ -1262,7 +1238,10 @@ h3.grp-info { border-left-color: var(--fg-mute); color: var(--fg-mute); }
   $$('nav.tabs button').forEach(function (b) {
     b.addEventListener('click', function () { activatePane(b.dataset.tab); });
   });
-  var initial = (location.hash || '#overview').slice(1);
+  // Q7 (the rule roll-call) is the default landing tab — the day-one
+  // triage queue. Always-visible header banners carry the coverage/LFA
+  // warnings regardless of which pane is active.
+  var initial = (location.hash || '#q7').slice(1);
   activatePane(initial);
 
   // --- Sortable tables ---
