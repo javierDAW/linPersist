@@ -26,7 +26,10 @@
   $$('nav.tabs button').forEach(function (b) {
     b.addEventListener('click', function () { activatePane(b.dataset.tab); });
   });
-  var initial = (location.hash || '#overview').slice(1);
+  // Q7 (the rule roll-call) is the default landing tab — the day-one
+  // triage queue. Always-visible header banners carry the coverage/LFA
+  // warnings regardless of which pane is active.
+  var initial = (location.hash || '#q7').slice(1);
   activatePane(initial);
 
   // --- Sortable tables ---

@@ -56,6 +56,16 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 		fmt.Fprintln(out)
 	}
 
+	// --- LFA triage-only banner (ADR-0017) ---------------------------
+	// Distinct from the provenance-degraded banner: here cross-host LFA has
+	// no comparand (N=1 or no cohort at peer-floor), so Q1/Q3 row counts are
+	// triage, not verdicts. The population-independent path (Q7 + Q1
+	// Actionable + Tier-B) still holds.
+	if report.LFATriageOnly {
+		fmt.Fprintln(out, a.orange(fmt.Sprintf("⚠ LFA triage-only: no (os_id, tag_set) cohort reaches the peer-floor (%d); %d cohort(s) below it. Cross-host rarity (Q1/Q3 counts) has no comparand here — trust the population-independent path (Q7, Q1 Actionable, Tier-B). '0 Actionable' is NOT 'clean'.", report.PeerFloor, report.SuppressedPeerGroups)))
+		fmt.Fprintln(out)
+	}
+
 	// --- Overview cards ----------------------------------------------
 	textSection(out, a, "Overview")
 	sev := report.Overview.SeverityCounts
@@ -255,10 +265,16 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 
 	// --- Q3: peer-group LFA -----------------------------------------
 	textSection(out, a, fmt.Sprintf("Q3 · Peer-group LFA by (os_id, tags) (%d)", len(report.Q3PeerGroupSingletons)))
-	fmt.Fprintln(out, "Singletons within their own OS bucket. Only OS groups with >2 hosts.")
+	fmt.Fprintf(out, "Singletons within a sized (os_id, tag_set) cohort. peer-floor=%d · %d cohort(s) qualify · %d suppressed below floor.\n",
+		report.PeerFloor, report.QualifyingPeerGroups, report.SuppressedPeerGroups)
 	fmt.Fprintln(out)
 	if len(report.Q3PeerGroupSingletons) == 0 {
-		fmt.Fprintln(out, "  no rows")
+		if report.QualifyingPeerGroups == 0 {
+			fmt.Fprintf(out, "  no rows — SUPPRESSED: all %d cohort(s) are below peer-floor %d (not 'clean'; lower --peer-floor or add role replicas)\n",
+				report.SuppressedPeerGroups, report.PeerFloor)
+		} else {
+			fmt.Fprintln(out, "  no rows — cohorts qualify but carry no singleton")
+		}
 	} else {
 		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  os_id\tmodule\tsite_class\tcontent_norm\tpeer_size\tsample_host\tsample_locus")
@@ -272,11 +288,14 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	fmt.Fprintln(out)
 
 	// --- Q4: implant fingerprint -----------------------------------
+	// Folded into Q7 in the HTML tabs (strict subset of
+	// payload_under_tmp_via_persistence); retained here as the text/SQL
+	// reference section.
 	nQ4 := len(report.Q4ImplantFingerprint)
 	q4Title := fmt.Sprintf("Q4 · Implant fingerprint (%s)",
 		maybeRed(a, strconv.Itoa(nQ4), nQ4 > 0))
 	textSection(out, a, q4Title)
-	fmt.Fprintln(out, "Records carrying both exec_target_orphan and interpreter_in_tmp.")
+	fmt.Fprintln(out, "Records carrying both exec_target_orphan and interpreter_in_tmp (HTML: folded into Q7).")
 	fmt.Fprintln(out)
 	if nQ4 == 0 {
 		fmt.Fprintln(out, "  no rows")
@@ -294,9 +313,11 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	fmt.Fprintln(out)
 
 	// --- Q5: signal distribution by module --------------------------
+	// Folded into the Overview signal-bars drill-down in the HTML;
+	// retained here as the text/SQL reference section.
 	textSection(out, a, fmt.Sprintf("Q5 · Signal distribution by module (%d)",
 		len(report.Q5SignalDistribution)))
-	fmt.Fprintln(out, "Per (module, signal): hosts that fire it and records carrying it.")
+	fmt.Fprintln(out, "Per (module, signal): hosts that fire it and records carrying it (HTML: Overview drill-down).")
 	fmt.Fprintln(out)
 	if len(report.Q5SignalDistribution) == 0 {
 		fmt.Fprintln(out, "  no rows")
@@ -401,19 +422,30 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	fmt.Fprintln(out)
 
 	// --- Q10: per-host collection health ----------------------------
+	gapHosts := 0
+	for _, r := range report.Q10HostCoverage {
+		if len(r.GapModules) > 0 {
+			gapHosts++
+		}
+	}
 	textSection(out, a, fmt.Sprintf("Q10 · Per-host collection health (%d hosts)",
 		len(report.Q10HostCoverage)))
-	fmt.Fprintln(out, "Sort DESC for anomaly outliers, ASC for collection failures.")
+	fmt.Fprintf(out, "RUN FIRST. %s host(s) have module gaps = modules the fleet emits but this host did not (silent agent failure / image gap). Gap hosts listed first.\n",
+		maybeRed(a, strconv.Itoa(gapHosts), gapHosts > 0))
 	fmt.Fprintln(out)
 	if len(report.Q10HostCoverage) == 0 {
 		fmt.Fprintln(out, "  no rows")
 	} else {
 		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "  host\tos_id\trecords\tmodules\tsite_classes\trecent")
+		fmt.Fprintln(tw, "  host\tos_id\trecords\tmodules\tsite_classes\trecent\tgap_modules")
 		for _, r := range report.Q10HostCoverage {
-			fprintfSafe(tw, "  %s\t%s\t%s\t%d\t%d\t%d\n",
+			gaps := "-"
+			if len(r.GapModules) > 0 {
+				gaps = maybeRed(a, strings.Join(r.GapModules, ","), true)
+			}
+			fprintfSafe(tw, "  %s\t%s\t%s\t%d\t%d\t%d\t%s\n",
 				r.Host, r.OSID, commaInt(r.Records),
-				r.Modules, r.SiteClasses, r.RecentRecords)
+				r.Modules, r.SiteClasses, r.RecentRecords, gaps)
 		}
 		tw.Flush()
 	}

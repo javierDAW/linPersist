@@ -29,20 +29,25 @@
     </details>
   </div>
   {{end}}
+  {{if .Report.LFATriageOnly}}
+  <div class="banner-warn">
+    ⚠ <b>LFA triage-only</b>: no <code>(os_id, tag_set)</code> cohort reaches the peer-floor ({{.Report.PeerFloor}});
+    {{.Report.SuppressedPeerGroups}} cohort(s) below it. Cross-host rarity (Q1/Q3 counts) has <b>no comparand</b> here —
+    trust the population-independent path (<b>Q7</b>, <b>Q1 Actionable</b>, Tier-B). "0 Actionable" is <b>not</b> "clean" (ADR-0017).
+  </div>
+  {{end}}
 </header>
 
 <nav class="tabs">
+  <button data-tab="q7">Q7 · implant roll-call</button>
   <button data-tab="overview">Overview</button>
   <button data-tab="q1">Q1 · LFA singletons</button>
+  <button data-tab="q10">Q10 · host coverage</button>
   <button data-tab="q2">Q2 · per-locus singletons</button>
   <button data-tab="q3">Q3 · peer-group LFA</button>
-  <button data-tab="q4">Q4 · implant fingerprint</button>
-  <button data-tab="q5">Q5 · signal distribution</button>
   <button data-tab="q6">Q6 · worm pattern</button>
-  <button data-tab="q7">Q7 · implant roll-call</button>
   <button data-tab="q8">Q8 · mtime concentration</button>
   <button data-tab="q9">Q9 · exec in /tmp</button>
-  <button data-tab="q10">Q10 · host coverage</button>
   <button data-tab="q11">Q11 · orphan outside /tmp</button>
   <button data-tab="q12">Q12 · campaign clusters</button>
 </nav>
@@ -54,14 +59,26 @@
     <h2>Fleet overview</h2>
     <p class="lede">High-level shape of the dataset. Use this to spot fleet-level anomalies (sudden mtime spike, signal explosion, OS imbalance) before drilling into the per-query tabs.</p>
 
+    <div class="checklist">
+      <b>Triage order</b> (population-independent first):
+      <ol>
+        <li><b>Q10</b> — confirm no host has module gaps (silent agent failure reads as "clean").</li>
+        <li><b>Q7</b> — work the rule roll-call top-down (severity-sorted; critical first).</li>
+        <li><b>Q1 → Actionable</b> — singletons with a structural tell, when no Q7 rule matched.</li>
+        <li><b>Q8 / Q9 / Q11</b> — temporal bursts, armed-in-tmp, orphan payloads outside tmp.</li>
+        <li><b>Q6 / Q12</b> — cross-host worm / campaign clustering.</li>
+        <li><b>Q1 → Informational, Q2, Q3</b> — fleet-rarity context (degrades on small/peerless fleets — see banner).</li>
+      </ol>
+    </div>
+
     <div class="cards">
       <div class="card"><div class="k">Hosts</div><div class="v">{{.Report.Overview.TotalHosts}}</div></div>
       <div class="card"><div class="k">Records</div><div class="v">{{commaInt .Report.Overview.TotalRecords}}</div></div>
       <div class="card"><div class="k">Modules</div><div class="v">{{.Report.Overview.TotalModules}}</div></div>
       <div class="card"><div class="k">Site_classes</div><div class="v">{{.Report.Overview.TotalSiteClasses}}</div></div>
       <div class="card"><div class="k">Q1 singletons</div><div class="v">{{len .Report.Q1Singletons}}</div></div>
-      <div class="card"><div class="k">Q4 implant hits</div><div class="v" style="color:var(--tail)">{{len .Report.Q4ImplantFingerprint}}</div></div>
       <div class="card"><div class="k">Q7 roll-call</div><div class="v" style="color:var(--tail)">{{len .Report.Q7ImplantRollCall}}</div></div>
+      <div class="card"><div class="k">orphan+tmp (in Q7)</div><div class="v" style="color:var(--tail)">{{.Report.Overview.OrphanTmpCount}}</div></div>
       <div class="card"><div class="k">Q8 mtime spikes</div><div class="v">{{len .Report.Q8MtimeConcentration}}</div></div>
       <div class="card"><div class="k">Q11 orphan outside /tmp</div><div class="v" style="color:var(--tail)">{{len .Report.Q11OrphanOutsideTmp}}</div></div>
       <div class="card"><div class="k">MITRE techniques</div><div class="v">{{.Report.MITRECoverage.SurfacingTechniques}}/{{.Report.MITRECoverage.TotalTechniques}}<span style="color:var(--muted);font-size:0.7em"> surfacing</span></div></div>
@@ -169,6 +186,21 @@
         </div>
       {{end}}
     </div>
+    <details class="drilldown">
+      <summary>Break down by (module, signal) — which collector fired each signal ({{len .Report.Q5SignalDistribution}} rows)</summary>
+      <div class="tbl-wrap">
+        <table class="sortable" id="t-q5">
+          <thead><tr><th>module</th><th>signal</th><th>hosts</th><th>records</th></tr></thead>
+          <tbody>
+          {{range .Report.Q5SignalDistribution}}
+            <tr><td>{{.Module}}</td><td class="mono">{{.Signal}}</td><td>{{.Hosts}}</td><td>{{commaInt .Records}}</td></tr>
+          {{else}}
+            <tr><td colspan="4" style="text-align:center;color:var(--fg-mute)">no rows</td></tr>
+          {{end}}
+          </tbody>
+        </table>
+      </div>
+    </details>
   </section>
 
   {{/* ========== Q1 ========== */}}
@@ -265,7 +297,8 @@
   {{/* ========== Q3 ========== */}}
   <section class="pane" data-pane="q3">
     <h2>Q3 · Peer-group LFA by (os_id, tags)</h2>
-    <p class="lede">Singletons inside their own OS bucket. Fixes Q1's fragmentation: a Debian-only baseline does not look like a singleton in a mixed Debian/RHEL fleet. Only peer groups with &gt;2 hosts are included (smaller groups have no baseline to compare against).</p>
+    <p class="lede">Singletons inside their own <code>(os_id, tag_set)</code> cohort. Fixes Q1's fragmentation: a Debian-only baseline does not look like a singleton in a mixed Debian/RHEL fleet.</p>
+    <p class="hint">peer-floor = <b>{{.Report.PeerFloor}}</b> · <b>{{.Report.QualifyingPeerGroups}}</b> cohort(s) qualify · <b>{{.Report.SuppressedPeerGroups}}</b> suppressed below the floor.</p>
     <input class="search" type="search" placeholder="filter rows…" data-target="#t-q3">
     <div class="tbl-wrap">
       <table class="sortable" id="t-q3">
@@ -288,68 +321,21 @@
             <td class="snippet">{{.SampleSnippet}}</td>
           </tr>
         {{else}}
-          <tr><td colspan="8" style="text-align:center;color:var(--fg-mute)">no peer-group singletons (fleet may be too small or too homogeneous)</td></tr>
+          {{if eq .Report.QualifyingPeerGroups 0}}
+          <tr><td colspan="8" style="text-align:center;color:var(--warn)">SUPPRESSED — all {{.Report.SuppressedPeerGroups}} cohort(s) are below peer-floor {{.Report.PeerFloor}}. This is NOT "clean": lower <code>--peer-floor</code> or add ≥{{.Report.PeerFloor}} role replicas per cohort.</td></tr>
+          {{else}}
+          <tr><td colspan="8" style="text-align:center;color:var(--fg-mute)">cohorts qualify but carry no singleton</td></tr>
+          {{end}}
         {{end}}
         </tbody>
       </table>
     </div>
   </section>
 
-  {{/* ========== Q4 ========== */}}
-  <section class="pane" data-pane="q4">
-    <h2>Q4 · Implant fingerprint (orphan + tmp)</h2>
-    <p class="lede">Records carrying <em>both</em> <code class="sig warn">exec_target_orphan</code> and <code class="sig warn">interpreter_in_tmp</code>. The conjunction is very rare in legitimate configuration; singletons here deserve immediate triage even before correlating with the LFA queries.</p>
-    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q4">
-    <div class="tbl-wrap">
-      <table class="sortable" id="t-q4">
-        <thead><tr>
-          <th>host</th><th>module</th><th>site_class</th>
-          <th>locus</th><th>exec_target</th><th>signals</th><th>snippet</th>
-        </tr></thead>
-        <tbody>
-        {{range .Report.Q4ImplantFingerprint}}
-          <tr>
-            <td>{{.Host}}</td><td>{{.Module}}</td><td>{{.SiteClass}}</td>
-            <td class="path">{{.Locus}}</td>
-            <td class="target">{{.ExecTarget}}</td>
-            <td class="sig-list">{{range .Signals}}<span class="sig{{if signalIsWarn .}} warn{{end}}">{{.}}</span>{{end}}</td>
-            <td class="snippet">{{.Snippet}}</td>
-          </tr>
-        {{else}}
-          <tr><td colspan="7" style="text-align:center;color:var(--fg-mute)">no records match the implant fingerprint — clean fleet</td></tr>
-        {{end}}
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  {{/* ========== Q5 ========== */}}
-  <section class="pane" data-pane="q5">
-    <h2>Q5 · Signal distribution by module</h2>
-    <p class="lede">For each <code>(module, signal)</code> pair: how many hosts fire it, how many records carry it. Signals that fire on few hosts are inherently interesting; signals that fire on most hosts are baselines used to <em>calibrate</em> other queries.</p>
-    <input class="search" type="search" placeholder="filter rows…" data-target="#t-q5">
-    <div class="tbl-wrap">
-      <table class="sortable" id="t-q5">
-        <thead><tr>
-          <th>module</th><th>signal</th>
-          <th data-sort-type="num">hosts</th>
-          <th data-sort-type="num">records</th>
-        </tr></thead>
-        <tbody>
-        {{range .Report.Q5SignalDistribution}}
-          <tr>
-            <td>{{.Module}}</td>
-            <td><span class="sig{{if signalIsWarn .Signal}} warn{{end}}">{{.Signal}}</span></td>
-            <td class="num">{{.Hosts}}</td>
-            <td class="num">{{commaInt .Records}}</td>
-          </tr>
-        {{else}}
-          <tr><td colspan="4" style="text-align:center;color:var(--fg-mute)">no signals fired across the fleet</td></tr>
-        {{end}}
-        </tbody>
-      </table>
-    </div>
-  </section>
+  {{/* Q4 (orphan+tmp fingerprint) folded into Q7 — strict subset of the
+       payload_under_tmp_via_persistence detection. Count is an Overview
+       badge; the orphan view is the Q9 is_orphan column. Q5 (signal
+       distribution) folded into the Overview signal-bars drill-down. */}}
 
   {{/* ========== Q6 ========== */}}
   <section class="pane" data-pane="q6">
@@ -481,7 +467,7 @@
   {{/* ========== Q10 ========== */}}
   <section class="pane" data-pane="q10">
     <h2>Q10 · Per-host collection health and coverage outliers</h2>
-    <p class="lede">For each host: records emitted, distinct modules, distinct site_classes. Sort descending by records to find anomaly hosts (3× their peers); ascending to find collection failures (zero or near-zero). Run this query first when investigating a new dataset — it catches silent collection breakage before any threat-hunting query can.</p>
+    <p class="lede"><b>Run this first.</b> For each host: records, distinct modules, distinct site_classes, and <b>gap_modules</b> — modules the rest of the fleet emits (fleet median &gt; 0) but this host emitted ZERO records for. A non-empty gap_modules is a silent agent failure / image gap that would otherwise read as "clean" across every other tab. Hosts with gaps are sorted to the top.</p>
     <input class="search" type="search" placeholder="filter rows…" data-target="#t-q10">
     <div class="tbl-wrap">
       <table class="sortable" id="t-q10">
@@ -491,6 +477,7 @@
           <th data-sort-type="num">modules</th>
           <th data-sort-type="num">site_classes</th>
           <th data-sort-type="num">recent_records</th>
+          <th>gap_modules</th>
         </tr></thead>
         <tbody>
         {{range .Report.Q10HostCoverage}}
@@ -500,9 +487,10 @@
             <td class="num">{{.Modules}}</td>
             <td class="num">{{.SiteClasses}}</td>
             <td class="num">{{.RecentRecords}}</td>
+            <td class="sig-list">{{if .GapModules}}{{range .GapModules}}<span class="sig warn">{{.}}</span>{{end}}{{else}}<span class="muted">—</span>{{end}}</td>
           </tr>
         {{else}}
-          <tr><td colspan="6" style="text-align:center;color:var(--fg-mute)">no host records — dataset is empty</td></tr>
+          <tr><td colspan="7" style="text-align:center;color:var(--fg-mute)">no host records — dataset is empty</td></tr>
         {{end}}
         </tbody>
       </table>
