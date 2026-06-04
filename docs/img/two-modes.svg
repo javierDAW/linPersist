@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 600" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13">
   <title>linpersist-report modes</title>
-  <desc>Same NDJSON corpus, two consumption modes. Fleet mode aggregates Q1-Q11 across all hosts. Dossier mode dumps every record for one host.</desc>
+  <desc>Same NDJSON corpus, two consumption modes. Fleet mode opens on Q7 and consolidates the twelve canonical queries into ten tabs plus an Overview across all hosts. Dossier mode dumps every record for one host.</desc>
 
   <defs>
     <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
@@ -32,60 +32,60 @@
     <rect width="480" height="370" rx="10" fill="#eef2ff" stroke="#4338ca" stroke-width="1.5"/>
     <rect width="480" height="32" rx="10" fill="#4338ca"/>
     <text x="16" y="22" fill="#fff" font-weight="700">FLEET MODE</text>
-    <text x="464" y="22" text-anchor="end" fill="#c7d2fe" font-size="11">--report fleet.html</text>
+    <text x="464" y="22" text-anchor="end" fill="#c7d2fe" font-size="11">-i corpus/ -o report.html</text>
 
-    <text x="16" y="58" font-size="11" fill="#1e1b4b">All hosts, all 11 queries.</text>
+    <text x="16" y="58" font-size="11" fill="#1e1b4b">All hosts. Opens on Q7; ten query tabs + Overview.</text>
     <text x="16" y="74" font-size="11" fill="#1e1b4b">Built for fleet-scale triage.</text>
 
-    <!-- Q grid -->
+    <!-- Q grid: the consolidated HTML tabs (Q7 default; Q4->Q7, Q5->Overview) -->
     <g transform="translate(16,90)">
-      <rect width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
-      <text x="46" y="18" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q1</text>
-      <text x="46" y="34" text-anchor="middle" font-size="9" fill="#475569">freq stack</text>
+      <rect width="92" height="44" rx="4" fill="#fef3c7" stroke="#c2410c" stroke-width="1.4"/>
+      <text x="46" y="18" text-anchor="middle" font-weight="700" font-size="11" fill="#7c2d12">Q7</text>
+      <text x="46" y="34" text-anchor="middle" font-size="9" fill="#7c2d12">roll-call (default)</text>
 
       <rect x="96" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
-      <text x="142" y="18" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q2</text>
-      <text x="142" y="34" text-anchor="middle" font-size="9" fill="#475569">module roll</text>
+      <text x="142" y="18" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Overview</text>
+      <text x="142" y="34" text-anchor="middle" font-size="9" fill="#475569">+ Q4 badge, Q5</text>
 
       <rect x="192" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
-      <text x="238" y="18" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q3</text>
-      <text x="238" y="34" text-anchor="middle" font-size="9" fill="#475569">site_class</text>
+      <text x="238" y="18" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q1</text>
+      <text x="238" y="34" text-anchor="middle" font-size="9" fill="#475569">LFA singletons</text>
 
       <rect x="288" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
-      <text x="334" y="18" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q4</text>
-      <text x="334" y="34" text-anchor="middle" font-size="9" fill="#475569">LFA tail</text>
+      <text x="334" y="18" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q10</text>
+      <text x="334" y="34" text-anchor="middle" font-size="9" fill="#475569">host coverage</text>
 
       <rect y="50" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
-      <text x="46" y="68" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q5</text>
-      <text x="46" y="84" text-anchor="middle" font-size="9" fill="#475569">peer group</text>
+      <text x="46" y="68" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q2</text>
+      <text x="46" y="84" text-anchor="middle" font-size="9" fill="#475569">per-locus</text>
 
       <rect x="96" y="50" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
-      <text x="142" y="68" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q6</text>
-      <text x="142" y="84" text-anchor="middle" font-size="9" fill="#475569">mtime burst</text>
+      <text x="142" y="68" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q3</text>
+      <text x="142" y="84" text-anchor="middle" font-size="9" fill="#475569">peer-group LFA</text>
 
-      <rect x="192" y="50" width="92" height="44" rx="4" fill="#fef3c7" stroke="#c2410c" stroke-width="1.2"/>
-      <text x="238" y="68" text-anchor="middle" font-weight="700" font-size="11" fill="#7c2d12">Q7</text>
-      <text x="238" y="84" text-anchor="middle" font-size="9" fill="#7c2d12">detections</text>
+      <rect x="192" y="50" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
+      <text x="238" y="68" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q6</text>
+      <text x="238" y="84" text-anchor="middle" font-size="9" fill="#475569">exec_target worm</text>
 
       <rect x="288" y="50" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
       <text x="334" y="68" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q8</text>
-      <text x="334" y="84" text-anchor="middle" font-size="9" fill="#475569">signals</text>
+      <text x="334" y="84" text-anchor="middle" font-size="9" fill="#475569">mtime burst</text>
 
       <rect y="100" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
       <text x="46" y="118" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q9</text>
-      <text x="46" y="134" text-anchor="middle" font-size="9" fill="#475569">orphans</text>
+      <text x="46" y="134" text-anchor="middle" font-size="9" fill="#475569">exec in /tmp</text>
 
       <rect x="96" y="100" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
-      <text x="142" y="118" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q10</text>
-      <text x="142" y="134" text-anchor="middle" font-size="9" fill="#475569">snippet LFA</text>
+      <text x="142" y="118" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q11</text>
+      <text x="142" y="134" text-anchor="middle" font-size="9" fill="#475569">orphan ! /tmp</text>
 
       <rect x="192" y="100" width="92" height="44" rx="4" fill="#fff" stroke="#4338ca" stroke-width="0.8"/>
-      <text x="238" y="118" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q11</text>
-      <text x="238" y="134" text-anchor="middle" font-size="9" fill="#475569">mitre roll</text>
+      <text x="238" y="118" text-anchor="middle" font-weight="700" font-size="11" fill="#1e1b4b">Q12</text>
+      <text x="238" y="134" text-anchor="middle" font-size="9" fill="#475569">campaign</text>
 
       <rect x="288" y="100" width="92" height="44" rx="4" fill="#f1f5f9" stroke="#94a3b8" stroke-width="0.8" stroke-dasharray="3 2"/>
-      <text x="334" y="118" text-anchor="middle" font-size="10" fill="#475569">+ extensions</text>
-      <text x="334" y="134" text-anchor="middle" font-size="9" fill="#475569">via SQL</text>
+      <text x="334" y="118" text-anchor="middle" font-size="10" fill="#475569">all 12 + ext.</text>
+      <text x="334" y="134" text-anchor="middle" font-size="9" fill="#475569">via DuckDB SQL</text>
     </g>
 
     <line x1="16" y1="258" x2="464" y2="258" stroke="#4338ca" stroke-width="0.6"/>
