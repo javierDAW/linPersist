@@ -284,6 +284,7 @@ func (m *Module) recordFor(s site, logical string, info os.FileInfo, e Edge) cor
 		ContentNormSHA256: norm,
 		ContentSnippet:    snippet(e.Snippet),
 		ExecTarget:        e.Target,
+		FullExecLine:      e.Snippet, // Tier-B behavioral scan over the full line
 	}
 	core.FillFileMeta(&rec, info)
 	sigs := m.baseSignals(info, logical)
