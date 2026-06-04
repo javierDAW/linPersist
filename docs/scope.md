@@ -119,7 +119,8 @@ no other significant load:
 | Output size | typically 100 KB – 1 MB of NDJSON per host |
 
 Bench numbers for additional OS targets (RHEL 9, Amazon Linux 2023,
-Alpine 3.19) are in `docs/benchmarks/`.
+Alpine 3.19) live with the validation lab (the `lab-archive` branch),
+kept out of the consumer tree.
 
 ## 5. Required privileges
 

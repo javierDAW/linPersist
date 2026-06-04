@@ -1,9 +1,0 @@
-# APT2 implant: apt2-environmentd (environment.d LD_PRELOAD). A systemd
-# environment.d file sets LD_PRELOAD for every user session. confexec
-# environment.d lifts the .so path -> non_package_path ->
-# environment_d_hook_unmanaged. Variables: (none)
-RUN mkdir -p /etc/environment.d /opt/.e && \
-    printf 'PLANTED-PRELOAD\n' > /opt/.e/hook.so && \
-    chown root:root /opt/.e/hook.so && chmod 0644 /opt/.e/hook.so && \
-    printf '%s\n' 'LD_PRELOAD=/opt/.e/hook.so' > /etc/environment.d/99-zz.conf && \
-    chown root:root /etc/environment.d/99-zz.conf && chmod 0644 /etc/environment.d/99-zz.conf

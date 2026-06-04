@@ -1,7 +1,0 @@
-# APT2 implant: apt2-xsession (X11 session-script exec). A drop-in in
-# /etc/X11/Xsession.d runs on every graphical login. confexec xsession.d
-# lifts the exec'd command -> exec_target_orphan -> xsession_hook_unmanaged.
-# (Surface exists wherever the dir does; the agent walks it regardless.) Variables: (none)
-RUN mkdir -p /etc/X11/Xsession.d && \
-    printf '%s\n' '#!/bin/sh' '/opt/.xs/agent &' > /etc/X11/Xsession.d/99zz-session && \
-    chown root:root /etc/X11/Xsession.d/99zz-session && chmod 0644 /etc/X11/Xsession.d/99zz-session

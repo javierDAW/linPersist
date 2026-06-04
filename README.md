@@ -455,11 +455,13 @@ silent drift that bite multi-source projects.
 
 | Doc | What it covers |
 |---|---|
-| [`docs/SPRINT-HANDOFF.md`](docs/SPRINT-HANDOFF.md) | Read first if you're picking up the project across sessions. Architectural canon, gotchas, the next sprint plan, iterate-fast cookbook. |
 | [`docs/schema-v1.md`](docs/schema-v1.md) | NDJSON record shape: every field, every guarantee. |
 | [`docs/normalization-rules.md`](docs/normalization-rules.md) | Invariants every module's `Normalize` honors. |
 | [`docs/stacking-cookbook.md`](docs/stacking-cookbook.md) | The twelve queries as prose, with false-positive notes per query. |
 | [`docs/report.md`](docs/report.md) | Anatomy of the HTML and text report, fleet + dossier. |
+| [`docs/deployment.md`](docs/deployment.md) | Deploying the agent across a fleet and collecting the NDJSON. |
+| [`docs/client-runbook.md`](docs/client-runbook.md) | Running a consulting engagement end-to-end. |
+| [`docs/modules/`](docs/modules) | Optional deep-dives on individual collectors (linger, systemd, sysusers, tmpfiles). |
 | [`docs/adr/`](docs/adr) | Seventeen Architecture Decision Records. Start at ADR-0001 if you want the whole story; or jump to the latest if you're picking up. |
 | [`matrix.yaml`](matrix.yaml) | Source of truth for MITRE × site_class coverage. |
 | [`internal/detections/detections.yaml`](internal/detections/detections.yaml) | The 58 Q7 detection rules in declarative YAML. |
@@ -544,9 +546,8 @@ operational and incremental:
 - **Optional YARA plugin** in a separate binary (kept out of the
   read-only no-CGO core).
 
-The full backlog with ROI ordering, and the coverage philosophy
-that bounds it, are in [`docs/SPRINT-HANDOFF.md`](docs/SPRINT-HANDOFF.md)
-and [`docs/scope.md`](docs/scope.md) §8.
+The coverage philosophy that bounds the backlog is in
+[`docs/scope.md`](docs/scope.md) §8 and the ADRs.
 
 ## License & author
 

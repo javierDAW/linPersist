@@ -1,9 +1,0 @@
-# APT2 implant: apt2-systemd-generator (Sandworm/AA22 boot persistence)
-# An orphan executable under system-generators/ runs as root at early boot
-# with no unit file -> systemd_generator + non_package_path ->
-# systemd_generator_unmanaged (critical). Whole-primitive coverage hole
-# pre-duel (zero records). Variables: ${gen_file}
-RUN mkdir -p /etc/systemd/system-generators && \
-    printf '%s\n' '#!/bin/sh' 'exit 0' > ${gen_file} && \
-    chown root:root ${gen_file} && \
-    chmod 0755 ${gen_file}

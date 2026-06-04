@@ -25,17 +25,12 @@ Thumbs.db
 .env
 .envrc
 
-# Local Docker labs. The original (v0.1.0..v0.2.0) policy kept the
-# entire directory out of the repo. As of v0.3.3 the lab-realistic
-# infrastructure (templates, policies, role configs, implant catalog,
-# scripts) IS part of the product and lives in the repo; only its
-# generated artifacts under lab-realistic/out/ remain ignored. The
-# legacy lab/ and lab-large/ playgrounds stay fully ignored.
+# Local Docker labs / validation harnesses are kept OUT of the
+# consumer tree (relocated to the lab-archive branch). lab-realistic
+# and the legacy lab/ + lab-large/ playgrounds stay fully ignored.
 lab/
 lab-large/
-lab-realistic/out/
-
-# Benchmark documents under docs/benchmarks/ are committed as of v0.3.0.
+lab-realistic/
 
 # Generated reports (rendered locally, not versioned)
 report.html
@@ -61,8 +56,6 @@ report.txt
 # guards against per-version rendered HTML/text leaking into the root).
 /fleet.html
 /dossier*.html
-/lab-realistic-v*.html
-/lab-realistic-v*.txt
 /report.html
 /report.txt
 
@@ -93,8 +86,6 @@ report.txt
 /fleet.html
 /dossier*.html
 /informe.html
-/lab-realistic-v*.html
-/lab-realistic-v*.txt
 
 # Stray binaries at the repo root (proper builds go under /dist/)
 /linpersist

