@@ -598,7 +598,10 @@ func (m *Module) hashExecTarget(target string) (string, bool) {
 	if !info.Mode().IsRegular() {
 		return "", false
 	}
-	f, err := os.Open(real)
+	// Hardened open closes the TOCTOU between the IsRegular check above and
+	// the open: O_NONBLOCK + fstat-regular, so a FIFO swapped in cannot block
+	// the agent's read (defense-in-depth; ld.so.conf.d is root-only).
+	f, err := core.OpenRegularNoBlock(real)
 	if err != nil {
 		return "", false
 	}

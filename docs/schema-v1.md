@@ -67,9 +67,21 @@ is still emitted; the `errors[]` array carries the field-scoped failure.
   "kernel": "5.15.0-91-generic",
   "arch": "amd64",
   "boot_id": "uuid",
-  "tags": ["staging", "web"]
+  "tags": ["staging", "web"],
+  "pkg_mgr": "dpkg",                  // detected manager, or "none"
+  "provenance_regime": "owned-db-present"  // ownership-oracle trust state
 }
 ```
+
+`pkg_mgr` is the detected package manager (`dpkg`/`rpm`/`apk`/`pacman`/
+`portage`, or `none`). `provenance_regime` is the trust state of the
+ownership oracle on this host — one of `owned-db-present`, `pkg-mgr-none`,
+`build-error`, `timeout-degraded`, `disabled` (`--no-provenance`). On any
+value other than `owned-db-present` the `non_package_path` /
+`package_file_tampered` discriminators are unreliable (blind or degraded),
+so an empty Q7 — or a `non_package_path` flood — must be down-weighted, not
+read as "clean". The report surfaces non-`owned-db-present` hosts in its
+coverage-degraded banner with the reason.
 
 `hostname_hash` is `"sha256:" + hex(sha256(normalize(hostname)))` where
 `normalize` is ASCII lower-case + whitespace trim + truncate at the

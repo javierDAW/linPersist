@@ -33,12 +33,13 @@ linpersist does one job and one job only: makes that question
 cheap to ask, against any size of Linux fleet, with persistence
 coverage broad enough to catch the modern repertoire.
 
-- **Coverage**: 30 module families across 62 persistence
+- **Coverage**: 30 module families across 63 persistence
   site_classes — cron, systemd units/timers/sysusers/tmpfiles/
   linger, ssh authorized_keys, sshd_config, sudoers, PAM,
   `/etc/passwd`, `/etc/shadow`, `ld.so.preload`, modprobe.d,
   udev RUN+=, polkit JS rules, XDG autostart, GRUB cmdline,
-  network dispatchers, sysv init, MOTD update-motd.d, and more.
+  network dispatchers, sysv init, MOTD update-motd.d, git
+  `core.hooksPath`, and more.
   Maps onto MITRE ATT&CK Linux Persistence (T1037, T1053, T1098,
   T1136, T1543, T1546, T1547, T1548, T1556, T1574, T1542) at ~80%
   coverage.
@@ -46,9 +47,13 @@ coverage broad enough to catch the modern repertoire.
   record. Two semantically-equivalent inputs across hosts produce
   the same hash. The whole hunt model collapses to "show me the
   hashes nobody else has".
-- **Detections as data**: 58 detection rules in a single YAML file
+- **Detections as data**: 60 detection rules in a single YAML file
   that both the report binary and the SQL companion consume. A
-  release gate fails the build if the two drift.
+  release gate fails the build if the two drift. Rules gate on a
+  co-indicator (non-package / orphan / tmp / tamper / freshness) so
+  the modal cloud-init/admin baseline (a settled `NOPASSWD: ALL`, a
+  default `PermitRootLogin yes`) stays out of the critical/high tier
+  and is left to LFA, not flooded.
 - **Behavioral grammars (Tier-B)**: a small, frozen set of
   execution-control idioms lifted from the lifted command line —
   a downloader/decoder piped into a shell (`curl … | sh`), a socket
@@ -69,7 +74,7 @@ it with `--output`. The agent collects; the backend decides.
 
 ```sh
 # 1. Clone and build.
-git clone https://github.com/jarmidaw/linpersist.git
+git clone https://github.com/javierDAW/linPersist.git
 cd linpersist
 make build-all      # cross-compiles for linux/{amd64,arm64,386,armv7}
 
@@ -151,8 +156,12 @@ query tabs plus an Overview. The HTML consolidates the twelve
 canonical queries into ten tabs — Q4 (orphan+tmp fingerprint) folds
 into Q7, Q5 (signal distribution) folds into the Overview — while
 the text and SQL views keep all twelve for the power/jump-host path.
-Scales to tens of thousands of hosts because the queries aggregate,
-not enumerate.
+The query *outputs* aggregate rather than enumerate, but the Go report
+loads the whole fleet into RAM, so its practical ceiling is **~1,000
+hosts** (measured: ~1k hosts ≈ 3.2 GB RAM / ~4 min; memory grows
+~linearly and wall-time super-linearly). It warns past that and points
+you at the DuckDB path, which is the route for tens of thousands of
+hosts (see "Power-user path: DuckDB").
 
 ```sh
 # HTML (self-contained, openable in any browser, ~200 KB)
@@ -161,7 +170,19 @@ linpersist-report -i fleet/ -o report.html
 # Text mode for jump hosts (SSH-only, no browser available)
 linpersist-report -i fleet/ -format text -color=off > triage.txt
 linpersist-report -i fleet/ -format text | less -R     # paged, with ANSI colour
+
+# Reconcile against your deployment roster: hosts that produced ZERO
+# records (a crashed/never-ran agent that would otherwise read as "clean")
+# are flagged as silently-absent. One host per line (plaintext hostname,
+# hostname_hash, or host_id; # comments allowed).
+linpersist-report -i fleet/ --expected-hosts roster.txt -format text
 ```
+
+Two honesty banners ride the header for free: a **coverage-degraded**
+banner when a host's package-ownership oracle was not authoritative
+(`host_meta.provenance_regime` ≠ `owned-db-present`), so "0 findings"
+there means *could-not-verify*, not *clean*; and the **silently-absent**
+roster banner above.
 
 **Dossier mode** — the deep drill on one host. Triggered with
 `--host <id>` (matched against `host_meta.hostname` or `host_id`).
@@ -188,8 +209,12 @@ emitted zero records for when the fleet median is non-zero
 
 ### Power-user path: DuckDB
 
-For fleets past ~10k hosts the Go report binary stays usable but
-columnar processing scales better. The twelve queries are mirrored
+The Go report binary holds the whole fleet in RAM and is bounded to
+**~1,000 hosts** in practice (measured: ~1k ≈ 3.2 GB RAM / ~4 min;
+~100 ≈ 0.3 GB / ~10 s — memory ~linear, wall-time super-linear, so
+~10k would OOM a typical analyst box). Past ~1k hosts it prints a
+ceiling warning and you should switch to the columnar DuckDB path,
+which scales to tens of thousands. The twelve queries are mirrored
 into executable DuckDB SQL in `tools/stack_demo.sql`. The Q7 block
 is auto-generated from `internal/detections/detections.yaml`;
 everything else is hand-written.
@@ -294,8 +319,9 @@ silent agent failure or image gap that would otherwise read as
 - **Fleet-scale rarity hunting.** Turn every persistence site into a
   canonical hash, stack across the fleet, read the singletons. One
   malicious cron line among thousands of identical hosts is the rare
-  hash and surfaces in seconds. The queries aggregate, so it scales to
-  tens of thousands of hosts.
+  hash and surfaces in seconds. The queries aggregate; the Go report is
+  bounded to ~1k hosts in RAM (it warns past that), and the DuckDB
+  companion takes the hunt to tens of thousands.
 - **Zero-FP-by-construction collection.** A module emits a record only
   when a real structural tell is present; detections gate on a
   co-indicator (orphan / non-package / tamper / tmp-class) plus rarity.
@@ -411,7 +437,7 @@ Full field reference at
 | Containers | `k8sstatic` | kubelet static-pod manifests (`/etc/kubernetes/manifests/`) | T1543.005 |
 | Webshell | `webroot` | server-executable files under `/var/www`, `/srv/www`, docroots | T1505.003 |
 | Supply chain | `pkgrepo` | apt/yum repo trust + origin (`sources.list*`, `*.repo`) | T1195.001 |
-| Config-exec (generalized) | `confexec` | mail aliases, incron, logrotate, nsswitch, `environment.d`, `Xsession.d`, dpkg maintainer-scripts, `php.ini`, apt/pkg hooks, sudo plugins | T1546, T1574, T1556 |
+| Config-exec (generalized) | `confexec` | mail aliases, incron, logrotate, nsswitch, `environment.d`, `Xsession.d`, dpkg maintainer-scripts, `php.ini`, apt/pkg hooks, sudo plugins, git `core.hooksPath` | T1546, T1574, T1556 |
 
 For the authoritative per-site_class status, loci list, and notes,
 see [`matrix.yaml`](matrix.yaml). The build fails if that file
@@ -427,7 +453,7 @@ drifts from the modules the code registers (`make audit`).
 | Footprint | one static 10 MB binary, no daemon | 50+ MB, daemon | server + client agents | thousands of shell helpers |
 | Decisions on host | none (zero classification) | thresholds + scheduled packs | rule-based | none |
 | Detection rules | declarative YAML, generator-synced with SQL companion | SQL packs | VQL | n/a |
-| Persistence coverage | 62 site_classes, ~80% of MITRE Linux Persistence | broad but shallow on persistence | broad on persistence via VQL artifact library | persistence is one collection among many |
+| Persistence coverage | 63 site_classes, ~80% of MITRE Linux Persistence | broad but shallow on persistence | broad on persistence via VQL artifact library | persistence is one collection among many |
 
 linpersist is intentionally a small, sharp tool. It does the
 persistence stage of the hunt and stops there. Pair it with what
@@ -529,25 +555,41 @@ The early backlog has shipped: host tags + peer-group LFA (Q3),
 the diff/time-series mode, the MITRE coverage panel, the
 dbus / cloud-init / k8s-static-pod / initramfs / nsswitch / incron
 coverage, the discriminator ladder (ADR-0017), and the Tier-B
-behavioral grammars. The tool is **production-pilot ready**
-(expert review verdict: go-with-conditions); what remains is
-operational and incremental:
+behavioral grammars. The tool is **production-pilot ready** (expert
+committee verdict: go-with-conditions).
+
+**Shipped since that verdict** (each unit- + nspawn-lab-verified):
+
+- **Tier-B in every exec-body locus** — `fetch_piped_to_interpreter`
+  / `reverse_shell_socket_idiom` now scan `sysv` / `motd` / `netdispatch`
+  / `atjobs` / `udev` / `xdg` / `dbus` too, and cover the
+  `curl … | python3` stdin-interpreter shape (not the `… | python3
+  file.py` data pipeline).
+- **`--expected-hosts` roster reconciliation** — a never-ran/crashed
+  agent is flagged as silently-absent instead of reading as clean.
+- **`provenance_regime`** per host — the backend can down-weight a
+  blind/degraded ownership oracle instead of trusting a quiet Q7.
+- **pacman integrity** — Arch/Manjaro `package_file_tampered` now works
+  (gzipped mtree parsed); the ownership-only gap is closed.
+- **git `core.hooksPath`** persistence coverage; cloud/admin-default
+  rules re-gated (no recall loss) so a clean cloud fleet does not open
+  with a wall of false criticals.
+
+**Still open:**
 
 - **First real-fleet calibration** — no production fleet has been
-  ingested yet; the pilot must measure the per-detection false-
-  positive rate and feed dispositions back into the allow-lists.
-- **Tier-B follow-up loci** — extend the behavioral grammars
-  (`fetch_piped_to_interpreter`, `reverse_shell_socket_idiom`)
-  from cron/systemd/confexec/profile to the `sysv` / `motd` / `at`
-  loci.
-- **Native `--expected-hosts` roster** for Q10, so a totally-failed
-  agent (zero records, structurally invisible today) is reconciled
-  against the deployment roster inside the report.
+  ingested yet; the pilot must measure the per-detection false-positive
+  rate on real heterogeneous hosts (the lab's FP floor is ~0 *by
+  construction* — same-image clones) and feed dispositions back into the
+  allow-lists.
+- **Report scale** — the Go report is bounded to ~1k hosts in RAM (it
+  warns past that); DuckDB is the path for larger fleets.
 - **Optional YARA plugin** in a separate binary (kept out of the
   read-only no-CGO core).
 
 The coverage philosophy that bounds the backlog is in
-[`docs/scope.md`](docs/scope.md) §8 and the ADRs.
+[`docs/scope.md`](docs/scope.md) §8 and the ADRs; measured scaling
+numbers are in [`docs/benchmarks.md`](docs/benchmarks.md).
 
 ## License & author
 

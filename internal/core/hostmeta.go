@@ -82,6 +82,13 @@ func hashHostname(h string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+// HashHostname returns the host_meta.hostname_hash value the agent writes for
+// a plaintext hostname (canonical normalization — lower-case, trim, strip
+// domain — then sha256). Exported so linpersist-report can reconcile a roster
+// of plaintext hostnames (--expected-hosts) against the hostname_hash field in
+// collected NDJSON, surfacing agents that never ran.
+func HashHostname(h string) string { return hashHostname(h) }
+
 func readMachineID() string {
 	for _, p := range []string{"/etc/machine-id", "/var/lib/dbus/machine-id"} {
 		b, err := os.ReadFile(p)

@@ -10,6 +10,7 @@ package core
 
 import (
 	"bufio"
+	"compress/gzip"
 	"context"
 	"crypto/md5"
 	"crypto/sha1"
@@ -420,10 +421,11 @@ func (r *Resolver) Warmup(ctx context.Context) {
 			dig, derr = r.buildApkDigests(buildCtx)
 		case PkgMgrPortage:
 			dig, derr = r.buildPortageDigests(buildCtx)
-			// pacman stores per-file hashes only in the gzipped mtree, not
-			// the plaintext `files` index; tamper for pacman is deferred,
-			// so fileDigests stays nil and VerifyPath degrades to Unknown
-			// (ownership / non_package_path still works). Documented gap.
+		case PkgMgrPacman:
+			// pacman keeps per-file sha256 ONLY in the gzipped mtree (not the
+			// plaintext `files` index) -- parsed here so package_file_tampered
+			// works on Arch family too.
+			dig, derr = r.buildPacmanDigests(buildCtx)
 		}
 		if derr != nil {
 			r.logger.Warn("provenance integrity unavailable",
@@ -543,6 +545,35 @@ func usrMergeAlternates(path string) []string {
 // PackageManager returns the detected package manager. Useful for
 // logging and tests. Returns PkgMgrNone before Warmup completes.
 func (r *Resolver) PackageManager() PackageManager { return r.pkgMgr }
+
+// Provenance trust-regime labels (host_meta.provenance_regime). They tell
+// the backend whether the ownership oracle was authoritative on a host: a
+// quiet/empty Q7 OR a non_package_path flood means opposite things when the
+// oracle was fully built vs. blind (no package manager) vs. degraded (build
+// failed or timed out — every exec_target then resolves Unknown/Error).
+const (
+	RegimeOwnedDBPresent  = "owned-db-present"  // pkg DB detected and built OK
+	RegimePkgMgrNone      = "pkg-mgr-none"      // distroless/scratch/appliance: oracle inert
+	RegimeBuildError      = "build-error"       // pkg mgr present but the map build failed
+	RegimeTimeoutDegraded = "timeout-degraded"  // the map build hit --provenance-timeout
+	RegimeDisabled        = "disabled"          // --no-provenance: oracle deliberately off
+)
+
+// Regime reports the resolver's trust state after Warmup (see the Regime*
+// constants). The backend MUST down-weight findings on any host whose
+// regime is not owned-db-present.
+func (r *Resolver) Regime() string {
+	if r.pkgMgr == PkgMgrNone {
+		return RegimePkgMgrNone
+	}
+	if r.buildErr != nil {
+		if errors.Is(r.buildErr, context.DeadlineExceeded) {
+			return RegimeTimeoutDegraded
+		}
+		return RegimeBuildError
+	}
+	return RegimeOwnedDBPresent
+}
 
 // MapSize returns the number of path entries in the built map. Useful
 // for tests and metrics. Returns 0 before Warmup completes or on
@@ -1176,6 +1207,101 @@ func (r *Resolver) buildPacmanMap(ctx context.Context) (map[string]string, error
 	}
 	return out, nil
 }
+
+// buildPacmanDigests maps each package-owned absolute path to its recorded
+// lowercase sha256, parsed from the gzipped mtree v2.0 file pacman keeps per
+// package at /var/lib/pacman/local/<name>/mtree. Format: a `#mtree` header,
+// `/set <key=val>...` default lines, then per-entry `./relpath <key=val>...`
+// lines; files carry `sha256digest=<hex>`, dirs/symlinks do not (skipped).
+// This is the data the plaintext `files` index lacks, which is why pacman
+// tamper was previously deferred.
+func (r *Resolver) buildPacmanDigests(ctx context.Context) (map[string]string, error) {
+	base := r.resolveRoot("/var/lib/pacman/local")
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return nil, fmt.Errorf("readdir %s: %w", base, err)
+	}
+	out := make(map[string]string, 40_000)
+	for _, e := range entries {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if !e.IsDir() {
+			continue
+		}
+		f, ferr := os.Open(filepath.Join(base, e.Name(), "mtree"))
+		if ferr != nil {
+			continue
+		}
+		gz, gerr := gzip.NewReader(f)
+		if gerr != nil {
+			f.Close()
+			continue
+		}
+		sc := bufio.NewScanner(gz)
+		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for sc.Scan() {
+			line := sc.Text()
+			// Per-file entries start with "./"; "#mtree", "/set ...", blanks skip.
+			if len(line) < 2 || line[0] != '.' || line[1] != '/' {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			digest := ""
+			for _, fld := range fields[1:] {
+				if v, ok := strings.CutPrefix(fld, "sha256digest="); ok {
+					digest = strings.ToLower(v)
+					break
+				}
+			}
+			if digest == "" {
+				continue // directory / symlink / no digest
+			}
+			abs := mtreeUnescape(fields[0][1:]) // "./usr/bin/x" -> "/usr/bin/x"
+			if abs == "" || abs[0] != '/' {
+				continue
+			}
+			if _, dup := out[abs]; !dup {
+				out[abs] = digest
+			}
+		}
+		gz.Close()
+		f.Close()
+	}
+	return out, nil
+}
+
+// mtreeUnescape decodes the backslash escapes mtree uses in path fields:
+// octal \NNN byte escapes (e.g. \040 for space) and \\ for backslash. Most
+// paths need no decoding; this keeps a path with a space/specials correct.
+func mtreeUnescape(s string) string {
+	if !strings.Contains(s, "\\") {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+3 < len(s)+1 {
+			if i+1 < len(s) && s[i+1] == '\\' {
+				b.WriteByte('\\')
+				i++
+				continue
+			}
+			if i+3 < len(s) && isOctal(s[i+1]) && isOctal(s[i+2]) && isOctal(s[i+3]) {
+				v := (int(s[i+1]-'0') << 6) | (int(s[i+2]-'0') << 3) | int(s[i+3]-'0')
+				b.WriteByte(byte(v))
+				i += 3
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func isOctal(c byte) bool { return c >= '0' && c <= '7' }
 
 // buildPortageMap walks /var/db/pkg/<category>/<pkg-version>/CONTENTS and
 // maps every `obj`/`sym` path to "<category>/<pkg-version>". The CONTENTS

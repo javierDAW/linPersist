@@ -1041,6 +1041,24 @@ site_classes:
       does not parse (its grammar expects time fields). Column 3+ command's
       absolute argv0 is lifted to exec_target.
 
+  - site_class: git.hookspath
+    module: confexec
+    mitre: [T1546]
+    loci:
+      - /etc/gitconfig
+      - /root/.gitconfig
+      - /home/*/.gitconfig
+      - /root/.config/git/config
+      - /home/*/.config/git/config
+    status: implemented
+    test_coverage: unit
+    notes: |
+      A `core.hooksPath` redirect in git config makes git run its hooks from
+      the named directory on every operation in scope (commit/checkout/merge)
+      -- a quiet exec primitive on dev/CI/build hosts. The hooksPath value is
+      lifted to exec_target and gated on the usual non-package/tmp/orphan
+      co-indicators, so a settled vendor hooks dir stays silent.
+
   - site_class: logrotate.d
     module: confexec
     mitre: [T1546]

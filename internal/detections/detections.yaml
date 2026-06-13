@@ -79,11 +79,18 @@ detections:
       signals_any: [passwd_uid_zero]
 
   - id: sudoers_nopasswd_all_backdoor
-    description: Sudoers entry grants NOPASSWD on the ALL command list (expect CI service-account FPs until role tags ship)
-    severity: critical
+    description: Sudoers entry grants NOPASSWD on the ALL command list. Demoted from critical to high because the cloud-init/CI default passwordless-ALL grant is fleet-common and was opening pilots with a wall of false criticals; LFA singleton-stacking (Q1/Q3) discriminates the planted grant, and a FRESH grant escalates to critical via sudoers_nopasswd_all_recent. No recall loss — the settled shape still fires here.
+    severity: high
     mitre: [T1548.003]
     when:
       signals_all: [sudoers_nopasswd, sudoers_all_commands]
+
+  - id: sudoers_nopasswd_all_recent
+    description: A NOPASSWD-on-ALL sudoers grant in a file modified within the last 7 days — a freshly planted/changed passwordless-root grant. recent_mtime_7d is image-safe (mtime is preserved across tar/image extraction, unlike recent_ctime), so on a SETTLED fleet only the just-added grant escalates to critical while the old cloud-init baseline stays at high.
+    severity: critical
+    mitre: [T1548.003]
+    when:
+      signals_all: [sudoers_nopasswd, sudoers_all_commands, recent_mtime_7d]
 
   # ---------- Kernel / bootloader vectors --------------------------
 
@@ -201,11 +208,18 @@ detections:
       signals_any: [recent_mtime_7d, non_root_owner]
 
   - id: sshd_root_login_enabled
-    description: sshd_config explicitly enables PermitRootLogin yes (rare on hardened fleets; high on a hosts-where-most-have-no flag)
-    severity: high
+    description: sshd_config explicitly enables PermitRootLogin yes. Demoted from high to medium because some cloud/appliance images ship it by default (fleet-common); LFA discriminates the host that uniquely enables it, and a FRESH change escalates to high via sshd_root_login_recent. No recall loss — the settled shape still fires here.
+    severity: medium
     mitre: [T1098.004, T1556]
     when:
       signals_any: [sshd_permit_root_login_yes]
+
+  - id: sshd_root_login_recent
+    description: sshd_config PermitRootLogin yes set in a file modified within the last 7 days — a fresh root-login enablement (attacker re-opened root SSH, or an admin just changed policy). Worth a high-priority look against change-management.
+    severity: high
+    mitre: [T1098.004, T1556]
+    when:
+      signals_all: [sshd_permit_root_login_yes, recent_mtime_7d]
 
   - id: sshd_authorized_keys_command_external
     description: sshd_config AuthorizedKeysCommand points at an external binary not provided by any installed package

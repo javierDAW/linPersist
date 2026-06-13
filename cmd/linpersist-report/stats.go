@@ -88,12 +88,19 @@ type Overview struct {
 	// as "clean" when it actually means "could not verify ownership"
 	// (duel-final coherence fix: honest degradation, no silent blind spot).
 	DegradedHosts []DegradedHost
+	// AbsentHosts are roster entries (--expected-hosts) that produced ZERO
+	// records in this dataset — a silently-failed or never-ran agent that is
+	// otherwise structurally invisible (a crashed agent reads as a clean
+	// host). Empty unless a roster was supplied. The most dangerous fleet
+	// failure mode: the fleet looks clean because part of it never reported.
+	AbsentHosts []string
 }
 
 // DegradedHost names a host with no package-manager provenance.
 type DegradedHost struct {
-	Host string
-	OSID string
+	Host   string
+	OSID   string
+	Reason string // why the ownership oracle is not authoritative on this host
 }
 
 type NamedCount struct {
@@ -461,8 +468,10 @@ func computeOverview(records []core.Record) Overview {
 		records int
 		hosts   map[string]struct{}
 	}{}
-	// Per-host package-manager observation, to flag provenance-blind hosts.
+	// Per-host package-manager + provenance-regime observation, to flag
+	// provenance-blind AND provenance-degraded hosts.
 	hostPkgMgr := map[string]string{}
+	hostRegime := map[string]string{}
 	hostOSID := map[string]string{}
 
 	for _, rec := range records {
@@ -470,6 +479,7 @@ func computeOverview(records []core.Record) Overview {
 		hosts[hk] = struct{}{}
 		if _, ok := hostPkgMgr[hk]; !ok {
 			hostPkgMgr[hk] = rec.HostMeta.PkgMgr
+			hostRegime[hk] = rec.HostMeta.ProvenanceRegime
 			hostOSID[hk] = rec.HostMeta.OSID
 		}
 
@@ -554,12 +564,30 @@ func computeOverview(records []core.Record) Overview {
 		return ov.BySignal[i].Name < ov.BySignal[j].Name
 	})
 	for hk, pm := range hostPkgMgr {
-		// "none"/"" == provenance resolver found no package DB. (A real
-		// manager string like "dpkg"/"rpm"/"apk"/"pacman"/"portage" means
-		// the gate ran.) Surface the host so the analyst knows coverage on
-		// it is degraded, not clean.
-		if pm == "" || pm == "none" {
-			ov.DegradedHosts = append(ov.DegradedHosts, DegradedHost{Host: hk, OSID: hostOSID[hk]})
+		// A host is provenance-degraded when the ownership oracle was not
+		// authoritative on it — so absence of findings is NOT proof of clean.
+		// Prefer the explicit provenance_regime (new captures); fall back to
+		// pkg_mgr for captures predating the field.
+		reason := ""
+		switch regime := hostRegime[hk]; regime {
+		case core.RegimeOwnedDBPresent:
+			// authoritative — not degraded
+		case core.RegimePkgMgrNone:
+			reason = "no package manager detected"
+		case core.RegimeBuildError:
+			reason = "package DB build failed"
+		case core.RegimeTimeoutDegraded:
+			reason = "package DB build timed out (--provenance-timeout)"
+		case core.RegimeDisabled:
+			reason = "provenance disabled (--no-provenance)"
+		default:
+			// Empty regime (pre-field capture): fall back to pkg_mgr.
+			if pm == "" || pm == "none" {
+				reason = "no package manager detected"
+			}
+		}
+		if reason != "" {
+			ov.DegradedHosts = append(ov.DegradedHosts, DegradedHost{Host: hk, OSID: hostOSID[hk], Reason: reason})
 		}
 	}
 	sort.Slice(ov.DegradedHosts, func(i, j int) bool {

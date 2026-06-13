@@ -36,11 +36,13 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 	fmt.Fprintln(out)
 
 	// --- Coverage-degraded banner ------------------------------------
-	// Provenance-blind hosts (no package manager) get their ownership
-	// gate skipped entirely, so "0 findings" on them means "could not
-	// verify", not "clean". Make that loud.
+	// Provenance-blind OR provenance-degraded hosts (no package manager, or
+	// the ownership DB failed/timed out/was disabled) get their ownership
+	// gate skipped or rendered unreliable, so "0 findings" — or a
+	// non_package_path flood — on them means "could not verify", not "clean".
+	// Make that loud. The per-host reason comes from host_meta.provenance_regime.
 	if n := len(report.Overview.DegradedHosts); n > 0 {
-		warn := a.orange(fmt.Sprintf("⚠ coverage degraded on %d host(s): no package manager detected — provenance (non_package_path / package_file_tampered) gate did NOT run; absence of findings is NOT proof of clean. Treat these hosts as HIGHER priority for manual review + EDR pairing, not lower (ADR-0017).", n))
+		warn := a.orange(fmt.Sprintf("⚠ coverage degraded on %d host(s): the package-ownership oracle was not authoritative (see per-host reason) — provenance (non_package_path / package_file_tampered) is unreliable; absence of findings is NOT proof of clean and a non-package flood may be an artifact. Treat these hosts as HIGHER priority for manual review + EDR pairing, not lower (ADR-0017).", n))
 		fmt.Fprintln(out, warn)
 		for i, dh := range report.Overview.DegradedHosts {
 			if i >= 10 {
@@ -51,7 +53,27 @@ func renderText(out io.Writer, report *Report, title string, color bool) error {
 			if os == "" {
 				os = "<unknown>"
 			}
-			fprintfSafe(out, "    %s (os_id=%s)\n", dh.Host, os)
+			reason := dh.Reason
+			if reason == "" {
+				reason = "provenance unavailable"
+			}
+			fprintfSafe(out, "    %s (os_id=%s) — %s\n", dh.Host, os, reason)
+		}
+		fmt.Fprintln(out)
+	}
+
+	// --- Absent-host banner (--expected-hosts) -----------------------
+	// Roster entries that produced zero records: a crashed or never-ran
+	// agent is structurally invisible and would make the fleet read as
+	// clean. This is the most dangerous fleet failure mode, so it leads.
+	if n := len(report.Overview.AbsentHosts); n > 0 {
+		fmt.Fprintln(out, a.orange(fmt.Sprintf("⚠ %d expected host(s) produced ZERO records — a silently-failed or never-ran agent reads as 'clean'. The fleet is NOT fully covered until these are explained (agent crash, never deployed, or upload dropped):", n)))
+		for i, h := range report.Overview.AbsentHosts {
+			if i >= 20 {
+				fmt.Fprintf(out, "    … and %d more\n", n-20)
+				break
+			}
+			fprintfSafe(out, "    %s\n", h)
 		}
 		fmt.Fprintln(out)
 	}

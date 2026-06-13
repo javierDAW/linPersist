@@ -133,6 +133,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// never eats into a module budget. If --no-provenance is set, we
 	// skip the resolver entirely and modules receive a NoopProvenance
 	// that returns Unknown for every lookup.
+	hm.ProvenanceRegime = core.RegimeDisabled
 	var prov core.Provenance = core.NoopProvenance{}
 	if !*disableProvenance {
 		resolver := core.NewResolver(logger,
@@ -141,6 +142,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		resolver.Warmup(warmCtx)
 		warmCancel()
 		prov = resolver
+		// Trust regime of the ownership oracle (owned-db-present / pkg-mgr-none
+		// / build-error / timeout-degraded), so the backend can down-weight a
+		// quiet Q7 or a non_package_path flood on a blind/degraded host.
+		hm.ProvenanceRegime = resolver.Regime()
 		// Record the detected package manager on host_meta so the backend /
 		// analyst can tell an empty non-package result apart from a host
 		// where the ownership oracle was simply unavailable. On an

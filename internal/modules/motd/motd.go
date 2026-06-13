@@ -215,6 +215,11 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 		// way cron.periodic does.
 		rec.ExecTarget = logical
 		rec.ExecTargetSHA256 = rec.ContentSHA256
+		rec.FullExecLine = string(canon) // Tier-B behavioral scan over the motd script body
+		// Parse the body so a script running a /tmp or orphan payload
+		// escalates to payload_under_tmp_via_persistence, not just
+		// non-package.
+		core.AnnotatePayloadExec(&rec, raw, m.resolve, m.opts.Now(), m.opts.MaxFileSize)
 	}
 	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
 	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)

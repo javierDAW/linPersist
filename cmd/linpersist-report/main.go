@@ -74,6 +74,7 @@ func main() {
 		title     string
 		showVer   bool
 		peerFloor int
+		expectHosts string
 	)
 	flag.StringVar(&input, "i", "", "input: directory of *.ndjson files OR a single .ndjson file")
 	flag.StringVar(&input, "input", "", "alias for -i")
@@ -86,6 +87,7 @@ func main() {
 	flag.StringVar(&title, "title", "linpersist report", "title shown in the report header")
 	flag.BoolVar(&showVer, "version", false, "print version and exit")
 	flag.IntVar(&peerFloor, "peer-floor", 3, "Q3 minimum peer-group size; rows surface only when their (os_id, tag_set) cohort has at least this many hosts. Default 3 reproduces the v0.3.1 behavior; lower it for sparse fleets (under-populated labs), raise it for over-tagged fleets where most peer-groups have 1-2 hosts.")
+	flag.StringVar(&expectHosts, "expected-hosts", "", "roster file (one host per line: plaintext hostname, hostname_hash, or host_id; # comments allowed) to reconcile against collected NDJSON. Hosts in the roster that produced ZERO records are flagged as silently-absent agents — a crashed/never-ran agent otherwise reads as a clean host.")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "linpersist-report %s — turn linpersist NDJSON into a report.\n\n", version)
 		fmt.Fprintln(os.Stderr, "Usage:")
@@ -121,6 +123,20 @@ func main() {
 	fmt.Fprintf(os.Stderr,
 		"linpersist-report: loaded %d records from %d file(s); %d malformed lines skipped\n",
 		len(res.Records), len(res.Files), res.Skipped)
+
+	// Scale guard. The Go report holds the whole fleet in one in-RAM slice
+	// and some queries are super-linear, so it does NOT scale to the "tens
+	// of thousands" a columnar engine handles. Measured on a dev box:
+	// ~1k hosts ≈ 3.2 GB RSS / ~4 min wall; 100 hosts ≈ 0.3 GB / ~10 s
+	// (memory ~linear, wall-time super-linear). 10k would OOM a typical
+	// analyst box. Past the ceiling, point the operator at the DuckDB path.
+	if hc := distinctHosts(res.Records); hc >= 1000 {
+		fmt.Fprintf(os.Stderr,
+			"linpersist-report: WARNING: %d hosts is at/over the Go report's practical ceiling "+
+				"(measured: ~1k hosts ≈ 3.2 GB RAM / ~4 min; ~100 hosts ≈ 0.3 GB / ~10 s — memory grows "+
+				"~linearly, wall-time super-linearly, so ~10k would OOM a typical box). For fleets this size "+
+				"use the DuckDB path: tools/ingest.sh %s\n", hc, input)
+	}
 
 	// Diff mode: load prev as the baseline and ComputeDiff against
 	// res (curr). Renders a stand-alone diff summary; the regular
@@ -191,6 +207,16 @@ func main() {
 		dossier = d
 	} else {
 		report = build(res.Records, res.Files, res.Skipped, agentVersion, peerFloor)
+		// Roster reconciliation: flag expected hosts that produced zero
+		// records (a crashed/never-ran agent is otherwise invisible).
+		if expectHosts != "" {
+			roster, rerr := loadRoster(expectHosts)
+			if rerr != nil {
+				fmt.Fprintf(os.Stderr, "linpersist-report: --expected-hosts %s: %v\n", expectHosts, rerr)
+				os.Exit(1)
+			}
+			report.Overview.AbsentHosts = reconcileRoster(res.Records, roster)
+		}
 	}
 
 	var out io.Writer = os.Stdout

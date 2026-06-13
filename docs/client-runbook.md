@@ -125,6 +125,31 @@ Common tag schemes (pick what fits your inventory):
 `env={prod,staging,dev}`,
 `datacenter={us-east-1,eu-west-2,...}`.
 
+#### Data egress & privacy — what leaves the host
+
+State this in the engagement's data-handling agreement. The agent makes
+zero network calls; the NDJSON is the only thing that leaves, and it
+carries these host identifiers:
+
+| Field | What it is | Reversibility / sensitivity |
+|---|---|---|
+| `host_id` | the host's `/etc/machine-id` (a stable plaintext UUID) | a persistent, directly-identifying machine token — treat as PII-adjacent |
+| `host_meta.hostname_hash` | `sha256(normalized hostname)`, **unsalted** | **reversible** by dictionary/rainbow against a known hostname list — it is a pseudonym, NOT anonymization |
+| `host_meta.hostname` | plaintext hostname | only when `--include-hostname` is set (default: omitted) |
+| `host_meta.tags[]` | operator-supplied `--tag` values | whatever you put there (role/env/datacenter) — do not encode secrets |
+
+Never emitted raw: SSH public-key blobs, `/etc/shadow` / `/etc/gshadow`
+password hashes (digests + a status enum only — ADR-0003/0005).
+
+**Maximum-privacy invocation profile** (when the data-handling agreement is
+strict): omit `--include-hostname` (ship only the hash), and if even the
+unsalted hash or the plaintext `machine-id` is unacceptable, post-process
+the NDJSON before it leaves the perimeter to re-key `host_id` /
+`hostname_hash` to engagement-local salted tokens. LFA only needs the
+identifiers to be *stable and distinct per host*, not meaningful — so a
+salted re-key preserves every query while removing the reversible link to
+real machine identities.
+
 ### 5. Deployment patterns
 
 Pick the pattern that matches your existing infrastructure.

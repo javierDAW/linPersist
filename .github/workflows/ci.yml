@@ -28,8 +28,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
-          check-latest: true
+          # Supported Go (1.22 is out of support). check-latest:false pins to
+          # the runner's stable 1.23.x rather than always grabbing newest.
+          go-version: '1.23'
+          check-latest: false
 
       - name: Cache modules
         uses: actions/cache@v5
@@ -76,8 +78,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
-          check-latest: true
+          # Supported Go (1.22 is out of support). check-latest:false pins to
+          # the runner's stable 1.23.x rather than always grabbing newest.
+          go-version: '1.23'
+          check-latest: false
 
       - name: Install DuckDB CLI
         run: |

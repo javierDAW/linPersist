@@ -268,6 +268,10 @@ func (m *Module) processInitFile(ctx context.Context, logical, real string, info
 		return
 	}
 	rec := m.buildRecord(logical, info, raw)
+	// An init script's persistence intent is the command it runs; parse the
+	// body for a /tmp or orphan payload so it escalates past "just a
+	// non-package script" the same way cron/systemd do.
+	core.AnnotatePayloadExec(&rec, raw, m.resolve, m.opts.Now(), m.opts.MaxFileSize)
 	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
 	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	emit(rec)
@@ -351,6 +355,7 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, raw []byte) core.
 	rec.ContentSHA256 = core.HashHex(raw)
 	rec.ContentNormSHA256 = core.HashHex(canon)
 	rec.ContentSnippet = snippet(string(canon))
+	rec.FullExecLine = string(canon) // Tier-B behavioral scan over the script body
 	rec.ExecTarget = logical
 	rec.ExecTargetSHA256 = rec.ContentSHA256
 	return rec

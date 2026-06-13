@@ -105,4 +105,12 @@ type HostMeta struct {
 	// it means the ownership oracle was unavailable. The backend/analyst
 	// MUST read this field before trusting an empty non-package result.
 	PkgMgr string `json:"pkg_mgr,omitempty"`
+	// ProvenanceRegime is the trust state of the ownership oracle on this
+	// host: owned-db-present / pkg-mgr-none / build-error / timeout-degraded
+	// / disabled (see core.Regime*). non_package_path and an empty Q7 mean
+	// OPPOSITE things across these states — a blind or degraded oracle either
+	// floods non_package_path or silently resolves Unknown — so the backend
+	// MUST down-weight findings on any host whose regime is not
+	// owned-db-present. Empty only on captures predating the field.
+	ProvenanceRegime string `json:"provenance_regime,omitempty"`
 }

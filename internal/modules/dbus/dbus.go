@@ -218,6 +218,7 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 		ContentSHA256:     core.HashHex(raw),
 		ContentNormSHA256: core.HashHex([]byte(canon)),
 		ContentSnippet:    snippet(canon),
+		FullExecLine:      canon, // Tier-B behavioral scan over the Exec= line
 	}
 	core.FillFileMeta(&rec, info)
 	signals := m.baseSignals(info, logical)

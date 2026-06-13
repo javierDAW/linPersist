@@ -451,7 +451,17 @@ func (m *Module) processSymlink(ctx context.Context, logical, real string, info 
 		return
 	}
 	rec := m.buildRecord(logical, info, classifyByLogical(logical), userMode, raw)
-	rec.Signals = appendUnique(rec.Signals, core.SignalSystemdExternalUnitSymlink)
+	// Co-indicator gate: only flag an EXTERNAL symlink as a persistence
+	// anomaly when its target unit is NOT package-owned. A vendor package
+	// that ships a unit outside the walked loci and symlinks it in (legit)
+	// resolves owned and stays silent; an attacker's symlink to a
+	// non-package / unknown unit fires. This stops systemd_external_unit_
+	// symlink_implant from firing HIGH on benign vendor units (the dracut-
+	// class false positive the committee surfaced). Unknown (no provenance)
+	// still fires — absence of an oracle is not evidence of legitimacy.
+	if _, st := m.opts.Provenance.LookupPath(absTarget); st != core.PkgStatusOwned {
+		rec.Signals = appendUnique(rec.Signals, core.SignalSystemdExternalUnitSymlink)
+	}
 	// External symlinks override exec_target with the target's
 	// resolved path (more useful for the analyst than an ExecStart=
 	// resolution against the symlink's target).

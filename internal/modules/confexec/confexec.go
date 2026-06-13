@@ -84,6 +84,17 @@ var sites = []site{
 		parse: parseIncron,
 	},
 	{
+		// core.hooksPath redirect: git runs hooks from this dir on every
+		// operation in scope — a quiet exec primitive on dev/CI/build hosts.
+		class: "git.hookspath",
+		mitre: []string{"T1546"},
+		loci: []string{
+			"/etc/gitconfig", "/root/.gitconfig", "/home/*/.gitconfig",
+			"/root/.config/git/config", "/home/*/.config/git/config",
+		},
+		parse: parseGitConfig,
+	},
+	{
 		class: "logrotate.d",
 		mitre: []string{"T1546"},
 		loci:  []string{"/etc/logrotate.conf", "/etc/logrotate.d/*"},

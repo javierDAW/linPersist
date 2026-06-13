@@ -349,6 +349,47 @@ func nodeRequirePath(val string) string {
 // auto_append_file -- a PHP file the engine runs before/after every
 // request (web + CLI). extension/zend_extension .so loads are
 // search-path-based and left to LFA.
+// parseGitConfig lifts a `core.hooksPath` redirect from a git config file.
+// Setting hooksPath makes git run its hooks from an attacker-chosen directory
+// on EVERY git operation in scope (commit, checkout, merge, ...) — a quiet
+// persistence/exec primitive especially on dev/CI/build hosts (T1546). Only
+// the hooksPath value is lifted; the confexec machinery then gates on the
+// usual non-package / tmp / orphan co-indicators, so a settled vendor hooks
+// directory stays silent. Git config keys are case-insensitive.
+func parseGitConfig(raw []byte, _ string, _ *Module) []Edge {
+	var out []Edge
+	section := ""
+	eachLine(raw, func(line string) {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			return
+		}
+		if strings.HasPrefix(line, "[") {
+			s := strings.Trim(line, "[]")
+			if i := strings.IndexAny(s, " \t\""); i >= 0 {
+				s = s[:i] // [core "sub"] -> core
+			}
+			section = strings.ToLower(strings.TrimSpace(s))
+			return
+		}
+		if section != "core" {
+			return
+		}
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			return
+		}
+		if strings.ToLower(strings.TrimSpace(line[:eq])) != "hookspath" {
+			return
+		}
+		val := strings.Trim(strings.TrimSpace(line[eq+1:]), "\"'")
+		if val != "" {
+			out = append(out, Edge{Target: val, Snippet: line})
+		}
+	})
+	return out
+}
+
 func parsePhpIni(raw []byte, _ string, _ *Module) []Edge {
 	var out []Edge
 	eachLine(raw, func(line string) {

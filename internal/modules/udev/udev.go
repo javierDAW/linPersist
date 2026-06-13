@@ -178,6 +178,7 @@ func (m *Module) buildRecord(logical string, info os.FileInfo, raw string) core.
 		ContentSHA256:     core.HashHexString(raw + "\n"),
 		ContentNormSHA256: core.HashHexString(canon + "\n"),
 		ContentSnippet:    snippet(canon),
+		FullExecLine:      canon, // Tier-B behavioral scan over the RUN+=/PROGRAM= directive
 	}
 	core.FillFileMeta(&rec, info)
 	rec.Signals = m.baseSignals(info)

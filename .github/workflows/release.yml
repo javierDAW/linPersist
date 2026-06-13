@@ -11,7 +11,7 @@ name: release
 #   cosign verify-blob \
 #     --certificate linpersist-linux-amd64.pem \
 #     --signature   linpersist-linux-amd64.sig \
-#     --certificate-identity-regexp 'https://github.com/.+/linPersist/.+' \
+#     --certificate-identity-regexp 'https://github.com/javierDAW/linPersist/\.github/workflows/release\.yml@.+' \
 #     --certificate-oidc-issuer    'https://token.actions.githubusercontent.com' \
 #     linpersist-linux-amd64
 #
@@ -41,8 +41,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
-          check-latest: true
+          # Reproducible release builds: a supported Go, pinned (not
+          # check-latest, which would silently change the release compiler).
+          # Pin to an exact patch (e.g. '1.23.4') once chosen for the release.
+          go-version: '1.23'
+          check-latest: false
 
       - name: Resolve VERSION
         id: version
@@ -102,7 +105,7 @@ jobs:
             cosign verify-blob \
               --certificate "$f.pem" \
               --signature   "$f.sig" \
-              --certificate-identity-regexp "https://github.com/${REPO}/.+" \
+              --certificate-identity-regexp "https://github.com/${REPO}/\.github/workflows/release\.yml@.+" \
               --certificate-oidc-issuer    "https://token.actions.githubusercontent.com" \
               "$f"
           done

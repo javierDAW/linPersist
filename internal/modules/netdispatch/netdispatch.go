@@ -231,8 +231,12 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 	// The script itself is the persistence target: the dispatcher
 	// daemon executes it as a shell script on network events. Same
 	// model as cron.periodic and motd-shell.
+	rec.FullExecLine = string(canon) // Tier-B behavioral scan over the dispatcher script body
 	rec.ExecTarget = logical
 	rec.ExecTargetSHA256 = rec.ContentSHA256
+	// Parse the body so a dispatcher hook running a /tmp or orphan payload
+	// escalates to payload_under_tmp_via_persistence, not just non-package.
+	core.AnnotatePayloadExec(&rec, raw, m.resolve, m.opts.Now(), m.opts.MaxFileSize)
 	// Surface mode bits: a non-executable dispatcher script is a
 	// dead drop (NetworkManager skips non-x files) but still worth
 	// noting in errors[] for the analyst.

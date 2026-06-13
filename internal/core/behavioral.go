@@ -105,7 +105,7 @@ func fetchPipedToInterpreter(line string) bool {
 	// source is seen, any later raw-shell stage closes the pattern.
 	srcSeen := false
 	for _, st := range stages {
-		if srcSeen && stageIsRawShell(st) {
+		if srcSeen && (stageIsRawShell(st) || stageIsScriptingInterpreterStdin(st)) {
 			return true
 		}
 		if isSourceStage(st) {
@@ -167,6 +167,45 @@ func stageIsRawShell(stage string) bool {
 	}
 	_, ok := rawShells[base(argv[0])]
 	return ok
+}
+
+// scriptingInterps are language interpreters that, like a raw shell, execute
+// a program read from stdin when given NO program source of their own.
+var scriptingInterps = map[string]struct{}{
+	"python": {}, "python2": {}, "python3": {},
+	"perl": {}, "ruby": {}, "php": {}, "node": {}, "nodejs": {},
+}
+
+// stageIsScriptingInterpreterStdin reports whether the sink stage is a
+// scripting interpreter invoked with NO program source other than stdin — so
+// it will EXECUTE the piped (downloaded/decoded) bytes as code. This is the
+// `curl … | sh` hazard for interpreters (`curl … | python3`, `… | perl`).
+//
+// Deliberately narrow to avoid the data-pipeline false positives that kept
+// interpreters out of the v1 rawShells set: a script-file argument
+// (`… | python3 parse.py`) or an inline-code / module flag
+// (`… | python3 -c '…'`, `perl -e`, `php -r`, `python3 -m mod`) means the
+// pipe is DATA, not the program — those are EXCLUDED. Only a bare interpreter
+// (optionally `-` or innocuous flags like -u) consuming stdin as its program
+// fires.
+func stageIsScriptingInterpreterStdin(stage string) bool {
+	argv := stripWrappers(tokenize(stage))
+	if len(argv) == 0 {
+		return false
+	}
+	if _, ok := scriptingInterps[base(argv[0])]; !ok {
+		return false
+	}
+	for _, a := range argv[1:] {
+		switch a {
+		case "-c", "-e", "-E", "-m", "-r", "--eval", "--exec", "-w":
+			return false // program is the flag's argument; stdin is data
+		}
+		if a != "-" && !strings.HasPrefix(a, "-") {
+			return false // positional script-file argument; stdin is data
+		}
+	}
+	return true
 }
 
 // procSubFetch matches `<shell> <(<source> …)` and `. <(…)` / `source <(…)`.

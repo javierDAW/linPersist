@@ -332,8 +332,14 @@ they are honest engagement limits, not silent gaps:
   bare network verb — the calibration lesson that bare `curl`/`wget`
   detections flooded fleets and were removed. **This set does NOT grow by
   reactive clause-addition**: it is a deliberately frozen carve-out. The
-  scripting-interpreter subset (`curl | python3 …`) is left to a co-indicator
-  + LFA in v1; `sysv`/`motd`/`at` loci are a documented follow-up.
+  scripting-interpreter subset is now covered for the **stdin-sink** shape only
+  — `curl … | python3` / `… | perl` / `… | ruby` (a bare interpreter executing
+  the piped bytes as its program, the `curl | sh` analog) fires
+  `fetch_piped_to_interpreter`; the data-pipeline forms `… | python3 parse.py`
+  and `… | python3 -c '…'` stay **excluded** (the pipe is data, not the
+  program — the FP class that kept interpreters out originally). The
+  `sysv`/`motd`/`at` loci were wired in (FullExecLine populated), so Tier-B now
+  scans them.
 - **Tier-C — semantic malice with no behavioral tell (irreducible).** Beyond
   Tier-B, an owned binary invoked with benign-looking arguments and **no**
   wiring (no pipe-to-interpreter, no socket-as-file, no fetch/decode

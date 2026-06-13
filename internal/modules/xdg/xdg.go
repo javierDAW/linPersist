@@ -226,6 +226,7 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 	rec.ContentSHA256 = core.HashHex(raw)
 	rec.ContentNormSHA256 = core.HashHex(canon)
 	rec.ContentSnippet = snippet(string(canon))
+	rec.FullExecLine = string(canon) // Tier-B behavioral scan over the autostart Exec= line
 	if exec := extractExec(pd); exec != "" {
 		rec.ExecTarget = exec
 		if strings.HasPrefix(exec, "/") {

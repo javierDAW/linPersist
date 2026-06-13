@@ -375,7 +375,10 @@ func (m *Module) hashFile(realPath string, size int64) (string, bool) {
 	if size > m.opts.MaxContentReadBytes {
 		return "", false
 	}
-	f, err := os.Open(realPath)
+	// Hardened open: O_NONBLOCK + fstat-regular, atomic against a FIFO
+	// swapped into an attacker-influenced tree (/tmp,/home,/opt) between the
+	// walk's Lstat and this open — a blocking read there would HANG the agent.
+	f, err := core.OpenRegularNoBlock(realPath)
 	if err != nil {
 		return "", false
 	}

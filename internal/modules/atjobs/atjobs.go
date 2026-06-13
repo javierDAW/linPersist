@@ -190,8 +190,13 @@ func (m *Module) processFile(ctx context.Context, logical, real string, info os.
 	// The spool file itself is the persistence target: atd executes
 	// it as a shell script when the queue time arrives. Same model
 	// as cron.periodic.
+	rec.FullExecLine = string(canon) // Tier-B behavioral scan over the job body
 	rec.ExecTarget = logical
 	rec.ExecTargetSHA256 = rec.ContentSHA256
+	// Parse the job body (envelope stripped) so a spool entry running a
+	// /tmp or orphan payload escalates to payload_under_tmp_via_persistence,
+	// not just non-package.
+	core.AnnotatePayloadExec(&rec, body, m.resolve, m.opts.Now(), m.opts.MaxFileSize)
 	core.AnnotateExecTargetProvenance(&rec, m.opts.Provenance, rec.ExecTarget)
 	core.AnnotateLiveProcess(&rec, m.opts.LiveProcessSet, rec.ExecTarget)
 	emit(rec)
